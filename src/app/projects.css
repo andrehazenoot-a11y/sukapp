@@ -1,0 +1,33 @@
+/* --- PROJECT CARDS --- */
+.project-card {
+    background-color: var(--bg-darker);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 16px;
+    transition: all 0.2s;
+}
+
+.project-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.project-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.project-card-header h3 {
+    font-size: 1rem;
+    color: var(--text-white);
+    font-weight: 500;
+}
+
+.avatar.sub-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 0.7rem;
+    border: 2px solid var(--bg-darker);
+}

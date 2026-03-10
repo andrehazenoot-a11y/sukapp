@@ -1,0 +1,65 @@
+/* --- DATA TABLES --- */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+    font-size: 0.9rem;
+}
+
+.data-table th,
+.data-table td {
+    padding: 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    font-weight: 600;
+    color: var(--text-grey);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+}
+
+.data-table tr:hover td {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.data-table td {
+    color: var(--text-light);
+}
+
+/* Status Badges */
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.status-badge.success {
+    background-color: rgba(80, 200, 120, 0.1);
+    color: #50c878;
+    border: 1px solid rgba(80, 200, 120, 0.3);
+}
+
+.status-badge.warning {
+    background-color: rgba(250, 160, 82, 0.1);
+    color: var(--accent);
+    border: 1px solid rgba(250, 160, 82, 0.3);
+}
+
+.status-badge.error {
+    background-color: rgba(245, 114, 0, 0.1);
+    color: var(--accent-deep);
+    border: 1px solid rgba(245, 114, 0, 0.3);
+}
+
+.mt-2 {
+    margin-top: 10px;
+}
+
+.mt-4 {
+    margin-top: 20px;
+}

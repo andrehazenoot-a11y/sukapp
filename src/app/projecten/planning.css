@@ -1,0 +1,635 @@
+/* === PLANNING MODULE === */
+
+/* Tab navigatie */
+.planning-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border-color);
+    margin-bottom: 20px;
+}
+
+.planning-tab {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #94a3b8;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.planning-tab:hover {
+    color: #1e293b;
+}
+
+.planning-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+/* Gantt container */
+.gantt-wrapper {
+    overflow-x: auto;
+    border: 1px solid #d0d5dd;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.gantt-table {
+    display: grid;
+    min-width: 100%;
+}
+
+/* 3-layer header */
+.gantt-header-row {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f5f6f8;
+}
+
+.gantt-header-row.year-row {
+    border-bottom: 1px solid #d0d5dd;
+}
+
+.gantt-header-row.month-row {
+    border-bottom: 1px solid #d0d5dd;
+}
+
+.gantt-header-row.day-row {
+    border-bottom: 2px solid #d0d5dd;
+}
+
+.gantt-header-label {
+    min-width: 280px;
+    max-width: 280px;
+    padding: 4px 10px;
+    font-weight: 700;
+    font-size: 0.7rem;
+    color: #64748b;
+    border-right: 1px solid #d0d5dd;
+    display: flex;
+    align-items: center;
+    background: #f5f6f8;
+}
+
+.gantt-header-span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.72rem;
+    color: #475569;
+    border-right: 1px solid #d0d5dd;
+    padding: 3px 0;
+    white-space: nowrap;
+}
+
+.gantt-header-span.year-span {
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: #1e293b;
+}
+
+.gantt-header-span.month-span {
+    font-size: 0.72rem;
+    color: #475569;
+}
+
+/* Legacy header compat */
+.gantt-header {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f5f6f8;
+    border-bottom: 2px solid #d0d5dd;
+}
+
+.gantt-header-project {
+    min-width: 420px;
+    max-width: 420px;
+    padding: 4px 10px;
+    font-weight: 700;
+    font-size: 0.7rem;
+    color: #64748b;
+    border-right: 1px solid #d0d5dd;
+    display: flex;
+    align-items: center;
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: #f4f5f7;
+}
+
+.gantt-header-label {
+    min-width: 420px;
+    max-width: 420px;
+    padding: 4px 10px;
+    font-size: 0.68rem;
+    color: #64748b;
+    border-right: 1px solid #d0d5dd;
+    display: flex;
+    align-items: center;
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: inherit;
+    flex-shrink: 0;
+}
+
+.gantt-header-cell {
+    flex: 1;
+    min-width: var(--cell-w, 32px);
+    padding: 3px 1px;
+    text-align: center;
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: #94a3b8;
+    border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.gantt-header-cell.weekend {
+    background: #f0f0f2;
+    color: #b0b8c4;
+}
+
+.gantt-header-cell.today {
+    background: rgba(239, 68, 68, 0.08);
+    color: #ef4444;
+    font-weight: 700;
+}
+
+/* Gantt rijen — Tom's Planner compact style */
+.gantt-row {
+    display: flex;
+    border-bottom: 1px solid #e8eaed;
+    min-height: 30px;
+    transition: background 0.1s;
+}
+
+.gantt-row:hover {
+    background: #fafbfc;
+}
+
+.gantt-row.group-row {
+    background: #f0f1f3;
+    min-height: 30px;
+    font-weight: 700;
+}
+
+.gantt-row-label {
+    min-width: 420px;
+    max-width: 420px;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-right: 1px solid #d0d5dd;
+    font-size: 0.76rem;
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: #fff;
+}
+
+
+.gantt-row-label .project-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.gantt-row-timeline {
+    flex: 1;
+    display: flex;
+    position: relative;
+    min-height: 30px;
+}
+
+.gantt-cell {
+    flex: 1;
+    min-width: var(--cell-w, 32px);
+    border-right: 1px solid rgba(0, 0, 0, 0.04);
+    position: relative;
+    pointer-events: none;
+}
+
+.gantt-cell.weekend {
+    background: #f5f5f7;
+}
+
+.gantt-cell.today {
+    background: rgba(239, 68, 68, 0.04);
+}
+
+.gantt-cell.today::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    background: #ef4444;
+    opacity: 0.5;
+    z-index: 1;
+}
+
+.gantt-cell.holiday {
+    background: repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(239, 68, 68, 0.04) 3px, rgba(239, 68, 68, 0.04) 6px);
+}
+
+/* Gantt balken — Tom's Planner flat style */
+.gantt-bar {
+    position: absolute;
+    top: 4px;
+    height: 22px;
+    border-radius: 3px;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 2;
+    pointer-events: auto;
+    box-shadow: none;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.gantt-bar:hover {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    z-index: 5;
+}
+
+/* Resize handles */
+.gantt-bar .resize-handle {
+    position: absolute;
+    top: 0;
+    width: 14px;
+    height: 100%;
+    cursor: col-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 2;
+}
+
+.gantt-bar:hover .resize-handle {
+    opacity: 1;
+}
+
+.gantt-bar .resize-handle-left {
+    left: 0;
+    border-radius: 6px 0 0 6px;
+    background: linear-gradient(90deg, rgba(0, 0, 0, 0.2), transparent);
+}
+
+.gantt-bar .resize-handle-right {
+    right: 0;
+    border-radius: 0 6px 6px 0;
+    background: linear-gradient(-90deg, rgba(0, 0, 0, 0.2), transparent);
+}
+
+.gantt-bar .resize-handle::after {
+    content: '';
+    width: 2px;
+    height: 12px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.7);
+    box-shadow: 3px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+.gantt-bar .resize-handle-left::after {
+    box-shadow: -3px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Personeelsplanning */
+.personnel-row {
+    display: flex;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+    min-height: 50px;
+}
+
+.personnel-label {
+    min-width: 220px;
+    max-width: 220px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-right: 1px solid var(--border-color);
+}
+
+.personnel-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #e2880a);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+.personnel-cell {
+    flex: 1;
+    min-width: 40px;
+    border-right: 1px solid rgba(0, 0, 0, 0.03);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 600;
+    position: relative;
+}
+
+.personnel-cell.weekend {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.personnel-cell.available {
+    background: rgba(34, 197, 94, 0.06);
+}
+
+.personnel-cell.busy {
+    background: rgba(250, 160, 82, 0.1);
+}
+
+.personnel-cell.overloaded {
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.personnel-cell.leave {
+    background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 3px, #e2e8f0 3px, #e2e8f0 6px);
+}
+
+.personnel-assignment {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+}
+
+/* Jaarplanning */
+.year-grid {
+    display: grid;
+    grid-template-columns: 220px repeat(12, 1fr);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.year-header {
+    padding: 10px 6px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.72rem;
+    color: #64748b;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.year-cell {
+    padding: 4px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+    border-right: 1px solid rgba(0, 0, 0, 0.04);
+    min-height: 36px;
+    position: relative;
+}
+
+.year-bar {
+    height: 22px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.year-label {
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #1e293b;
+    background: #f8fafc;
+}
+
+/* Toolbar */
+.planning-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.planning-toolbar .view-btns {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.planning-toolbar .view-btn {
+    padding: 6px 14px;
+    border: none;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #64748b;
+    transition: all 0.15s;
+    border-right: 1px solid var(--border-color);
+}
+
+.planning-toolbar .view-btn:last-child {
+    border-right: none;
+}
+
+.planning-toolbar .view-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.planning-toolbar .view-btn:hover:not(.active) {
+    background: #f8fafc;
+}
+
+/* Project details popup */
+.project-detail-panel {
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 16px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Nieuw project formulier */
+.new-project-form {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr 1fr;
+}
+
+.new-project-form .full-width {
+    grid-column: 1 / -1;
+}
+
+.new-project-form label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 2px;
+    display: block;
+}
+
+.new-project-form input,
+.new-project-form select,
+.new-project-form textarea {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    font-size: 0.82rem;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Capaciteits badges */
+.capacity-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 700;
+}
+
+.capacity-badge.green {
+    background: rgba(34, 197, 94, 0.1);
+    color: #16a34a;
+}
+
+.capacity-badge.orange {
+    background: rgba(250, 160, 82, 0.15);
+    color: #d97706;
+}
+
+.capacity-badge.red {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+/* Stats balk */
+.planning-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.planning-stat {
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 140px;
+}
+
+.planning-stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+}
+
+.planning-stat-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.planning-stat-label {
+    font-size: 0.7rem;
+    color: #94a3b8;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .planning-tabs {
+        overflow-x: auto;
+    }
+
+    .planning-tab {
+        white-space: nowrap;
+        padding: 8px 14px;
+        font-size: 0.8rem;
+    }
+
+    .gantt-row-label,
+    .gantt-header-project,
+    .personnel-label {
+        min-width: 140px;
+        max-width: 140px;
+        font-size: 0.75rem;
+    }
+
+    .planning-stats {
+        flex-direction: column;
+    }
+
+    .new-project-form {
+        grid-template-columns: 1fr;
+    }
+
+    .planning-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

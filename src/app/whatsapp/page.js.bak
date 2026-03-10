@@ -1,0 +1,1225 @@
+﻿'use client';
+
+import { useState, useEffect, useRef } from 'react';
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// DEMO DATA
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+const DEMO_PROJECTEN = [
+    { id: '1', name: 'Schilderwerk Familie Bakker', locatie: 'Dorpsstraat 14, Haarlem' },
+    { id: '2', name: 'Renovatie Kantoorpand Den Haag', locatie: 'Laan van NOI 75, Den Haag' },
+    { id: '3', name: 'Appartementen Katwijk', locatie: 'Boulevard 22, Katwijk' },
+    { id: '4', name: 'VVE De Branding', locatie: 'Strandweg 1, Noordwijk' },
+];
+
+const DEMO_MEDEWERKERS = [
+    { id: '1', naam: 'Kevin van der Berg', telefoon: '0612345678', type: 'zzp', kvk: '87654321', uurtarief: 40 },
+    { id: '2', naam: 'Piet Kwast', telefoon: '0687654321', type: 'medewerker', uurtarief: 0 },
+    { id: '3', naam: 'Henk de Vries', telefoon: '0676543210', type: 'medewerker', uurtarief: 0 },
+];
+
+export default function WhatsAppPage() {
+    const [activeTab, setActiveTab] = useState('uren');
+
+    // â”€â”€â”€ Shared State â”€â”€â”€
+    const [medewerkers, setMedewerkers] = useState(() => {
+        try { const s = JSON.parse(localStorage.getItem('wa_medewerkers')); if (s) return s; } catch { }
+        return DEMO_MEDEWERKERS;
+    });
+    const [projecten, setProjecten] = useState(() => {
+        try { const s = JSON.parse(localStorage.getItem('wa_projecten')); if (s) return s; } catch { }
+        return DEMO_PROJECTEN;
+    });
+    const [urenLog, setUrenLog] = useState(() => {
+        try { const s = JSON.parse(localStorage.getItem('wa_uren_log')); if (s) return s; } catch { }
+        return [];
+    });
+    const [contracten, setContracten] = useState(() => {
+        try { const s = JSON.parse(localStorage.getItem('wa_contracten')); if (s) return s; } catch { }
+        return [];
+    });
+
+    // Save
+    useEffect(() => { localStorage.setItem('wa_medewerkers', JSON.stringify(medewerkers)); }, [medewerkers]);
+    useEffect(() => { localStorage.setItem('wa_projecten', JSON.stringify(projecten)); }, [projecten]);
+    useEffect(() => { localStorage.setItem('wa_uren_log', JSON.stringify(urenLog)); }, [urenLog]);
+    useEffect(() => { localStorage.setItem('wa_contracten', JSON.stringify(contracten)); }, [contracten]);
+
+    // â”€â”€â”€ Module 1: Uren Helpers â”€â”€â”€
+    const [showNewMedewerker, setShowNewMedewerker] = useState(false);
+    const [newMw, setNewMw] = useState({ naam: '', telefoon: '', type: 'medewerker', uurtarief: 0 });
+
+    const addMedewerker = () => {
+        if (!newMw.naam.trim()) return;
+        setMedewerkers(prev => [...prev, { ...newMw, id: String(Date.now()), kvk: '' }]);
+        setNewMw({ naam: '', telefoon: '', type: 'medewerker', uurtarief: 0 });
+        setShowNewMedewerker(false);
+    };
+
+    const [showNewProject, setShowNewProject] = useState(false);
+    const [newPrj, setNewPrj] = useState({ name: '', locatie: '' });
+
+    const addProject = () => {
+        if (!newPrj.name.trim()) return;
+        setProjecten(prev => [...prev, { ...newPrj, id: String(Date.now()) }]);
+        setNewPrj({ name: '', locatie: '' });
+        setShowNewProject(false);
+    };
+
+    // â”€â”€â”€ Chatbot Simulation â”€â”€â”€
+    const [simStep, setSimStep] = useState(0);
+    const [simMw, setSimMw] = useState(null);
+    const [simPrj, setSimPrj] = useState(null);
+    const [simUren, setSimUren] = useState('');
+    const [simPauze, setSimPauze] = useState('30');
+    const [simMessages, setSimMessages] = useState([]);
+
+    const startSim = (mw) => {
+        setSimMw(mw);
+        setSimStep(1);
+        const hour = new Date().getHours();
+        const greeting = hour < 12 ? 'Goedemorgen' : hour < 18 ? 'Goedemiddag' : 'Goedenavond';
+        setSimMessages([
+            { from: 'user', text: 'Hoi' },
+            { from: 'bot', text: `${greeting} ${mw.naam.split(' ')[0]}! ðŸ‘‹\n\nWelkom bij De Schilders uit Katwijk.\nAan welk project heb je vandaag gewerkt?` }
+        ]);
+    };
+
+    const simSelectProject = (prj) => {
+        setSimPrj(prj);
+        setSimStep(2);
+        setSimMessages(prev => [
+            ...prev,
+            { from: 'user', text: prj.name },
+            { from: 'bot', text: `ðŸ“ ${prj.name}\n\nHoeveel uur heb je vandaag gewerkt?\n\nâ±ï¸ Kies: 4 | 6 | 7.5 | 8 uur\nOf typ een ander aantal.` }
+        ]);
+    };
+
+    const simSelectUren = (uren) => {
+        setSimUren(uren);
+        setSimStep(3);
+        setSimMessages(prev => [
+            ...prev,
+            { from: 'user', text: `${uren} uur` },
+            { from: 'bot', text: `${uren} uur genoteerd! âœ…\n\nHoeveel minuten pauze heb je gehad?\n\nâ˜• Kies: 0 | 15 | 30 | 45 | 60 min` }
+        ]);
+    };
+
+    const simSelectPauze = (pauze) => {
+        setSimPauze(pauze);
+        setSimStep(4);
+        const today = new Date().toISOString().split('T')[0];
+        const newEntry = {
+            id: String(Date.now()),
+            datum: today,
+            medewerkerId: simMw.id,
+            medewerkerNaam: simMw.naam,
+            projectId: simPrj.id,
+            projectNaam: simPrj.name,
+            uren: parseFloat(simUren),
+            pauze: parseInt(pauze),
+            tijdstempel: new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+        };
+        setUrenLog(prev => [newEntry, ...prev]);
+
+        setSimMessages(prev => [
+            ...prev,
+            { from: 'user', text: `${pauze} min` },
+            { from: 'bot', text: `âœ… Registratie opgeslagen!\n\nðŸ“‹ Overzicht:\nðŸ‘¤ ${simMw.naam}\nðŸ“ ${simPrj.name}\nâ±ï¸ ${simUren} uur gewerkt\nâ˜• ${pauze} min pauze\nðŸ“… ${new Date().toLocaleDateString('nl-NL')}\n\nBedankt! Tot morgen ðŸ‘‹` }
+        ]);
+    };
+
+    const resetSim = () => {
+        setSimStep(0);
+        setSimMw(null);
+        setSimPrj(null);
+        setSimUren('');
+        setSimPauze('30');
+        setSimMessages([]);
+    };
+
+    // â”€â”€â”€ Module 2: Contract Helpers â”€â”€â”€
+    const [showNewContract, setShowNewContract] = useState(false);
+    const [contractSubTab, setContractSubTab] = useState('nieuw');
+    const [newContract, setNewContract] = useState({
+        medewerkerId: '', projectId: '',
+        werkzaamheden: 'Schilderwerk binnen/buiten',
+        startDatum: new Date().toISOString().split('T')[0],
+        eindDatum: '',
+        uurtarief: 40,
+        totaalUren: 250,
+        totaalOvereenkomst: 10000,
+        betaaltermijn: '14 dagen na factuurdatum',
+        aantalTermijnen: 5,
+        termijnBedragen: [2000, 2000, 2000, 2000, 2000],
+        vcaCertificaat: 'wel',
+        btwVerlegd: 'wel',
+        weekrapporten: 'wel',
+        mandagenregister: 'wel',
+        kostenVerrekend: 'niet',
+    });
+
+    // â”€â”€â”€ Briefpapier Upload â”€â”€â”€
+    const briefpapierInputRef = useRef(null);
+    const [briefpapierPreview, setBriefpapierPreview] = useState(null);
+    const [briefpapierUploading, setBriefpapierUploading] = useState(false);
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem('wa_briefpapier');
+            if (saved) setBriefpapierPreview(saved);
+        } catch { }
+    }, []);
+
+    const handleBriefpapierUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setBriefpapierUploading(true);
+
+        if (file.type === 'application/pdf') {
+            // Load pdf.js from CDN and render first page
+            try {
+                const pdfjsScript = document.createElement('script');
+                pdfjsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+                document.head.appendChild(pdfjsScript);
+                await new Promise(resolve => { pdfjsScript.onload = resolve; });
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const page = await pdf.getPage(1);
+                const scale = 2;
+                const viewport = page.getViewport({ scale });
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                const ctx = canvas.getContext('2d');
+                await page.render({ canvasContext: ctx, viewport }).promise;
+                const dataUrl = canvas.toDataURL('image/png', 0.9);
+                localStorage.setItem('wa_briefpapier', dataUrl);
+                setBriefpapierPreview(dataUrl);
+            } catch (err) {
+                console.error('PDF render error:', err);
+                alert('Fout bij het verwerken van de PDF. Probeer een afbeelding (PNG/JPG) te uploaden.');
+            }
+        } else {
+            // Image file â€” just read as data URL
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const dataUrl = ev.target.result;
+                localStorage.setItem('wa_briefpapier', dataUrl);
+                setBriefpapierPreview(dataUrl);
+            };
+            reader.readAsDataURL(file);
+        }
+        setBriefpapierUploading(false);
+    };
+
+    const removeBriefpapier = () => {
+        localStorage.removeItem('wa_briefpapier');
+        setBriefpapierPreview(null);
+        if (briefpapierInputRef.current) briefpapierInputRef.current.value = '';
+    };
+
+    // â”€â”€â”€ Contract Sjablonen Systeem â”€â”€â”€
+    const DEFAULT_TEMPLATE = {
+        id: 'standaard',
+        name: 'Standaard',
+        paddingTop: 110,
+        paddingBottom: 100,
+        paddingSides: 48,
+        fontSize: 0.6,
+        titleSize: 0.72,
+        labelWidth: 120,
+        pageBreaks: [6, 14, 'E', 'H', 'sign'], // sections after which a page break occurs
+    };
+
+    const [contractTemplates, setContractTemplates] = useState(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('wa_contract_templates'));
+            if (saved && saved.length) return saved;
+        } catch { }
+        return [DEFAULT_TEMPLATE];
+    });
+    const [activeTemplateId, setActiveTemplateId] = useState(() => {
+        try {
+            return localStorage.getItem('wa_active_template') || 'standaard';
+        } catch { return 'standaard'; }
+    });
+    const [showTemplateSettings, setShowTemplateSettings] = useState(false);
+
+    const activeTemplate = contractTemplates.find(t => t.id === activeTemplateId) || DEFAULT_TEMPLATE;
+    const pageContentRefs = useRef([]);
+
+    useEffect(() => {
+        localStorage.setItem('wa_contract_templates', JSON.stringify(contractTemplates));
+    }, [contractTemplates]);
+    useEffect(() => {
+        localStorage.setItem('wa_active_template', activeTemplateId);
+    }, [activeTemplateId]);
+
+    const updateActiveTemplate = (key, value) => {
+        setContractTemplates(prev => prev.map(t =>
+            t.id === activeTemplateId ? { ...t, [key]: value } : t
+        ));
+    };
+
+    const capturePageContents = () => {
+        const contents = [];
+        pageContentRefs.current.forEach((ref) => {
+            contents.push(ref ? ref.innerHTML : null);
+        });
+        return contents;
+    };
+
+    const saveCurrentTemplate = () => {
+        const pageContents = capturePageContents();
+        setContractTemplates(prev => prev.map(t =>
+            t.id === activeTemplateId ? { ...t, pageContents } : t
+        ));
+    };
+
+    const saveTemplateAs = (name) => {
+        const newId = 'tpl_' + Date.now();
+        const pageContents = capturePageContents();
+        const newTpl = { ...activeTemplate, id: newId, name, pageContents };
+        setContractTemplates(prev => [...prev, newTpl]);
+        setActiveTemplateId(newId);
+    };
+
+    const deleteTemplate = (id) => {
+        if (id === 'standaard') return; // can't delete default
+        setContractTemplates(prev => prev.filter(t => t.id !== id));
+        if (activeTemplateId === id) setActiveTemplateId('standaard');
+    };
+
+    const generateContract = () => {
+        const mw = medewerkers.find(m => m.id === newContract.medewerkerId);
+        const prj = projecten.find(p => p.id === newContract.projectId);
+        if (!mw || !prj) return;
+        const totaal = newContract.totaalOvereenkomst || (newContract.uurtarief * newContract.totaalUren);
+        setContracten(prev => [...prev, {
+            id: String(Date.now()),
+            medewerkerId: mw.id, medewerkerNaam: mw.naam, medewerkerTelefoon: mw.telefoon, medewerkerKvk: mw.kvk || '',
+            medewerkerBtw: mw.btwNummer || '', medewerkerAdres: mw.adres || '', medewerkerPostcode: mw.postcode || '',
+            projectId: prj.id, projectNaam: prj.name, projectLocatie: prj.locatie,
+            werkzaamheden: newContract.werkzaamheden,
+            startDatum: newContract.startDatum, eindDatum: newContract.eindDatum,
+            uurtarief: newContract.uurtarief, totaalUren: newContract.totaalUren,
+            totaalBedrag: totaal, totaalOvereenkomst: totaal,
+            betaaltermijn: newContract.betaaltermijn,
+            aantalTermijnen: newContract.aantalTermijnen,
+            termijnBedragen: newContract.termijnBedragen || [],
+            vcaCertificaat: newContract.vcaCertificaat,
+            btwVerlegd: newContract.btwVerlegd,
+            weekrapporten: newContract.weekrapporten,
+            mandagenregister: newContract.mandagenregister,
+            kostenVerrekend: newContract.kostenVerrekend,
+            status: 'concept',
+            getekend: false, getekendDatum: '',
+            aangemaakt: new Date().toISOString(),
+        }]);
+        setShowNewContract(false);
+        setNewContract({
+            medewerkerId: '', projectId: '', werkzaamheden: 'Schilderwerk binnen/buiten',
+            startDatum: new Date().toISOString().split('T')[0], eindDatum: '',
+            uurtarief: 40, totaalUren: 250, totaalOvereenkomst: 10000,
+            betaaltermijn: '14 dagen na factuurdatum', aantalTermijnen: 5,
+            termijnBedragen: [2000, 2000, 2000, 2000, 2000],
+            vcaCertificaat: 'wel', btwVerlegd: 'wel', weekrapporten: 'wel',
+            mandagenregister: 'wel', kostenVerrekend: 'niet',
+        });
+    };
+
+    const sendContractWhatsApp = (contract) => {
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+        const phone = contract.medewerkerTelefoon.replace(/^0/, '31');
+        const msg = `ðŸ“„ Je opdrachtovereenkomst staat klaar!\n\nHoi ${contract.medewerkerNaam.split(' ')[0]} ðŸ‘‹\n\nJe contract voor project "${contract.projectNaam}" is klaar om te bekijken en te ondertekenen.\n\nðŸ‘‰ Bekijk & teken: ${baseUrl}/contract/${contract.id}\n\nðŸ’¶ Uurtarief: â‚¬ ${contract.uurtarief}\nâ±ï¸ Totaal uren: ${contract.totaalUren}\nðŸ“… Start: ${contract.startDatum}`;
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+        setContracten(prev => prev.map(c => c.id === contract.id ? { ...c, status: 'verzonden' } : c));
+    };
+
+    // â”€â”€â”€ Module 3: Termijn Tracker â”€â”€â”€
+    const getContractUren = (contractId) => {
+        const contract = contracten.find(c => c.id === contractId);
+        if (!contract) return 0;
+        return urenLog
+            .filter(u => u.medewerkerId === contract.medewerkerId && u.projectId === contract.projectId)
+            .reduce((sum, u) => sum + u.uren, 0);
+    };
+
+    const getTermijnen = (contract) => {
+        if (!contract) return [];
+        const termijnBedrag = contract.totaalBedrag / contract.aantalTermijnen;
+        const urenPerTermijn = termijnBedrag / contract.uurtarief;
+        const gewerkteUren = getContractUren(contract.id);
+        return Array.from({ length: contract.aantalTermijnen }, (_, i) => {
+            const drempel = urenPerTermijn * (i + 1);
+            const bereikt = gewerkteUren >= drempel;
+            const progress = Math.min((gewerkteUren / drempel) * 100, 100);
+            return {
+                nummer: i + 1,
+                drempel,
+                bedrag: termijnBedrag,
+                progress,
+                bereikt,
+            };
+        });
+    };
+
+    const sendTermijnWhatsApp = (contract, termijn) => {
+        const phone = contract.medewerkerTelefoon.replace(/^0/, '31');
+        const msg = `âœ… Termijn ${termijn.nummer} bereikt!\n\nHoi ${contract.medewerkerNaam.split(' ')[0]} ðŸ‘‹\n\nJe hebt de uren bereikt voor termijn ${termijn.nummer} van ${contract.aantalTermijnen} van\nproject: ${contract.projectNaam}\n\nðŸ’¶ Factuurbedrag: â‚¬ ${termijn.bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} excl. BTW\n\nStuur je factuur naar:\nDe Schilders uit Katwijk BV\n\nVermeld op de factuur:\nâ€¢ Project: ${contract.projectNaam}\nâ€¢ Termijn: ${termijn.nummer} van ${contract.aantalTermijnen}  â€¢  â‚¬ ${termijn.bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} excl. BTW\nâ€¢ Betalingstermijn: ${contract.betaaltermijn}`;
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    };
+
+    // â”€â”€â”€ Module 1: Manual Uren Entry â”€â”€â”€
+    const [showManualEntry, setShowManualEntry] = useState(false);
+    const [manualEntry, setManualEntry] = useState({
+        medewerkerId: '', projectId: '', uren: '', pauze: '30', datum: new Date().toISOString().split('T')[0]
+    });
+
+    const addManualEntry = () => {
+        const mw = medewerkers.find(m => m.id === manualEntry.medewerkerId);
+        const prj = projecten.find(p => p.id === manualEntry.projectId);
+        if (!mw || !prj || !manualEntry.uren) return;
+        setUrenLog(prev => [{
+            id: String(Date.now()),
+            datum: manualEntry.datum,
+            medewerkerId: mw.id, medewerkerNaam: mw.naam,
+            projectId: prj.id, projectNaam: prj.name,
+            uren: parseFloat(manualEntry.uren), pauze: parseInt(manualEntry.pauze),
+            tijdstempel: new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }),
+        }, ...prev]);
+        setManualEntry({ medewerkerId: '', projectId: '', uren: '', pauze: '30', datum: new Date().toISOString().split('T')[0] });
+        setShowManualEntry(false);
+    };
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â• STYLES â•â•â•â•â•â•â•â•â•â•â•â•â•
+    const panelS = { background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' };
+    const headerS = { padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+    const labelS = { fontSize: '0.72rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '3px' };
+    const inputS = { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.82rem', fontFamily: 'inherit' };
+    const btnPrimary = { padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' };
+    const btnSecondary = { padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, background: '#fff', color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' };
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â• RENDER â•â•â•â•â•â•â•â•â•â•â•â•â•
+    return (
+        <div className="content-area">
+            <div className="page-header">
+                <h1><i className="fa-brands fa-whatsapp" style={{ color: '#25D366', marginRight: '10px' }}></i>WhatsApp Business</h1>
+                <p>Automatische urenregistratie, contracten en termijnbeheer via WhatsApp.</p>
+            </div>
+
+            {/* Tab Navigation */}
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+                {[
+                    { id: 'uren', icon: 'fa-clock', label: 'Urenregistratie' },
+                    { id: 'nieuw_contract', icon: 'fa-file-circle-plus', label: 'Nieuw Modelovereenkomst' },
+                    { id: 'overzicht_contract', icon: 'fa-folder-open', label: 'Gemaakte Modelovereenkomsten' },
+                    { id: 'termijnen', icon: 'fa-chart-bar', label: 'Termijn & Factuur' },
+                ].map(tab => (
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                        style={{
+                            flex: 1, padding: '10px 12px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                            fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+                            background: activeTab === tab.id ? '#25D366' : 'transparent',
+                            color: activeTab === tab.id ? '#fff' : '#64748b',
+                            transition: 'all 0.15s'
+                        }}>
+                        <i className={`fa-solid ${tab.icon}`}></i>{tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* MODULE 1 â€” URENREGISTRATIE             */}
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {activeTab === 'uren' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+
+                    {/* Left: Beheer + Log */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                        {/* Medewerkers */}
+                        <div style={panelS}>
+                            <div style={headerS}>
+                                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
+                                    <i className="fa-solid fa-users" style={{ color: '#25D366', marginRight: '8px' }}></i>Medewerkers
+                                </h3>
+                                <button onClick={() => setShowNewMedewerker(!showNewMedewerker)} style={btnPrimary}>
+                                    <i className="fa-solid fa-plus"></i>Toevoegen
+                                </button>
+                            </div>
+                            {showNewMedewerker && (
+                                <div style={{ padding: '12px 20px', background: '#f0fdf4', borderBottom: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px', gap: '8px', marginBottom: '8px' }}>
+                                        <div><label style={labelS}>Naam</label><input style={inputS} value={newMw.naam} onChange={e => setNewMw({ ...newMw, naam: e.target.value })} placeholder="Volledige naam" /></div>
+                                        <div><label style={labelS}>06-nummer</label><input style={inputS} value={newMw.telefoon} onChange={e => setNewMw({ ...newMw, telefoon: e.target.value })} placeholder="0612345678" /></div>
+                                        <div><label style={labelS}>Type</label><select style={inputS} value={newMw.type} onChange={e => setNewMw({ ...newMw, type: e.target.value })}><option value="medewerker">Medewerker</option><option value="zzp">ZZP'er</option></select></div>
+                                    </div>
+                                    <button onClick={addMedewerker} style={btnPrimary}><i className="fa-solid fa-check"></i>Opslaan</button>
+                                </div>
+                            )}
+                            <div style={{ maxHeight: '200px', overflow: 'auto' }}>
+                                {medewerkers.map(mw => (
+                                    <div key={mw.id} style={{ padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{mw.naam}</div>
+                                            <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{mw.telefoon} â€¢ {mw.type === 'zzp' ? 'ZZP\'er' : 'Medewerker'}</div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '6px' }}>
+                                            <button onClick={() => startSim(mw)} style={{ ...btnSecondary, padding: '5px 10px', fontSize: '0.72rem' }}>
+                                                <i className="fa-brands fa-whatsapp" style={{ color: '#25D366' }}></i>Simuleer
+                                            </button>
+                                            <button onClick={() => setMedewerkers(prev => prev.filter(m => m.id !== mw.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem' }}>
+                                                <i className="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Projecten */}
+                        <div style={panelS}>
+                            <div style={headerS}>
+                                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
+                                    <i className="fa-solid fa-folder-tree" style={{ color: '#3b82f6', marginRight: '8px' }}></i>Projecten
+                                </h3>
+                                <button onClick={() => setShowNewProject(!showNewProject)} style={{ ...btnPrimary, background: '#3b82f6' }}>
+                                    <i className="fa-solid fa-plus"></i>Toevoegen
+                                </button>
+                            </div>
+                            {showNewProject && (
+                                <div style={{ padding: '12px 20px', background: '#eff6ff', borderBottom: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                                        <div><label style={labelS}>Projectnaam</label><input style={inputS} value={newPrj.name} onChange={e => setNewPrj({ ...newPrj, name: e.target.value })} placeholder="Bijv. Schilderwerk Fam. Bakker" /></div>
+                                        <div><label style={labelS}>Locatie</label><input style={inputS} value={newPrj.locatie} onChange={e => setNewPrj({ ...newPrj, locatie: e.target.value })} placeholder="Adres" /></div>
+                                    </div>
+                                    <button onClick={addProject} style={{ ...btnPrimary, background: '#3b82f6' }}><i className="fa-solid fa-check"></i>Opslaan</button>
+                                </div>
+                            )}
+                            <div style={{ maxHeight: '160px', overflow: 'auto' }}>
+                                {projecten.map(prj => (
+                                    <div key={prj.id} style={{ padding: '8px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{prj.name}</div>
+                                            <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{prj.locatie}</div>
+                                        </div>
+                                        <button onClick={() => setProjecten(prev => prev.filter(p => p.id !== prj.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem' }}>
+                                            <i className="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Uren Log */}
+                        <div style={panelS}>
+                            <div style={headerS}>
+                                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
+                                    <i className="fa-solid fa-list-check" style={{ color: '#F5850A', marginRight: '8px' }}></i>Urenregistraties
+                                    <span style={{ marginLeft: '8px', background: '#F5850A', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem' }}>{urenLog.length}</span>
+                                </h3>
+                                <button onClick={() => setShowManualEntry(!showManualEntry)} style={{ ...btnPrimary, background: '#F5850A' }}>
+                                    <i className="fa-solid fa-plus"></i>Handmatig
+                                </button>
+                            </div>
+                            {showManualEntry && (
+                                <div style={{ padding: '12px 20px', background: 'rgba(245,133,10,0.04)', borderBottom: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px 80px 100px', gap: '8px', marginBottom: '8px' }}>
+                                        <div><label style={labelS}>Medewerker</label><select style={inputS} value={manualEntry.medewerkerId} onChange={e => setManualEntry({ ...manualEntry, medewerkerId: e.target.value })}><option value="">Kies...</option>{medewerkers.map(m => <option key={m.id} value={m.id}>{m.naam}</option>)}</select></div>
+                                        <div><label style={labelS}>Project</label><select style={inputS} value={manualEntry.projectId} onChange={e => setManualEntry({ ...manualEntry, projectId: e.target.value })}><option value="">Kies...</option>{projecten.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                                        <div><label style={labelS}>Uren</label><input style={inputS} type="number" step="0.5" value={manualEntry.uren} onChange={e => setManualEntry({ ...manualEntry, uren: e.target.value })} placeholder="7.5" /></div>
+                                        <div><label style={labelS}>Pauze</label><input style={inputS} type="number" value={manualEntry.pauze} onChange={e => setManualEntry({ ...manualEntry, pauze: e.target.value })} placeholder="30" /></div>
+                                        <div><label style={labelS}>Datum</label><input style={inputS} type="date" value={manualEntry.datum} onChange={e => setManualEntry({ ...manualEntry, datum: e.target.value })} /></div>
+                                    </div>
+                                    <button onClick={addManualEntry} style={{ ...btnPrimary, background: '#F5850A' }}><i className="fa-solid fa-check"></i>Toevoegen</button>
+                                </div>
+                            )}
+                            <div style={{ maxHeight: '300px', overflow: 'auto' }}>
+                                {urenLog.length === 0 ? (
+                                    <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                                        <i className="fa-solid fa-inbox" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '6px', color: '#cbd5e1' }}></i>
+                                        Nog geen urenregistraties. Start een WhatsApp simulatie of voeg handmatig toe.
+                                    </div>
+                                ) : urenLog.map(entry => (
+                                    <div key={entry.id} style={{ padding: '8px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', fontSize: '0.82rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#25D366', fontWeight: 800, fontSize: '0.75rem' }}>
+                                                {entry.uren}u
+                                            </div>
+                                            <div>
+                                                <div style={{ fontWeight: 600 }}>{entry.medewerkerNaam}</div>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{entry.projectNaam}</div>
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{entry.datum}</div>
+                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{entry.tijdstempel}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right: WhatsApp Chatbot Simulation */}
+                    <div style={{ ...panelS, display: 'flex', flexDirection: 'column', maxHeight: '700px' }}>
+                        <div style={{ ...headerS, background: '#075E54', color: '#fff', borderRadius: '12px 12px 0 0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>ðŸ¤–</div>
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>DS Schilder Bot</div>
+                                    <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>{simMw ? `Chat met ${simMw.naam}` : 'Selecteer een medewerker om te starten'}</div>
+                                </div>
+                            </div>
+                            {simStep > 0 && <button onClick={resetSim} style={{ ...btnSecondary, background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}>Reset</button>}
+                        </div>
+
+                        <div style={{ flex: 1, padding: '16px', background: '#e5ddd5', backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'300\' height=\'300\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cdefs%3E%3Cpattern id=\'p\' width=\'60\' height=\'60\' patternUnits=\'userSpaceOnUse\'%3E%3Ccircle cx=\'30\' cy=\'30\' r=\'1.5\' fill=\'rgba(0,0,0,0.03)\'/%3E%3C/pattern%3E%3C/defs%3E%3Crect fill=\'url(%23p)\' width=\'100%25\' height=\'100%25\'/%3E%3C/svg%3E")', overflow: 'auto' }}>
+                            {simMessages.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#8696a0' }}>
+                                    <i className="fa-brands fa-whatsapp" style={{ fontSize: '3rem', display: 'block', marginBottom: '12px', color: '#25D366' }}></i>
+                                    <div style={{ fontSize: '0.88rem', fontWeight: 600, marginBottom: '6px' }}>WhatsApp Chatbot Simulatie</div>
+                                    <div style={{ fontSize: '0.78rem' }}>Klik op "Simuleer" bij een medewerker om het gesprek te starten.</div>
+                                </div>
+                            ) : simMessages.map((msg, i) => (
+                                <div key={i} style={{ display: 'flex', justifyContent: msg.from === 'user' ? 'flex-end' : 'flex-start', marginBottom: '6px' }}>
+                                    <div style={{
+                                        maxWidth: '75%', padding: '8px 12px', borderRadius: msg.from === 'user' ? '10px 10px 0 10px' : '10px 10px 10px 0',
+                                        background: msg.from === 'user' ? '#dcf8c6' : '#fff',
+                                        fontSize: '0.82rem', lineHeight: 1.4, whiteSpace: 'pre-line',
+                                        boxShadow: '0 1px 1px rgba(0,0,0,0.08)'
+                                    }}>
+                                        {msg.text}
+                                    </div>
+                                </div>
+                            ))}
+
+                            {/* Interactive buttons during simulation */}
+                            {simStep === 1 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                    {projecten.map(prj => (
+                                        <button key={prj.id} onClick={() => simSelectProject(prj)}
+                                            style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #25D366', background: '#fff', cursor: 'pointer', fontSize: '0.78rem', color: '#075E54', fontWeight: 600 }}>
+                                            ðŸ“ {prj.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {simStep === 2 && (
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                                    {['4', '6', '7.5', '8'].map(u => (
+                                        <button key={u} onClick={() => simSelectUren(u)}
+                                            style={{ padding: '6px 14px', borderRadius: '16px', border: '1px solid #25D366', background: '#fff', cursor: 'pointer', fontSize: '0.82rem', color: '#075E54', fontWeight: 600 }}>
+                                            {u} uur
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {simStep === 3 && (
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                                    {['0', '15', '30', '45', '60'].map(p => (
+                                        <button key={p} onClick={() => simSelectPauze(p)}
+                                            style={{ padding: '6px 14px', borderRadius: '16px', border: '1px solid #25D366', background: '#fff', cursor: 'pointer', fontSize: '0.82rem', color: '#075E54', fontWeight: 600 }}>
+                                            {p} min
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* TAB 2 â€” NIEUW MODELOVEREENKOMST         */}
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {activeTab === 'nieuw_contract' && (
+                <div>
+                    {/* Briefpapier Upload */}
+                    <div style={{ ...panelS, marginBottom: '16px' }}>
+                        <div style={headerS}>
+                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
+                                <i className="fa-solid fa-image" style={{ color: '#8b5cf6', marginRight: '8px' }}></i>Briefpapier (Achtergrond)
+                            </h3>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                                <input ref={briefpapierInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleBriefpapierUpload} style={{ display: 'none' }} id="briefpapier-upload" />
+                                <button onClick={() => briefpapierInputRef.current?.click()} style={{ ...btnPrimary, background: '#8b5cf6' }} disabled={briefpapierUploading}>
+                                    <i className={`fa-solid ${briefpapierUploading ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i>
+                                    {briefpapierPreview ? 'Wijzigen' : 'Uploaden'}
+                                </button>
+                                {briefpapierPreview && (
+                                    <button onClick={removeBriefpapier} style={{ ...btnSecondary, color: '#ef4444' }}>
+                                        <i className="fa-solid fa-trash-can"></i>Verwijderen
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        {briefpapierPreview ? (
+                            <div style={{ padding: '12px 20px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+                                <div style={{ width: '120px', height: '170px', border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden', flexShrink: 0 }}>
+                                    <img src={briefpapierPreview} alt="Briefpapier" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>âœ… Briefpapier ingesteld</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.5 }}>
+                                        Dit briefpapier wordt gebruikt als achtergrond voor de digitale overeenkomst die de ZZP&apos;er te zien krijgt bij <code>/contract/[id]</code>.
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                                <i className="fa-solid fa-file-pdf" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '6px', color: '#cbd5e1' }}></i>
+                                Upload je bedrijfsbriefpapier als PDF of afbeelding (PNG/JPG).
+                                <br />Het wordt als achtergrond achter het contract weergegeven.
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Nieuw Contract Form */}
+                    <div style={{ ...panelS, marginBottom: '16px' }}>
+                        <div style={headerS}>
+                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
+                                <i className="fa-solid fa-file-signature" style={{ color: '#25D366', marginRight: '8px' }}></i>Opdrachtovereenkomst Genereren
+                            </h3>
+                            <button onClick={() => setShowNewContract(!showNewContract)} style={btnPrimary}>
+                                <i className="fa-solid fa-wand-magic-sparkles"></i>Nieuw Contract
+                            </button>
+                        </div>
+                        {showNewContract && (
+                            <div style={{ padding: '16px 20px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', marginBottom: '12px' }}>
+                                    <div><label style={labelS}>ZZP&apos;er / Opdrachtnemer</label><select style={inputS} value={newContract.medewerkerId} onChange={e => { const mw = medewerkers.find(m => m.id === e.target.value); setNewContract({ ...newContract, medewerkerId: e.target.value, uurtarief: mw?.uurtarief || 40 }); }}><option value="">Selecteer...</option>{medewerkers.filter(m => m.type === 'zzp').map(m => <option key={m.id} value={m.id}>{m.naam}</option>)}</select></div>
+                                    <div><label style={labelS}>Project</label><select style={inputS} value={newContract.projectId} onChange={e => setNewContract({ ...newContract, projectId: e.target.value })}><option value="">Selecteer...</option>{projecten.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                                    <div><label style={labelS}>Werkzaamheden</label><input style={inputS} value={newContract.werkzaamheden} onChange={e => setNewContract({ ...newContract, werkzaamheden: e.target.value })} /></div>
+                                    <div><label style={labelS}>Betaaltermijn</label><input style={inputS} value={newContract.betaaltermijn} onChange={e => setNewContract({ ...newContract, betaaltermijn: e.target.value })} /></div>
+                                    <div><label style={labelS}>Startdatum</label><input style={inputS} type="date" value={newContract.startDatum} onChange={e => setNewContract({ ...newContract, startDatum: e.target.value })} /></div>
+                                    <div><label style={labelS}>Einddatum</label><input style={inputS} type="date" value={newContract.eindDatum} onChange={e => setNewContract({ ...newContract, eindDatum: e.target.value })} /></div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px 16px', marginBottom: '12px' }}>
+                                    <div><label style={labelS}>Uurtarief</label><div style={{ position: 'relative' }}><span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontWeight: 600, fontSize: '0.82rem', pointerEvents: 'none' }}>â‚¬</span><input style={{ ...inputS, paddingLeft: '28px' }} type="number" step="0.01" value={newContract.uurtarief || ''} onChange={e => { const val = e.target.value === '' ? 0 : parseFloat(e.target.value); const totaal = val * (newContract.totaalUren || 0); const n = newContract.aantalTermijnen || 1; const per = Math.floor((totaal / n) * 100) / 100; const eerste = Math.round((totaal - per * (n - 1)) * 100) / 100; setNewContract({ ...newContract, uurtarief: val, totaalOvereenkomst: totaal, termijnBedragen: Array.from({ length: n }, (_, i) => i === 0 ? eerste : per) }); }} /></div></div>
+                                    <div><label style={labelS}>Totaal uren</label><input style={inputS} type="number" min="0" value={newContract.totaalUren || ''} onChange={e => { const val = e.target.value === '' ? 0 : parseInt(e.target.value); const totaal = (newContract.uurtarief || 0) * val; const n = newContract.aantalTermijnen || 1; const per = Math.floor((totaal / n) * 100) / 100; const eerste = Math.round((totaal - per * (n - 1)) * 100) / 100; setNewContract({ ...newContract, totaalUren: val, totaalOvereenkomst: totaal, termijnBedragen: Array.from({ length: n }, (_, i) => i === 0 ? eerste : per) }); }} />{newContract.totaalUren > 0 && (<div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', padding: '4px 8px', borderRadius: '5px', background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: '0.65rem', color: '#1e40af' }}><i className="fa-solid fa-calendar-week" style={{ fontSize: '0.7rem' }}></i><span>â‰ˆ <strong>{(newContract.totaalUren / 37.5).toFixed(1)} weken</strong> ({Math.ceil(newContract.totaalUren / 7.5)} dgn)</span></div>)}</div>
+                                    <div><label style={labelS}>Totaal overeenkomst</label><div style={{ position: 'relative' }}><span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#166534', fontWeight: 600, fontSize: '0.82rem', pointerEvents: 'none' }}>â‚¬</span><input style={{ ...inputS, paddingLeft: '28px', fontWeight: 700, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0' }} type="number" step="0.01" value={newContract.totaalOvereenkomst || ''} onChange={e => { const totaal = e.target.value === '' ? 0 : parseFloat(e.target.value); const uur = newContract.uurtarief || 0; const n = newContract.aantalTermijnen || 1; const per = Math.floor((totaal / n) * 100) / 100; const eerste = Math.round((totaal - per * (n - 1)) * 100) / 100; setNewContract({ ...newContract, totaalOvereenkomst: totaal, totaalUren: uur > 0 ? Math.round(totaal / uur) : newContract.totaalUren, termijnBedragen: Array.from({ length: n }, (_, i) => i === 0 ? eerste : per) }); }} /></div></div>
+                                </div>
+                                <div style={{ padding: '10px 14px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b' }}>
+                                            <i className="fa-solid fa-layer-group" style={{ color: '#F5850A', marginRight: '6px' }}></i>Termijnen
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.68rem', color: '#64748b' }}>Betaaltermijn:</span>
+                                            <input style={{ ...inputS, width: '160px', fontSize: '0.72rem' }} value={newContract.betaaltermijn} onChange={e => setNewContract({ ...newContract, betaaltermijn: e.target.value })} />
+                                            <button onClick={() => {
+                                                const n = newContract.aantalTermijnen || 1;
+                                                const per = Math.floor(((newContract.totaalOvereenkomst || 0) / n) * 100) / 100;
+                                                const eerste = Math.round(((newContract.totaalOvereenkomst || 0) - per * (n - 1)) * 100) / 100;
+                                                setNewContract({ ...newContract, termijnBedragen: Array.from({ length: n }, (_, i) => i === 0 ? eerste : per) });
+                                            }} style={{ ...btnSecondary, padding: '4px 8px', fontSize: '0.65rem' }}>
+                                                <i className="fa-solid fa-arrows-rotate" style={{ marginRight: '3px' }}></i>Gelijk verdelen
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {(newContract.termijnBedragen || []).map((bedrag, i) => (
+                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#475569', width: '80px' }}>Termijn {i + 1}</span>
+                                            <div style={{ position: 'relative', flex: 1 }}>
+                                                <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontWeight: 600, fontSize: '0.75rem', pointerEvents: 'none' }}>â‚¬</span>
+                                                <input style={{ ...inputS, paddingLeft: '28px', fontSize: '0.78rem', fontWeight: 600 }} type="number" step="0.01" value={bedrag || ''} onChange={e => {
+                                                    const updated = [...(newContract.termijnBedragen || [])];
+                                                    updated[i] = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                                                    setNewContract({ ...newContract, termijnBedragen: updated });
+                                                }} />
+                                            </div>
+                                            {newContract.termijnBedragen.length > 1 && (
+                                                <button onClick={() => {
+                                                    const newLen = newContract.termijnBedragen.length - 1;
+                                                    const per = Math.floor(((newContract.totaalOvereenkomst || 0) / newLen) * 100) / 100;
+                                                    const eerste = Math.round(((newContract.totaalOvereenkomst || 0) - per * (newLen - 1)) * 100) / 100;
+                                                    setNewContract({ ...newContract, termijnBedragen: Array.from({ length: newLen }, (_, i) => i === 0 ? eerste : per), aantalTermijnen: newLen });
+                                                }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem', padding: '4px' }}>
+                                                    <i className="fa-solid fa-trash"></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                                        <button onClick={() => {
+                                            const newLen = (newContract.termijnBedragen || []).length + 1;
+                                            const per = Math.floor(((newContract.totaalOvereenkomst || 0) / newLen) * 100) / 100;
+                                            const eerste = Math.round(((newContract.totaalOvereenkomst || 0) - per * (newLen - 1)) * 100) / 100;
+                                            setNewContract({ ...newContract, termijnBedragen: Array.from({ length: newLen }, (_, i) => i === 0 ? eerste : per), aantalTermijnen: newLen });
+                                        }} style={{ ...btnSecondary, padding: '4px 10px', fontSize: '0.68rem' }}>
+                                            <i className="fa-solid fa-plus" style={{ marginRight: '4px' }}></i>Termijn toevoegen
+                                        </button>
+                                        {(() => {
+                                            const som = (newContract.termijnBedragen || []).reduce((a, b) => a + b, 0);
+                                            const verschil = (newContract.totaalOvereenkomst || 0) - som;
+                                            return (
+                                                <div style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '4px', background: Math.abs(verschil) > 0.01 ? '#fef2f2' : '#f0fdf4' }}>
+                                                    <span style={{ color: '#64748b' }}>Totaal: <strong>â‚¬ {som.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</strong></span>
+                                                    {Math.abs(verschil) > 0.01 && (
+                                                        <span style={{ color: '#ef4444', fontWeight: 600, marginLeft: '8px' }}>âš ï¸ Verschil: â‚¬ {verschil.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span>
+                                                    )}
+                                                    {Math.abs(verschil) <= 0.01 && (
+                                                        <span style={{ color: '#22c55e', fontWeight: 600, marginLeft: '8px' }}>âœ…</span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                                {/* Overeenkomst opties */}
+                                <div style={{ padding: '10px 14px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
+                                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
+                                        <i className="fa-solid fa-sliders" style={{ color: '#F5850A', marginRight: '6px' }}></i>Overeenkomst Opties
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px 14px' }}>
+                                        <div>
+                                            <label style={labelS}>VCA Certificaat <span title="Veiligheid, Gezondheid en Milieu Checklist Aannemers. Als de onderaannemer VCA-gecertificeerd is, toont dit aan dat zij voldoen aan veiligheidsnormen op de bouwplaats. Vereist bij veel opdrachtgevers." style={{ cursor: 'help', color: '#94a3b8' }}><i className="fa-solid fa-circle-info" style={{ fontSize: '0.65rem' }}></i></span></label>
+                                            <select style={inputS} value={newContract.vcaCertificaat} onChange={e => setNewContract({ ...newContract, vcaCertificaat: e.target.value })}>
+                                                <option value="wel">Wel verstrekken</option>
+                                                <option value="geen">Geen verstrekken</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelS}>BTW Verlegging <span title="Bij de verleggingsregeling draagt niet de onderaannemer, maar de aannemer de BTW af aan de Belastingdienst. Dit is gebruikelijk in de bouw. De onderaannemer factureert dan zonder BTW en vermeldt 'BTW verlegd'." style={{ cursor: 'help', color: '#94a3b8' }}><i className="fa-solid fa-circle-info" style={{ fontSize: '0.65rem' }}></i></span></label>
+                                            <select style={inputS} value={newContract.btwVerlegd} onChange={e => setNewContract({ ...newContract, btwVerlegd: e.target.value })}>
+                                                <option value="wel">Wel van toepassing</option>
+                                                <option value="niet">Niet van toepassing</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelS}>Kosten verrekend <span title="Bepaalt of extra kosten (zoals materiaal, reiskosten, verblijf) apart verrekend worden bovenop de aanneemsom, of dat alles inbegrepen is in de vaste prijs." style={{ cursor: 'help', color: '#94a3b8' }}><i className="fa-solid fa-circle-info" style={{ fontSize: '0.65rem' }}></i></span></label>
+                                            <select style={inputS} value={newContract.kostenVerrekend} onChange={e => setNewContract({ ...newContract, kostenVerrekend: e.target.value })}>
+                                                <option value="wel">Wel verrekend</option>
+                                                <option value="niet">Niet verrekend</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelS}>Weekrapporten <span title="Weekrapporten zijn wekelijkse voortgangsverslagen van het uitgevoerde werk. Hiermee houdt de aannemer zicht op de voortgang en kunnen eventuele afwijkingen tijdig worden gesignaleerd." style={{ cursor: 'help', color: '#94a3b8' }}><i className="fa-solid fa-circle-info" style={{ fontSize: '0.65rem' }}></i></span></label>
+                                            <select style={inputS} value={newContract.weekrapporten} onChange={e => setNewContract({ ...newContract, weekrapporten: e.target.value })}>
+                                                <option value="wel">Wel opmaken</option>
+                                                <option value="niet">Niet opmaken</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelS}>Mandagenregister <span title="Een mandagenregister is een registratie van alle personen die op de bouwplaats werkzaam zijn. Dit is wettelijk verplicht bij grotere projecten en dient voor controle op illegale arbeid en veiligheid." style={{ cursor: 'help', color: '#94a3b8' }}><i className="fa-solid fa-circle-info" style={{ fontSize: '0.65rem' }}></i></span></label>
+                                            <select style={inputS} value={newContract.mandagenregister} onChange={e => setNewContract({ ...newContract, mandagenregister: e.target.value })}>
+                                                <option value="wel">Wel bijhouden</option>
+                                                <option value="niet">Niet bijhouden</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                {/* Preview */}
+                                {newContract.uurtarief > 0 && newContract.totaalUren > 0 && (
+                                    <div style={{ padding: '12px 16px', borderRadius: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', marginBottom: '12px' }}>
+                                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#166534' }}>
+                                            ðŸ’¶ Totale contractwaarde: â‚¬ {(newContract.uurtarief * newContract.totaalUren).toLocaleString('nl-NL', { minimumFractionDigits: 2 })} excl. BTW
+                                        </div>
+                                        <div style={{ fontSize: '0.72rem', color: '#15803d', marginTop: '2px' }}>
+                                            {newContract.aantalTermijnen} termijnen Ã— â‚¬ {((newContract.uurtarief * newContract.totaalUren) / newContract.aantalTermijnen).toLocaleString('nl-NL', { minimumFractionDigits: 2 })} |
+                                            Drempel per termijn: {((newContract.uurtarief * newContract.totaalUren) / newContract.aantalTermijnen / newContract.uurtarief).toFixed(0)} uur
+                                        </div>
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={() => { generateContract(); setActiveTab('overzicht_contract'); }} style={btnPrimary}><i className="fa-solid fa-file-circle-plus"></i>Contract Aanmaken</button>
+                                    <button onClick={() => setShowNewContract(false)} style={btnSecondary}>Annuleren</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* â”€â”€â”€ Document Preview â”€â”€â”€ */}
+                    {(() => {
+                        const previewMw = medewerkers.find(m => m.id === newContract.medewerkerId);
+                        const previewPrj = projecten.find(p => p.id === newContract.projectId);
+                        const previewNaam = previewMw?.naam || 'xxxxxxx';
+                        const previewTel = previewMw?.telefoon || 'xxxxxxx';
+                        const previewKvk = previewMw?.kvk || 'xxxxxxx';
+                        const previewBtw = previewMw?.btwNummer || 'xxxxxxx';
+                        const previewAdres = previewMw?.adres || 'xxxxxxx';
+                        const previewPostcode = previewMw?.postcode || 'xxxxxxx';
+                        const previewProject = previewPrj?.name || 'xxxxxxx';
+                        const previewLocatie = previewPrj?.locatie || 'xxxxxxx';
+                        const previewTotaal = newContract.totaalOvereenkomst || 0;
+                        const previewTermijnen = newContract.aantalTermijnen || 5;
+                        const previewTermijnBedragen = newContract.termijnBedragen || [];
+                        const previewDagen = Math.ceil((newContract.totaalUren || 0) / 7.5);
+                        const pvS = { fontSize: `${activeTemplate.fontSize}rem`, lineHeight: 1.6, color: '#334155', marginBottom: '6px' };
+                        const pvTitle = { fontSize: `${activeTemplate.titleSize}rem`, fontWeight: 800, color: '#1e293b', margin: '10px 0 6px', paddingBottom: '3px', borderBottom: '1.5px solid #F5850A' };
+                        const pvField = { fontWeight: 600, color: '#1e293b', borderBottom: '1px dotted #94a3b8' };
+                        const pvBullet = { ...pvS, marginBottom: '3px', paddingLeft: '12px', textIndent: '-8px' };
+                        const pvTableCell = { padding: '3px 8px', fontSize: `${activeTemplate.fontSize - 0.02}rem`, borderBottom: '1px solid #e2e8f0' };
+                        const pvTableHead = { ...pvTableCell, fontWeight: 600, background: '#f1f5f9', color: '#475569' };
+                        const pvRow = { display: 'grid', gridTemplateColumns: `${activeTemplate.labelWidth}px 1fr`, gap: '2px', fontSize: `${activeTemplate.fontSize - 0.05}rem`, marginBottom: '1px' };
+                        const pvLabel = { fontWeight: 600, color: '#475569' };
+
+
+                        return (
+                            <div style={{ ...panelS, marginBottom: '16px' }}>
+                                <div style={headerS}>
+                                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
+                                        <i className="fa-solid fa-eye" style={{ color: '#F5850A', marginRight: '8px' }}></i>Voorbeeld Document
+                                    </h3>
+                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Live preview â€¢ volledige overeenkomst</span>
+                                </div>
+
+                                {/* --- PREVIEW PAGES --- */}
+                                <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', maxHeight: '80vh', overflowY: 'auto' }}>
+
+                                        {(() => {
+                                            const pageStyle = {
+                                                width: '620px', background: '#fff',
+                                                boxShadow: '0 4px 24px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
+                                                borderRadius: '4px',
+                                                padding: `${activeTemplate.paddingTop}px ${activeTemplate.paddingSides}px ${activeTemplate.paddingBottom}px`,
+                                                position: 'relative', overflow: 'hidden',
+                                                border: '1px solid #e2e8f0',
+                                                outline: 'none', cursor: 'text',
+                                                minHeight: '876px',
+                                                ...(briefpapierPreview ? {
+                                                    backgroundImage: `linear-gradient(rgba(255,255,255,0.45), rgba(255,255,255,0.45)), url(${briefpapierPreview})`,
+                                                    backgroundSize: '100% 100%',
+                                                    backgroundPosition: 'top center',
+                                                    backgroundRepeat: 'no-repeat'
+                                                } : {})
+                                            };
+
+                                            const pages = [
+                                                // â•â•â• PAGE 1: Header + A. Partijen + Uitgangspunten â•â•â•
+                                                <div key={0} ref={el => pageContentRefs.current[0] = el} contentEditable suppressContentEditableWarning style={pageStyle}
+                                                    {...(activeTemplate.pageContents && activeTemplate.pageContents[0]
+                                                        ? { dangerouslySetInnerHTML: { __html: activeTemplate.pageContents[0] } }
+                                                        : {}
+                                                    )}
+                                                >
+                                                    {!(activeTemplate.pageContents && activeTemplate.pageContents[0]) && (<>
+                                                        <div style={{ textAlign: 'center', marginBottom: '10px', paddingBottom: '6px', borderBottom: '2px solid #1e293b' }}>
+                                                            <h2 style={{ margin: '0 0 2px', fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', letterSpacing: '0.05em' }}>OVEREENKOMST VAN ONDERAANNEMING</h2>
+                                                        </div>
+                                                        <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>A.</span> De partijen bij de overeenkomst</h3>
+                                                        <p style={pvS}>Ondergetekenden:</p>
+                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '6px' }}>
+                                                            <div style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', background: '#fafafa' }}>
+                                                                <div style={{ fontSize: '0.5rem', fontWeight: 700, color: '#F5850A', textTransform: 'uppercase', marginBottom: '2px' }}>Aannemer</div>
+                                                                <div style={pvRow}><span style={pvLabel}>naam:</span><span>De Schilders uit Katwijk</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>straat:</span><span>Ambachtsweg 12</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>postcode/plaats:</span><span>2223 AM Katwijk</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>telefoon:</span><span>071-1234567</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>KvK-nr:</span><span>12345678</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>btw-nr:</span><span>NL123456789B01</span></div>
+                                                            </div>
+                                                            <div style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #dbeafe', background: '#f0f4ff' }}>
+                                                                <div style={{ fontSize: '0.5rem', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '2px' }}>Onderaannemer</div>
+                                                                <div style={pvRow}><span style={pvLabel}>naam:</span><span style={pvField}>{previewNaam}</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>straat:</span><span style={pvField}>{previewAdres}</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>postcode/plaats:</span><span style={pvField}>{previewPostcode}</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>telefoon:</span><span style={pvField}>{previewTel}</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>KvK-nr:</span><span style={pvField}>{previewKvk}</span></div>
+                                                                <div style={pvRow}><span style={pvLabel}>btw-nr:</span><span style={pvField}>{previewBtw}</span></div>
+                                                            </div>
+                                                        </div>
+                                                        <p style={pvS}>Redenen om de overeenkomst van <u>onderaanneming</u> aan te gaan:</p>
+                                                        <p style={pvS}>- Partijen willen met deze overeenkomst aangeven dat ze geen arbeidsovereenkomst noch gezagsverhouding in de zin van artikel 7:610 e.v. BW willen afsluiten maar een overeenkomst van aanneming van werk aangaan in de zin van artikel 7:750 BW.</p>
+                                                        <p style={pvS}>- Partijen willen de afspraken die zij hebben gemaakt schriftelijk vastleggen in deze overeenkomst van <u>onderaanneming</u>.</p>
+                                                        <p style={pvS}>- Aannemer hecht waarde aan verduurzaming en wil om die reden deze overeenkomst gebruiken als raamwerk voor nader te verstrekken digitale opdrachten.</p>
+                                                        <p style={{ ...pvS, fontWeight: 600 }}>Uitgangspunten bij de overeenkomst van <u>onderaanneming</u>:</p>
+                                                        <p style={pvS}>1. Onderaannemer accepteert de opdracht en aanvaardt daarmee de volle verantwoordelijkheid, conform de van toepassing zijnde voorwaarden. De werkzaamheden worden onder eigen beheer en leiding verricht, zonder toezicht of leiding van aannemer. Aannemer kan wel aanwijzingen en instructies geven omtrent het resultaat van de opdracht.</p>
+                                                        <p style={pvS}>2. Het uurtarief bedraagt â‚¬ {parseFloat(newContract.uurtarief) || 40} exclusief btw.</p>
+                                                        <p style={pvS}>3. Afrekening van uren dient te geschieden m.b.v. urenregistratie, akkoord bevonden door beide partijen.</p>
+                                                        <p style={pvS}>4. De onderaannemer stelt zijn eigen arbeidstijden vast. In verband met de voortgang van de werkzaamheden richt onderaannemer zich naar de arbeidstijden bij aannemer.</p>
+                                                        <p style={pvS}>5. Onderaannemer zal bij de uitvoering van zijn werkzaamheden gebruik maken van eigen vervoer.</p>
+                                                        <p style={pvS}>6. Indien onderaannemer in de uitvoering van werkzaamheden schade veroorzaakt is de onderaannemer aansprakelijk voor deze schade.</p>
+                                                        <p style={pvS}>7. De onderaannemer is niet gerechtigd derden in te schakelen, dan wel de werkzaamheden door een derde te laten uitvoeren, daar er sprake is van specifieke vaardigheden en kwaliteiten van de onderaannemer, waardoor de werkzaamheden niet door een derde kunnen worden uitgevoerd.</p>
+                                                        <p style={pvS}>8. De opdracht zal worden uitgevoerd met inachtneming van wettelijke voorschriften, die betrekking hebben op arbeidsomstandigheden en veiligheid.</p>
+                                                        <p style={pvS}>9. Indien de opdracht wordt uitgevoerd op een bouwplaats waar ook werknemers werkzaam zijn, is de aannemer verantwoordelijk voor de naleving van de sectorale arbo-catalogus. De aannemer dient hiervoor de noodzakelijke voorzieningen te treffen.</p>
+                                                        <p style={pvS}>10. Onderaannemer verstrekt de aannemer wel een kopie van een geldig certificaat VOL VCA waaruit blijkt dat hij in het bezit is van de basis kennis over veiligheid, gezondheid en welzijn op de werkplek.</p>
+                                                        <p style={pvS}>11. De onderaannemer is volledig vrij in het aannemen van opdrachten van derden.</p>
+                                                        <p style={pvS}>12. De onderaannemer is niet afhankelijk van Ã©Ã©n opdrachtgever.</p>
+                                                        <p style={pvS}>13. De onderaannemer is verantwoordelijk voor schade die hij jegens derden veroorzaakt.</p>
+                                                        <p style={pvS}>14. De onderaannemer is ingeschreven bij de Kamer van Koophandel en heeft een btw-identificatienummer.</p>
+                                                        <p style={{ ...pvS, fontSize: '0.42rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '12px' }}>
+                                                            Deze overeenkomst is gebaseerd op de door de Belastingdienst op 1 maart 2016 onder nummer 9081625181 beoordeelde overeenkomst. De goedkeuring en verlenging van deze overeenkomst is bij de Belastingdienst geregistreerd onder nummer 90821.22312.1.0 of 90820.21223.12.1.0
+                                                        </p>
+                                                    </>)}
+                                                </div>,
+
+                                                // â•â•â• PAGE 2: B. Het werk + C. Duur â•â•â•
+                                                <div key={1} ref={el => pageContentRefs.current[1] = el} contentEditable suppressContentEditableWarning style={pageStyle}>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>B.</span> Het werk</h3>
+                                                    <p style={pvS}>De aannemer verstrekt de afzonderlijke opdrachten per email aan de onderaannemer waarin wordt verwezen naar deze getekende overeenkomst van onderaanneming.</p>
+                                                    <p style={pvS}>Onderaannemer zal middels zijn gegeven akkoord, per e-mail (zie bijlage 1), de opdracht aanvaarden en overeenkomstig deze overeenkomst uitvoeren.</p>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>C.</span> Duur van de overeenkomst en opzegging</h3>
+                                                    <p style={pvS}>De overeenkomst is aangegaan voor de duur van het werk met ingang van [datum].</p>
+                                                    <p style={pvS}>De overeenkomst wordt niet verlengd, maar kan wel hernieuwd worden.</p>
+                                                    <p style={pvS}>Opzegging van de overeenkomst is door beide partijen mogelijk, mits een opzegtermijn van tenminste 15 werkdagen in acht wordt genomen. Opzegging geschiedt schriftelijk. De door de onderaannemer reeds uitgevoerde, nog niet betaalde werkzaamheden worden alsnog bij het eindigen van de overeenkomst betaald.</p>
+                                                </div>,
+
+                                                // â•â•â• PAGE 3: D. Weekrapporten + E. Betalingsregeling â•â•â•
+                                                <div key={2} ref={el => pageContentRefs.current[2] = el} contentEditable suppressContentEditableWarning style={pageStyle}>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>D.</span> Weekrapporten, mandagenregister</h3>
+                                                    <p style={pvS}>- De onderaannemer zorgt <u>wel</u> voor het opmaken van weekrapporten</p>
+                                                    <p style={pvS}>- De onderaannemer houdt van het werk <u>wel</u> wekelijkse mandagenregisters bij</p>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>E.</span> Betalingsregeling</h3>
+                                                    <p style={pvS}>De onderaannemer ontvangt een vergoeding op basis van het aantal daadwerkelijk gewerkte uren.</p>
+                                                    <p style={pvS}>De onderaannemer dient een factuur in bij de aannemer conform de gemaakte afspraken en de btw-verleggingsregeling. Indien de factuur niet voldoet aan de wettelijke vereisten, kan de factuur niet ter betaling gesteld worden en zal worden geretourneerd.</p>
+                                                </div>,
+
+                                                // â•â•â• PAGE 4: Termijnoverzicht + F-H â•â•â•
+                                                <div key={3} ref={el => pageContentRefs.current[3] = el} contentEditable suppressContentEditableWarning style={pageStyle}>
+                                                    <div style={{ border: '1.5px solid #22c55e', borderRadius: '6px', padding: '8px', marginBottom: '8px', background: '#f0fdf4' }}>
+                                                        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#166534', marginBottom: '4px' }}>ðŸ“‹ Termijnoverzicht</div>
+                                                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                                            <thead>
+                                                                <tr style={{ background: '#dcfce7' }}>
+                                                                    <th style={pvTableCell}>Termijn</th>
+                                                                    <th style={pvTableCell}>Na uren</th>
+                                                                    <th style={pvTableCell}>Bedrag excl. BTW</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {previewTermijnBedragen.map((bedrag, i) => {
+                                                                    const pvUurtarief = parseFloat(newContract.uurtarief) || 0;
+                                                                    const pvUrenDrempel = pvUurtarief > 0 ? (bedrag || 0) / pvUurtarief : 0;
+                                                                    return (
+                                                                        <tr key={i}><td style={pvTableCell}>Termijn {i + 1}</td><td style={pvTableCell}>{pvUrenDrempel > 0 ? `${(pvUrenDrempel * (i + 1)).toFixed(0)} uur` : 'â€”'}</td><td style={pvTableCell}>â‚¬ {(bedrag || 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</td></tr>
+                                                                    );
+                                                                })}
+                                                                <tr style={{ fontWeight: 700, background: '#dcfce7' }}>
+                                                                    <td style={pvTableCell}>Totaal</td>
+                                                                    <td style={pvTableCell}>{newContract.totaalUren || 0} uur</td>
+                                                                    <td style={pvTableCell}>â‚¬ {previewTotaal.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>F.</span> Btw-verleggingsregeling</h3>
+                                                    <p style={pvS}>Op deze overeenkomst is de verleggingsregeling met betrekking tot de btw <u>wel</u> van toepassing.</p>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>G.</span> Betalingstermijn</h3>
+                                                    <p style={pvS}>De betalingstermijn bedraagt 30 kalenderdagen na ontvangst van de factuur.</p>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>H.</span> Verzekeringen</h3>
+                                                    <p style={pvS}>De onderaannemer beschikt over een aansprakelijkheidsverzekering voor bedrijven (AVB).</p>
+                                                </div>,
+
+                                                // â•â•â• PAGE 5: I. Ondertekening â•â•â•
+                                                <div key={4} ref={el => pageContentRefs.current[4] = el} contentEditable suppressContentEditableWarning style={pageStyle}>
+                                                    <h3 style={pvTitle}><span style={{ color: '#F5850A' }}>I.</span> Ondertekening</h3>
+                                                    <p style={pvS}>Aldus overeengekomen en in tweevoud getekend te Katwijk</p>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '10px' }}>
+                                                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px', textAlign: 'center' }}>
+                                                            <p style={{ fontSize: '0.5rem', fontWeight: 700, color: '#F5850A', marginBottom: '4px' }}>AANNEMER:</p>
+                                                            <p style={{ fontSize: '0.5rem', color: '#94a3b8' }}>ðŸ‘‡ Digitale handtekening</p>
+                                                            <div style={{ height: '60px', border: '1px dashed #cbd5e1', borderRadius: '4px', marginBottom: '4px' }}></div>
+                                                            <p style={{ fontSize: '0.48rem', color: '#64748b' }}>Naam: M. van Santen<br />Datum: ___________</p>
+                                                        </div>
+                                                        <div style={{ border: '1px solid #dbeafe', borderRadius: '6px', padding: '8px', textAlign: 'center' }}>
+                                                            <p style={{ fontSize: '0.5rem', fontWeight: 700, color: '#3b82f6', marginBottom: '4px' }}>ONDERAANNEMER:</p>
+                                                            <p style={{ fontSize: '0.5rem', color: '#94a3b8' }}>ðŸ‘‡ Digitale handtekening <span style={pvField}>{previewNaam}</span></p>
+                                                            <div style={{ height: '60px', border: '1px dashed #93c5fd', borderRadius: '4px', marginBottom: '4px' }}></div>
+                                                            <p style={{ fontSize: '0.48rem', color: '#64748b' }}>Naam: <span style={pvField}>{previewNaam}</span><br />Datum: ___________</p>
+                                                        </div>
+                                                    </div>
+                                                </div>,
+
+                                                // â•â•â• PAGE 6: Bijlage 1 â•â•â•
+                                                <div key={5} ref={el => pageContentRefs.current[5] = el} contentEditable suppressContentEditableWarning style={pageStyle}>
+                                                    <div style={{ paddingTop: '4px' }}>
+                                                        <h3 style={{ ...pvTitle, fontSize: '0.78rem', borderBottom: '2px solid #1e293b' }}>BIJLAGE 1</h3>
+                                                        <p style={pvS}>Beste <span style={pvField}>{previewNaam.split(' ')[0]}</span>,</p>
+                                                        <p style={pvS}>Ingevolge de overeenkomst van onderaanneming getekend d.d. [datum] doen wij (aannemer) u (onderaannemer) middels dit schrijven het voorstel tot uitvoering van de hieronder beschreven opdracht. Dit voorstel geldt als vrijblijvend aanbod.</p>
+                                                        <p style={{ ...pvS, fontWeight: 600 }}>De opdracht tot uitvoer van werkzaamheden omvat:</p>
+                                                        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '6px' }}>
+                                                            <tbody>
+                                                                <tr><td style={{ ...pvTableCell, fontWeight: 600, width: '280px' }}>Plaats/locatie waar het werk wordt uitgevoerd:</td><td style={pvTableCell}><span style={pvField}>{previewLocatie}</span></td></tr>
+                                                                <tr><td style={{ ...pvTableCell, fontWeight: 600 }}>Projectnummer:</td><td style={pvTableCell}><span style={pvField}>{previewProject}</span></td></tr>
+                                                                <tr><td style={{ ...pvTableCell, fontWeight: 600 }}>Start van de werkzaamheden:</td><td style={pvTableCell}><span style={pvField}>{newContract.startDatum || 'xxxxxxx'}</span></td></tr>
+                                                                <tr><td style={{ ...pvTableCell, fontWeight: 600 }}>Einddatum van de werkzaamheden:</td><td style={pvTableCell}><span style={pvField}>{newContract.eindDatum || 'xxxxxxx'}</span></td></tr>
+                                                                <tr><td style={{ ...pvTableCell, fontWeight: 600 }}>Aanneemsom:</td><td style={pvTableCell}><span style={{ ...pvField, color: '#166534' }}>â‚¬ {previewTotaal.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} excl. BTW</span></td></tr>
+                                                            </tbody>
+                                                        </table>
+                                                        <p style={pvS}>Genoemde bedragen zijn exclusief BTW, inclusief parkeerkosten, transportkosten, e.d.</p>
+                                                        <p style={pvS}>Gelieve akkoord te geven voor het aanvaarden van de opdracht. Uw akkoord dient te worden gegeven door te reageren op deze e-mail.</p>
+                                                        <p style={pvS}>Door akkoordverklaring aanvaart de onderaannemer de hierboven beschreven opdracht en zal deze overeenkomstig de getekende overeenkomst van onderaanneming d.d. [datum] uitvoeren. Wij verzoeken de hierin overeengekomen afspraken en uitgangspunten in acht te nemen.</p>
+                                                        <p style={pvS}>Deze opdrachtverstrekking zal onlosmakelijk onderdeel uitmaken van de door beide partijen getekende overeenkomst van onderaanneming d.d. [datum]</p>
+                                                        <p style={{ ...pvS, marginTop: '10px' }}>Met vriendelijke groet,<br /><strong>De Schilders uit Katwijk</strong></p>
+                                                    </div>
+                                                </div>
+                                            ];
+
+                                            return pages;
+                                        })()}
+                                    </div>
+                            </div>
+                        );
+                    })()}
+                </div >)
+            }
+
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* TAB 3 â€” GEMAAKTE MODELOVEREENKOMSTEN    */}
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {
+                activeTab === 'overzicht_contract' && (
+                    <div style={panelS}>
+                        <div style={headerS}>
+                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
+                                <i className="fa-solid fa-folder-open" style={{ color: '#3b82f6', marginRight: '8px' }}></i>Gemaakte Modelovereenkomsten
+                                <span style={{ marginLeft: '8px', background: '#3b82f6', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem' }}>{contracten.length}</span>
+                            </h3>
+                            <button onClick={() => { setActiveTab('nieuw_contract'); setShowNewContract(true); }} style={btnPrimary}>
+                                <i className="fa-solid fa-plus"></i>Nieuw Contract
+                            </button>
+                        </div>
+                        {contracten.length === 0 ? (
+                            <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                                <i className="fa-solid fa-file-circle-plus" style={{ fontSize: '2rem', display: 'block', marginBottom: '8px', color: '#cbd5e1' }}></i>
+                                Nog geen modelovereenkomsten aangemaakt.<br />
+                                <button onClick={() => { setActiveTab('nieuw_contract'); setShowNewContract(true); }}
+                                    style={{ marginTop: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#25D366', fontWeight: 600, fontSize: '0.82rem' }}>
+                                    â†’ Maak je eerste overeenkomst
+                                </button>
+                            </div>
+                        ) : contracten.map(c => {
+                            const statusMap = { concept: { bg: '#f59e0b', text: 'Concept' }, verzonden: { bg: '#3b82f6', text: 'Verzonden' }, bekeken: { bg: '#8b5cf6', text: 'Bekeken' }, getekend: { bg: '#22c55e', text: 'Getekend' } };
+                            const st = statusMap[c.status] || statusMap.concept;
+                            return (
+                                <div key={c.id} style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{c.projectNaam}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                            {c.medewerkerNaam} â€¢ â‚¬ {c.totaalBedrag.toLocaleString('nl-NL')} â€¢ {c.totaalUren} uur
+                                        </div>
+                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>
+                                            Aangemaakt: {new Date(c.aangemaakt).toLocaleDateString('nl-NL')} {c.getekendDatum && `â€¢ Getekend: ${c.getekendDatum}`}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ padding: '3px 10px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 600, background: st.bg, color: '#fff' }}>{st.text}</span>
+                                        <button onClick={() => window.open(`/contract/${c.id}`, '_blank')} style={{ ...btnSecondary, padding: '6px 10px', fontSize: '0.72rem' }}>
+                                            <i className="fa-solid fa-eye"></i>Bekijk
+                                        </button>
+                                        <button onClick={() => sendContractWhatsApp(c)} style={{ ...btnPrimary, padding: '6px 10px', fontSize: '0.72rem' }}>
+                                            <i className="fa-brands fa-whatsapp"></i>Verstuur
+                                        </button>
+                                        <button onClick={() => setContracten(prev => prev.filter(x => x.id !== c.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444' }}>
+                                            <i className="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )
+            }
+
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* MODULE 3 â€” TERMIJN & FACTUUR TRACKER    */}
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {
+                activeTab === 'termijnen' && (
+                    <div>
+                        {contracten.length === 0 ? (
+                            <div style={{ ...panelS, padding: '48px', textAlign: 'center' }}>
+                                <i className="fa-solid fa-chart-bar" style={{ fontSize: '3rem', color: '#cbd5e1', display: 'block', marginBottom: '12px' }}></i>
+                                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Geen contracten</div>
+                                <div style={{ fontSize: '0.82rem', color: '#94a3b8' }}>Maak eerst een opdrachtovereenkomst aan in het "Opdrachtovereenkomst" tabblad.</div>
+                            </div>
+                        ) : contracten.map(contract => {
+                            const termijnen = getTermijnen(contract);
+                            const gewerkteUren = getContractUren(contract.id);
+                            const totaalProgress = Math.min((gewerkteUren / contract.totaalUren) * 100, 100);
+
+                            return (
+                                <div key={contract.id} style={{ ...panelS, marginBottom: '16px' }}>
+                                    {/* Contract Header */}
+                                    <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #075E54 0%, #128C7E 100%)', color: '#fff', borderRadius: '12px 12px 0 0' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>{contract.projectNaam}</div>
+                                                <div style={{ fontSize: '0.78rem', opacity: 0.8 }}>{contract.medewerkerNaam} â€¢ {contract.projectLocatie}</div>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>â‚¬ {contract.totaalBedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</div>
+                                                <div style={{ fontSize: '0.72rem', opacity: 0.7 }}>{contract.totaalUren} uur Ã— â‚¬ {contract.uurtarief}/uur</div>
+                                            </div>
+                                        </div>
+                                        {/* Overall progress */}
+                                        <div style={{ marginTop: '12px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', marginBottom: '4px', opacity: 0.8 }}>
+                                                <span>{gewerkteUren.toFixed(1)} / {contract.totaalUren} uur gewerkt</span>
+                                                <span>{totaalProgress.toFixed(0)}%</span>
+                                            </div>
+                                            <div style={{ height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.2)' }}>
+                                                <div style={{ height: '100%', borderRadius: '4px', background: '#25D366', width: `${totaalProgress}%`, transition: 'width 0.3s' }} />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Termijnen Grid */}
+                                    <div style={{ padding: '16px 20px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${contract.aantalTermijnen}, 1fr)`, gap: '10px' }}>
+                                            {termijnen.map(t => (
+                                                <div key={t.nummer} style={{
+                                                    padding: '14px 12px', borderRadius: '10px', textAlign: 'center',
+                                                    border: t.bereikt ? '2px solid #22c55e' : '1px solid #e2e8f0',
+                                                    background: t.bereikt ? '#f0fdf4' : '#fafafa',
+                                                    position: 'relative'
+                                                }}>
+                                                    {t.bereikt && (
+                                                        <div style={{ position: 'absolute', top: '-8px', right: '-8px', width: '22px', height: '22px', borderRadius: '50%', background: '#22c55e', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}>
+                                                            <i className="fa-solid fa-check"></i>
+                                                        </div>
+                                                    )}
+                                                    <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>TERMIJN {t.nummer}</div>
+                                                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: t.bereikt ? '#22c55e' : '#1e293b' }}>
+                                                        â‚¬ {t.bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 0 })}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '6px' }}>na {t.drempel.toFixed(0)} uur</div>
+                                                    {/* Mini progress bar */}
+                                                    <div style={{ height: '6px', borderRadius: '3px', background: '#e2e8f0', overflow: 'hidden' }}>
+                                                        <div style={{ height: '100%', borderRadius: '3px', background: t.bereikt ? '#22c55e' : '#F5850A', width: `${t.progress}%`, transition: 'width 0.3s' }} />
+                                                    </div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>{t.progress.toFixed(0)}%</div>
+                                                    {/* WhatsApp button when reached */}
+                                                    {t.bereikt && (
+                                                        <button onClick={() => sendTermijnWhatsApp(contract, t)}
+                                                            style={{ ...btnPrimary, padding: '4px 8px', fontSize: '0.68rem', width: '100%', justifyContent: 'center', marginTop: '6px' }}>
+                                                            <i className="fa-brands fa-whatsapp"></i>Melding
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Laatste registraties voor dit contract */}
+                                        <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid #e2e8f0' }}>
+                                            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
+                                                <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: '6px' }}></i>
+                                                Laatste registraties ({urenLog.filter(u => u.medewerkerId === contract.medewerkerId && u.projectId === contract.projectId).length})
+                                            </div>
+                                            {urenLog.filter(u => u.medewerkerId === contract.medewerkerId && u.projectId === contract.projectId).slice(0, 5).map(u => (
+                                                <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '0.75rem', color: '#64748b' }}>
+                                                    <span>{u.datum} â€” {u.medewerkerNaam}</span>
+                                                    <span style={{ fontWeight: 600 }}>{u.uren} uur</span>
+                                                </div>
+                                            ))}
+                                            {urenLog.filter(u => u.medewerkerId === contract.medewerkerId && u.projectId === contract.projectId).length === 0 && (
+                                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Nog geen uren geregistreerd voor dit contract.</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )
+            }
+        </div >
+    );
+}

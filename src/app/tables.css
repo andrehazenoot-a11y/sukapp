@@ -1,0 +1,97 @@
+/* --- DATA TABLES --- */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+    font-size: 0.95rem;
+}
+
+.data-table th,
+.data-table td {
+    padding: 14px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.data-table th {
+    font-weight: 600;
+    color: var(--text-grey);
+    text-transform: uppercase;
+    font-size: 0.82rem;
+    letter-spacing: 0.8px;
+}
+
+.data-table td {
+    color: var(--text-light);
+}
+
+/* Colorguiding Urenstaat (Subtile banding) */
+.uren-table th:nth-child(2),
+.uren-table td:nth-child(2),
+.uren-table th:nth-child(4),
+.uren-table td:nth-child(4),
+.uren-table th:nth-child(6),
+.uren-table td:nth-child(6) {
+    background-color: #ffffff;
+}
+
+.uren-table th:nth-child(3),
+.uren-table td:nth-child(3),
+.uren-table th:nth-child(5),
+.uren-table td:nth-child(5) {
+    background-color: rgba(0, 0, 0, 0.015);
+}
+
+.uren-table th:nth-child(7),
+.uren-table td:nth-child(7),
+.uren-table th:nth-child(8),
+.uren-table td:nth-child(8) {
+    background-color: rgba(245, 133, 10, 0.04);
+    /* Weekend in DeSchilders oranje */
+}
+
+.uren-table th:nth-child(9),
+.uren-table td:nth-child(9) {
+    background-color: rgba(0, 0, 0, 0.02);
+    border-left: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Gevulde cellen krijgen oranje tint */
+.uren-table td.is-filled {
+    background-color: rgba(245, 133, 10, 0.2) !important;
+}
+
+/* Status Badges */
+.status-badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.status-badge.success {
+    background-color: rgba(16, 185, 129, 0.08);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-badge.warning {
+    background-color: rgba(245, 133, 10, 0.08);
+    color: var(--accent);
+    border: 1px solid rgba(245, 133, 10, 0.2);
+}
+
+.status-badge.error {
+    background-color: rgba(239, 68, 68, 0.08);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.mt-2 {
+    margin-top: 10px;
+}
+
+.mt-4 {
+    margin-top: 20px;
+}

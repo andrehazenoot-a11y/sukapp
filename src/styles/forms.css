@@ -1,0 +1,122 @@
+/* --- TABS & FORMS --- */
+.tabs {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+}
+
+.tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-grey);
+    font-size: 1rem;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: var(--text-white);
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.tab-btn.active {
+    color: var(--accent);
+    background: rgba(250, 160, 82, 0.1);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Forms */
+.form-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 300px;
+    /* Groeit en krimpt, met min-width 300px */
+}
+
+.form-group.full-width {
+    flex-basis: 100%;
+}
+
+.form-row {
+    display: flex;
+    gap: 20px;
+    flex-basis: 100%;
+    /* Neemt de hele rij in */
+}
+
+.form-row .form-group.half {
+    flex: 1;
+    /* Beide krijgen 50% */
+}
+
+.form-group label {
+    font-size: 0.85rem;
+    color: var(--text-grey);
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.form-control {
+    background-color: var(--bg-darker);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--text-white);
+    font-size: 0.95rem;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.form-control:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(250, 160, 82, 0.2);
+}
+
+.form-control::placeholder {
+    color: #555;
+}
+
+.form-actions {
+    margin-top: 12px;
+}
+
+/* Customizing date/time inputs */
+::-webkit-calendar-picker-indicator {
+    opacity: 0.6;
+    cursor: pointer;
+}
+
+::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
