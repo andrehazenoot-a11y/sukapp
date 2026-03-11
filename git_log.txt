@@ -1,0 +1,1 @@
+﻿8538cc9 contract-stijl: uniform Carlito font, geen oranje/groen/blauw, DBA-vervallen uren-kolom, zoekbare dropdowns SearchSelect

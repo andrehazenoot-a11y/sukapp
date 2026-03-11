@@ -1,0 +1,5 @@
+﻿commit 8538cc980f4bec9c4fcce1efb3a52f75b59c3407
+Author: DeSchilders <app@deschilders.nl>
+Date:   Tue Mar 10 22:24:29 2026 +0100
+
+    contract-stijl: uniform Carlito font, geen oranje/groen/blauw, DBA-vervallen uren-kolom, zoekbare dropdowns SearchSelect
