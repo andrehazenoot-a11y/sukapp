@@ -621,7 +621,9 @@ export default function WhatsAppPage() {
         const phone = contract.medewerkerTelefoon.replace(/^0/, '31');
         const msg = `📄 Je opdrachtovereenkomst staat klaar!\n\nHoi ${contract.medewerkerNaam.split(' ')[0]} 👋\n\nJe contract voor project "${contract.projectNaam}" is klaar om te bekijken en te ondertekenen.\n\n👉 Bekijk & teken: ${baseUrl}/contract/${contract.id}\n\n💶 Uurtarief: € ${contract.uurtarief}\n⏱️ Totaal uren: ${contract.totaalUren}\n📅 Start: ${contract.startDatum}`;
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
-        setContracten(prev => prev.map(c => c.id === contract.id ? { ...c, status: 'verzonden' } : c));
+        const updated = contracten.map(c => c.id === contract.id ? { ...c, status: 'verzonden', kanbanStatus: 'WhatsApp' } : c);
+        setContracten(updated);
+        localStorage.setItem('wa_contracten', JSON.stringify(updated));
     };
 
     const sendReminderWhatsApp = (contract) => {
@@ -629,6 +631,9 @@ export default function WhatsAppPage() {
         const phone = contract.medewerkerTelefoon ? contract.medewerkerTelefoon.replace(/^0/, '31') : '';
         const msg = `🔔 Herinnering vanuit De Schilders Katwijk.\n\nHoi ${contract.medewerkerNaam.split(' ')[0]},\n\nDit is een vriendelijke herinnering voor je contract "${contract.projectNaam}".\nWe zouden het op prijs stellen als je hier even naar wilt kijken.\n\n👉 Bekijk & teken: ${baseUrl}/contract/${contract.id}`;
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+        const updated = contracten.map(c => c.id === contract.id ? { ...c, status: 'verzonden', kanbanStatus: 'WhatsApp' } : c);
+        setContracten(updated);
+        localStorage.setItem('wa_contracten', JSON.stringify(updated));
     };
 
     // ─── Module 3: Termijn Tracker ───
@@ -2011,7 +2016,13 @@ export default function WhatsAppPage() {
                                                         <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{c.medewerkerNaam} • € {(c.totaalBedrag || c.totaalOvereenkomst || 0).toLocaleString('nl-NL')}</div>
                                                         <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>Aangemaakt: {new Date(c.aangemaakt).toLocaleDateString('nl-NL')}</div>
                                                     </div>
-                                                    <button onClick={() => setContracten(prev => prev.filter(x => x.id !== c.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', opacity: 0.7 }}>
+                                                    <button onClick={() => {
+                                                        if(window.confirm(`Weet je zeker dat je het contract "${c.projectNaam}" wil verwijderen?\nDit kan niet ongedaan worden gemaakt.`)) {
+                                                            const updated = contracten.filter(x => x.id !== c.id);
+                                                            setContracten(updated);
+                                                            localStorage.setItem('wa_contracten', JSON.stringify(updated));
+                                                        }
+                                                    }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', opacity: 0.7 }}>
                                                         <i className="fa-solid fa-trash-can"></i>
                                                     </button>
                                                 </div>
@@ -2032,8 +2043,11 @@ export default function WhatsAppPage() {
                                                 </div>
 
                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
+                                                    <button onClick={() => window.open(`/contract/${c.id}?mode=aannemer`, '_blank')} style={{ flex: '1 1 100%', padding: '8px', borderRadius: '6px', border: 'none', background: c.aannemerHandtekening ? '#f0fdf4' : '#10b981', color: c.aannemerHandtekening ? '#15803d' : '#fff', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', marginBottom: '4px', border: c.aannemerHandtekening ? '1px solid #22c55e' : 'none' }}>
+                                                        <i className="fa-solid fa-pen-nib" style={{ marginRight: '6px' }}></i>{c.aannemerHandtekening ? '✅ Al Zelf Getekend' : 'Teken als Aannemer (Zelf)'}
+                                                    </button>
                                                     <button onClick={() => window.open(`/contract/${c.id}`, '_blank')} style={{ flex: '1 1 45%', padding: '6px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
-                                                        <i className="fa-solid fa-eye" style={{ marginRight: '4px' }}></i>Bekijk
+                                                        <i className="fa-solid fa-eye" style={{ marginRight: '4px' }}></i>Bekijk ZZP-versie
                                                     </button>
                                                     <button 
                                                         onClick={(e) => {
@@ -2050,7 +2064,11 @@ export default function WhatsAppPage() {
                                                     <button onClick={() => sendReminderWhatsApp(c)} style={{ flex: '1 1 45%', padding: '6px', borderRadius: '6px', border: '1px solid #25D366', background: '#f0fdf4', color: '#15803d', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
                                                         <i className="fa-regular fa-bell" style={{ marginRight: '4px' }}></i>Herinnering
                                                     </button>
-                                                    <a href={mailto} target="_blank" style={{ flex: '1 1 100%', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
+                                                    <a href={mailto} onClick={() => {
+                                                        const updated = contracten.map(cont => cont.id === c.id ? { ...cont, kanbanStatus: 'E-mail' } : cont);
+                                                        setContracten(updated);
+                                                        localStorage.setItem('wa_contracten', JSON.stringify(updated));
+                                                    }} target="_blank" style={{ flex: '1 1 100%', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
                                                         <i className="fa-regular fa-envelope" style={{ marginRight: '4px' }}></i>E-mail
                                                     </a>
                                                 </div>

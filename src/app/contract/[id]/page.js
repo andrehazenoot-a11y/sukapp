@@ -144,6 +144,7 @@ export default function ContractSignPage() {
                     contracten[index].getekendDatum = todayStr;
                     contracten[index].getekendHandtekening = signatureData;
                     contracten[index].getekendParaaf = tempParaaf;
+                    contracten[index].kanbanStatus = 'Ondertekend';
                 }
                 localStorage.setItem('wa_contracten', JSON.stringify(contracten));
             }
@@ -153,25 +154,9 @@ export default function ContractSignPage() {
             setContract(prev => ({ ...prev, aannemerHandtekening: signatureData, aannemerParaaf: tempParaaf, aannemerDatum: todayStr }));
             setIsSigning(false);
             setShowSuccess(true);
-            
-            setTimeout(() => {
-                // Redirect to whatsapp with message
-                const c = contracten.find(x => x.id === contractId) || contract;
-                const signUrl = `${window.location.origin}/contract/${c.id}`;
-                const msg = `Hoi ${c.medewerkerNaam?.split(' ')[0] || ''},\n\nHierbij de definitieve versie van contract *${c.contractnummer || 'SUK-' + c.id}*. Ik heb hem zojuist digitaal ondertekend en geparafeerd.\nZou je de link willen openen, alles willen doornemen en digitaal akkoord willen gaan?\n\n🔗 *Contract ondertekenen:*\n${signUrl}\n\nAlvast bedankt!`;
-                
-                let targetPhone = (customTelefoon || '').replace(/[^0-9]/g, '');
-                if (targetPhone.startsWith('0')) {
-                    targetPhone = '31' + targetPhone.substring(1); // Bijv. 0612345678 -> 31612345678
-                }
-                
-                window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`, '_blank');
-                if (typeof window !== 'undefined') {
-                    window.location.href = '/whatsapp?tab=overzicht_contract';
-                }
-            }, 2500); // Wacht 2.5s zodat aannemer het succesbericht ziet
+            setTimeout(() => { setShowSuccess(false); }, 2000); // Popup kort tonen, daarna document laten zien
         } else {
-            setContract(prev => ({ ...prev, getekend: true, getekendDatum: todayStr, getekendHandtekening: signatureData, getekendParaaf: tempParaaf }));
+            setContract(prev => ({ ...prev, getekend: true, getekendDatum: todayStr, getekendHandtekening: signatureData, getekendParaaf: tempParaaf, kanbanStatus: 'Ondertekend' }));
             setSigned(true);
             setIsSigning(false);
             setShowSuccess(true);
@@ -421,6 +406,7 @@ export default function ContractSignPage() {
     };
 
     // ─── Signed Banner ───
+    // ─── Signed Banner ───
     const SignedBanner = signed ? (
         <div className="no-print" style={{ background: 'linear-gradient(135deg, #075E54 0%, #128C7E 100%)', padding: '16px 20px', color: '#fff', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
@@ -443,6 +429,37 @@ export default function ContractSignPage() {
         </div>
     ) : null;
 
+    const isAannemerMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'aannemer';
+    const hasAannemerSigned = c?.aannemerHandtekening;
+
+    const AannemerBanner = (isAannemerMode && hasAannemerSigned && !signed) ? (
+        <div className="no-print" style={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', padding: '16px 20px', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>✅</div>
+                <div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 800, lineHeight: 1.2 }}>Je handtekening is geplaatst!</div>
+                    <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '2px' }}>
+                        Klopt het document met de handtekening daarop zo? Stuur de unieke ZZP-link dan direct door via WhatsApp! 
+                    </div>
+                </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={handleBack} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.4)', cursor: 'pointer', background: 'transparent', color: '#fff', fontSize: '0.78rem', fontWeight: 700 }}>
+                    ← Terug (Annuleren)
+                </button>
+                <button onClick={() => {
+                    const signUrl = `${window.location.origin}/contract/${c.id}`;
+                    const msg = `Hoi ${c.medewerkerNaam.split(' ')[0]},\n\nHierbij de definitieve versie van contract *${c.contractnummer || 'SUK-' + c.id}*. Ik heb hem zojuist digitaal ondertekend en geparafeerd.\n\nControleer de overeenkomst rustig. Als alles klopt, kun je digitaal je handtekening plaatsen via de beveiligde link hieronder:\n\n👉 *Bekijken en tekenen:*\n${signUrl}\n\nAlvast bedankt!`;
+                    let targetPhone = (c.medewerkerTelefoon || '').replace(/^0/, '31');
+                    window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+                    window.location.href = '/whatsapp?tab=overzicht_contract';
+                }} style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: '#25D366', color: '#fff', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <i className="fa-brands fa-whatsapp"></i> Deel ZZP-link via WhatsApp
+                </button>
+            </div>
+        </div>
+    ) : null;
+
     return (
         <div style={{ height: '100%', overflowY: 'auto', background: '#dde1e7', fontFamily: PVFONT }}>
             {/* Print CSS */}
@@ -460,14 +477,14 @@ export default function ContractSignPage() {
                     .print-contract > div * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
                 }
             `}} />
-
             {SignedBanner}
+            {AannemerBanner}
 
             {/* Let op balk */}
-            {!signed && (
+            {(!signed && !AannemerBanner) && (
                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(250,160,82,0.08)', borderLeft: '4px solid #F5850A', padding: '12px 20px', fontSize: '0.78rem', color: '#92400e', lineHeight: 1.5, maxWidth: '800px', margin: '0 auto' }}>
                     <div>
-                        <strong>⚠️ Lees de overeenkomst zorgvuldig door.</strong> Scroll naar beneden om digitaal te ondertekenen.
+                        <strong>⚠️ Lees de overeenkomst zorgvuldig door.</strong> Scroll naar beneden om {isAannemerMode ? 'jouw eigen handtekening te plaatsen' : 'digitaal te ondertekenen'}.
                     </div>
                     <button onClick={handleBack} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(146,64,14,0.3)', cursor: 'pointer', background: '#ffe4c4', color: '#92400e', fontSize: '0.7rem', fontWeight: 700, marginLeft: '12px', flexShrink: 0 }}>
                         ← Terug
@@ -567,7 +584,7 @@ export default function ContractSignPage() {
                 ))}
 
                 {/* ═══ SIGNATURE PAD ═══ */}
-                {(!signed || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'aannemer')) && <div className="no-print" style={{ marginTop: '20px' }}>
+                {(!signed && !(isAannemerMode && hasAannemerSigned)) && <div className="no-print" style={{ marginTop: '20px' }}>
                     {!isSigning ? (
                         <button onClick={() => setIsSigning(true)}
                             style={{
@@ -576,8 +593,8 @@ export default function ContractSignPage() {
                                 fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
                                 boxShadow: '0 4px 16px rgba(37,211,102,0.3)'
                             }}>
-                            {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'aannemer' 
-                                ? '✍️ Ik teken dit contract en verstuur direct de link naar de ZZP\'er' 
+                            {isAannemerMode 
+                                ? '✍️ Ik plaats hier mijn paraaf en handtekening (als Aannemer)' 
                                 : '✍️ Ik ga digitaal akkoord met deze overeenkomst'}
                         </button>
                     ) : (
@@ -593,21 +610,6 @@ export default function ContractSignPage() {
                             <canvas ref={canvasRef}
                                 style={{ width: '100%', height: '200px', cursor: 'crosshair', touchAction: 'none', background: '#fefce8' }} />
                             
-                            {signingStep === 2 && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'aannemer' && (
-                                <div style={{ padding: '12px 16px', background: '#f1f5f9', borderTop: '1px solid #e2e8f0' }}>
-                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                                        📱 Telefoonnummer ZZP'er (voor verzenden link)
-                                    </label>
-                                    <input 
-                                       type="text" 
-                                       value={customTelefoon}
-                                       onChange={e => setCustomTelefoon(e.target.value)}
-                                       placeholder="Bijv. 0612345678"
-                                       style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                    />
-                                </div>
-                            )}
-
                             <div style={{ padding: '12px 16px', display: 'flex', gap: '8px' }}>
                                 <button onClick={clearCanvas}
                                     style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', cursor: 'pointer', background: '#fff', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>
@@ -618,7 +620,7 @@ export default function ContractSignPage() {
                                         flex: 2, padding: '12px', borderRadius: '10px', border: 'none', cursor: hasDrawn ? 'pointer' : 'not-allowed',
                                         background: hasDrawn ? '#22c55e' : '#cbd5e1', color: '#fff', fontSize: '0.85rem', fontWeight: 700
                                     }}>
-                                    {signingStep === 1 ? 'Opslaan & Volgende' : (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'aannemer' ? '✅ Opslaan & Doorsturen naar ZZP\'er' : '✅ Bevestigen & Ondertekenen')}
+                                    {signingStep === 1 ? 'Opslaan & Volgende' : '✅ Handtekening Maken'}
                                 </button>
                             </div>
                         </div>
@@ -657,8 +659,8 @@ export default function ContractSignPage() {
                         fontSize: '1.1rem', color: '#64748b', maxWidth: '400px', textAlign: 'center',
                         lineHeight: 1.5, fontFamily: "'Inter', sans-serif", marginBottom: '30px'
                     }}>
-                        {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'aannemer'
-                            ? 'We brengen je nu direct naar WhatsApp om de link te versturen...'
+                        {isAannemerMode
+                            ? 'Jouw handtekening staat netjes op zijn plek. Je kunt hem nu rustig controleren op de achtergrond!'
                             : 'Het document is nu officieel en definitief. Je kunt direct een kopie opslaan voor je eigen administratie.'}
                     </p>
 
