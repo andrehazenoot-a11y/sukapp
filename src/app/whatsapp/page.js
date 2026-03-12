@@ -133,12 +133,97 @@ export default function WhatsAppPage() {
     const [newMw, setNewMw] = useState({ naam: '', telefoon: '', type: 'medewerker', uurtarief: 0, kvk: '', btwNummer: '', adres: '', postcode: '', vcaVerloopdatum: '', avbVerloopdatum: '', cavVerloopdatum: '' });
 
     // ─── Modelovereenkomst panel collapse states ───
-    const [showBriefpapierPanel, setShowBriefpapierPanel] = useState(true);
+    const [showBriefpapierPanel, setShowBriefpapierPanel] = useState(false);
     const [showContractFormPanel, setShowContractFormPanel] = useState(true);
     const [showVoorbeeldPanel, setShowVoorbeeldPanel] = useState(true);
     const [autoVerdeel, setAutoVerdeel] = useState(true);
     const [resetKey, setResetKey] = useState(0);
     const [showContractConfirm, setShowContractConfirm] = useState(false);
+
+    // ─── Inline Aannemer Signing Flow ───
+    const [signFlow, setSignFlow] = useState(null); // null | { step: 'sign'|'dispatch', contractData, paraaf, handtekening }
+    const signCanvasRef = useRef(null);
+    const [signHasDrawn, setSignHasDrawn] = useState(false);
+    const [signStep, setSignStep] = useState(1); // 1=paraaf 2=handtekening
+    const [signTempParaaf, setSignTempParaaf] = useState(null);
+
+    const signClear = () => {
+        if (!signCanvasRef.current) return;
+        const ctx = signCanvasRef.current.getContext('2d');
+        ctx.clearRect(0, 0, signCanvasRef.current.width, signCanvasRef.current.height);
+        setSignHasDrawn(false);
+    };
+
+    // Canvas setup wanneer signing modal opent
+    useEffect(() => {
+        if (!signFlow || signFlow.step !== 'sign' || !signCanvasRef.current) return;
+        const canvas = signCanvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * 2;
+        canvas.height = rect.height * 2;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(2, 2);
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        let drawing = false, lastX = 0, lastY = 0;
+        const getPos = (e) => { const r = canvas.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top }; };
+        const onStart = (e) => { e.preventDefault(); drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; };
+        const onMove = (e) => { if (!drawing) return; e.preventDefault(); const p = getPos(e); ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke(); lastX = p.x; lastY = p.y; setSignHasDrawn(true); };
+        const onEnd = () => { drawing = false; };
+        canvas.addEventListener('mousedown', onStart);
+        canvas.addEventListener('mousemove', onMove);
+        canvas.addEventListener('mouseup', onEnd);
+        canvas.addEventListener('mouseleave', onEnd);
+        canvas.addEventListener('touchstart', onStart, { passive: false });
+        canvas.addEventListener('touchmove', onMove, { passive: false });
+        canvas.addEventListener('touchend', onEnd);
+        return () => {
+            canvas.removeEventListener('mousedown', onStart);
+            canvas.removeEventListener('mousemove', onMove);
+            canvas.removeEventListener('mouseup', onEnd);
+            canvas.removeEventListener('mouseleave', onEnd);
+            canvas.removeEventListener('touchstart', onStart);
+            canvas.removeEventListener('touchmove', onMove);
+            canvas.removeEventListener('touchend', onEnd);
+        };
+    }, [signFlow, signStep]);
+
+    const signNextStep = () => {
+        if (!signHasDrawn || !signCanvasRef.current) return;
+        if (signStep === 1) {
+            setSignTempParaaf(signCanvasRef.current.toDataURL('image/png'));
+            setSignStep(2);
+            setSignHasDrawn(false);
+            setTimeout(() => {
+                if (signCanvasRef.current) {
+                    const ctx = signCanvasRef.current.getContext('2d');
+                    ctx.clearRect(0, 0, signCanvasRef.current.width, signCanvasRef.current.height);
+                }
+            }, 50);
+        } else {
+            const handtekening = signCanvasRef.current.toDataURL('image/png');
+            const todayStr = new Date().toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
+            // Sla contract op met aannemer-handtekening
+            const savedContract = signFlow.contractData;
+            const finalContract = {
+                ...savedContract,
+                aannemerHandtekening: handtekening,
+                aannemerParaaf: signTempParaaf,
+                aannemerDatum: todayStr,
+            };
+            setContracten(prev => {
+                const updated = prev.map(c => c.id === finalContract.id ? finalContract : c);
+                localStorage.setItem('wa_contracten', JSON.stringify(updated));
+                return updated;
+            });
+            setSignFlow({ step: 'dispatch', contractData: finalContract });
+            setSignStep(1);
+            setSignTempParaaf(null);
+            setSignHasDrawn(false);
+        }
+    };
 
     // Bouw de print-HTML op vanuit de huidige preview-pagina's
     const buildPrintHtml = () => {
@@ -563,20 +648,20 @@ export default function WhatsAppPage() {
         if (activeTemplateId === id) setActiveTemplateId('standaard');
     };
 
-    const generateContract = () => {
+    const generateContract = (extraData = {}) => {
         const mw = medewerkers.find(m => m.id === newContract.medewerkerId);
         const prj = projecten.find(p => p.id === newContract.projectId);
-        if (!mw || !prj) return;
+        if (!mw || !prj) return null;
         const totaal = newContract.totaalOvereenkomst || (newContract.uurtarief * newContract.totaalUren);
 
-        // ── Auto contractnummer: DS-JJJJ-NNNN ──
+        // Auto contractnummer: SUK-JJJJ-NNNN
         const jaar = new Date().getFullYear();
         const bestaandeDitJaar = contracten.filter(c => c.contractnummer?.startsWith(`SUK-${jaar}-`)).length;
         const volgnummer = String(bestaandeDitJaar + 1).padStart(4, '0');
         const contractnummer = `SUK-${jaar}-${volgnummer}`;
 
         const pdfHtml = buildPrintHtml() || '';
-        setContracten(prev => [...prev, {
+        const contractData = {
             id: String(Date.now()),
             contractnummer,
             medewerkerId: mw.id, medewerkerNaam: mw.naam, medewerkerTelefoon: mw.telefoon, medewerkerKvk: mw.kvk || '',
@@ -600,10 +685,13 @@ export default function WhatsAppPage() {
             getekend: false, getekendDatum: '',
             aangemaakt: new Date().toISOString(),
             pdfHtml,
-        }]);
-        // Auto-print PDF
-        setTimeout(() => printFromHtml(pdfHtml), 400);
-
+            ...extraData,
+        };
+        setContracten(prev => {
+            const updated = [...prev, contractData];
+            localStorage.setItem('wa_contracten', JSON.stringify(updated));
+            return updated;
+        });
         setShowNewContract(false);
         setNewContract({
             medewerkerId: '', projectId: '', werkzaamheden: 'Schilderwerk binnen/buiten',
@@ -614,6 +702,7 @@ export default function WhatsAppPage() {
             vcaCertificaat: 'wel', btwVerlegd: 'wel', weekrapporten: 'wel',
             mandagenregister: 'wel', kostenVerrekend: 'niet',
         });
+        return contractData;
     };
 
     const sendContractWhatsApp = (contract) => {
@@ -731,6 +820,25 @@ export default function WhatsAppPage() {
 
     const [editUrenId, setEditUrenId] = useState(null);
     const [editWaarden, setEditWaarden] = useState({});
+    const [editMwId, setEditMwId] = useState(null);
+    const [editMwData, setEditMwData] = useState({});
+
+    // CSV export voor urenlog
+    const exportUrenCsv = () => {
+        const headers = ['Datum', 'Medewerker', 'Project', 'Uren', 'Pauze (min)', 'Status', 'Pre-Contract'];
+        const rows = urenLog.map(u => [
+            u.datum, u.medewerkerNaam, u.projectNaam, u.uren, u.pauze || 0,
+            u.status || 'pending', u.preContract ? 'Ja' : 'Nee'
+        ]);
+        const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '\'')}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `uren-export-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
 
     const sendUrenAfkeurWhatsApp = (u, opmerking) => {
         const medewerker = medewerkers.find(m => m.id === u.medewerkerId);
@@ -776,30 +884,120 @@ export default function WhatsAppPage() {
             </div>
 
             {/* Tab Navigation */}
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
-                {[
-                    { id: 'uren', icon: 'fa-clock', label: 'Urenregistratie' },
-                    { id: 'nieuw_contract', icon: 'fa-file-circle-plus', label: 'Nieuw Modelovereenkomst' },
-                    { id: 'overzicht_contract', icon: 'fa-folder-open', label: 'Gemaakte Modelovereenkomsten' },
-                    { id: 'termijnen', icon: 'fa-chart-bar', label: 'Termijn & Factuur' },
-                ].map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                        style={{
-                            flex: 1, padding: '10px 12px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-                            fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-                            background: activeTab === tab.id ? '#25D366' : 'transparent',
-                            color: activeTab === tab.id ? '#fff' : '#64748b',
-                            transition: 'all 0.15s'
-                        }}>
-                        <i className={`fa-solid ${tab.icon}`}></i>{tab.label}
-                    </button>
-                ))}
-            </div>
+            {(() => {
+                const teOndertekenenCount = contracten.filter(c => !c.getekend && (c.kanbanStatus === 'Nog te ondertekenen' || !c.kanbanStatus)).length;
+                const openUrenCount = urenLog.filter(u => !u.status || u.status === 'pending').length;
+                const tabs = [
+                    { id: 'uren', icon: 'fa-clock', label: 'Urenregistratie', badge: openUrenCount > 0 ? openUrenCount : null, badgeColor: '#F5850A' },
+                    { id: 'nieuw_contract', icon: 'fa-file-circle-plus', label: 'Nieuw Contract', badge: null },
+                    { id: 'overzicht_contract', icon: 'fa-folder-open', label: 'Contracten', badge: contracten.length > 0 ? contracten.length : null, badgeColor: '#3b82f6' },
+                    { id: 'termijnen', icon: 'fa-chart-bar', label: 'Termijn & Factuur', badge: teOndertekenenCount > 0 ? teOndertekenenCount : null, badgeColor: '#f59e0b' },
+                ];
+                return (
+                    <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+                        {tabs.map(tab => (
+                            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                                style={{
+                                    flex: 1, padding: '10px 12px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                                    fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+                                    background: activeTab === tab.id ? '#25D366' : 'transparent',
+                                    color: activeTab === tab.id ? '#fff' : '#64748b',
+                                    transition: 'all 0.15s', position: 'relative'
+                                }}>
+                                <i className={`fa-solid ${tab.icon}`}></i>
+                                {tab.label}
+                                {tab.badge && (
+                                    <span style={{
+                                        position: 'absolute', top: '4px', right: '6px',
+                                        background: activeTab === tab.id ? 'rgba(255,255,255,0.9)' : tab.badgeColor,
+                                        color: activeTab === tab.id ? tab.badgeColor : '#fff',
+                                        fontSize: '0.58rem', fontWeight: 800,
+                                        borderRadius: '99px', padding: '1px 5px',
+                                        minWidth: '16px', textAlign: 'center', lineHeight: '14px'
+                                    }}>{tab.badge}</span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                );
+            })()}
 
             {/* ════════════════════════════════════════ */}
             {/* MODULE 1 — URENREGISTRATIE             */}
             {/* ════════════════════════════════════════ */}
             {activeTab === 'uren' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                {/* ── Weekoverzicht banner ── */}
+                {(() => {
+                    const nu = new Date();
+                    const dagVanWeek = (nu.getDay() + 6) % 7; // 0=ma
+                    const weekStart = new Date(nu); weekStart.setDate(nu.getDate() - dagVanWeek); weekStart.setHours(0,0,0,0);
+                    const weekEind = new Date(weekStart); weekEind.setDate(weekStart.getDate() + 6); weekEind.setHours(23,59,59,999);
+                    // ISO week number
+                    const d = new Date(Date.UTC(nu.getFullYear(), nu.getMonth(), nu.getDate()));
+                    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+                    const isoWeek = Math.ceil((((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 1))) / 86400000) + 1) / 7);
+
+                    const dezeWeekUren = urenLog.filter(u => {
+                        const d = new Date(u.datum + 'T12:00:00');
+                        return d >= weekStart && d <= weekEind;
+                    });
+                    const totaalDezeWeek = dezeWeekUren.reduce((s, u) => s + (u.uren || 0), 0);
+                    const openDezeWeek = dezeWeekUren.filter(u => !u.status || u.status === 'pending').length;
+
+                    // Per medewerker aggregeren
+                    const perMw = {};
+                    dezeWeekUren.forEach(u => {
+                        if (!perMw[u.medewerkerId]) perMw[u.medewerkerId] = { naam: u.medewerkerNaam, uren: 0 };
+                        perMw[u.medewerkerId].uren += u.uren || 0;
+                    });
+                    const mwLijst = Object.values(perMw).sort((a, b) => b.uren - a.uren);
+                    const maxUren = mwLijst[0]?.uren || 1;
+
+                    return (
+                        <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '14px', padding: '16px 20px', color: '#fff', display: 'flex', gap: '20px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+                            {/* Week-badge */}
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minWidth: '80px', borderRight: '1px solid rgba(255,255,255,0.1)', paddingRight: '20px' }}>
+                                <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>Week</div>
+                                <div style={{ fontSize: '2.2rem', fontWeight: 900, lineHeight: 1, color: '#25D366' }}>{isoWeek}</div>
+                                <div style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '4px' }}>
+                                    {weekStart.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} – {weekEind.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                                </div>
+                            </div>
+                            {/* Totaal uren */}
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: '120px', borderRight: '1px solid rgba(255,255,255,0.1)', paddingRight: '20px' }}>
+                                <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Totaal deze week</div>
+                                <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', lineHeight: 1 }}>{totaalDezeWeek.toFixed(1)} <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#94a3b8' }}>uur</span></div>
+                                <div style={{ fontSize: '0.62rem', color: openDezeWeek > 0 ? '#fbbf24' : '#22c55e', marginTop: '4px', fontWeight: 600 }}>
+                                    {openDezeWeek > 0 ? `⏳ ${openDezeWeek} open` : dezeWeekUren.length > 0 ? '✅ Alles goedgekeurd' : '— geen registraties'}
+                                </div>
+                            </div>
+                            {/* Per-medewerker mini-bars */}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px', justifyContent: 'center' }}>
+                                {mwLijst.length === 0 ? (
+                                    <div style={{ fontSize: '0.78rem', color: '#475569', fontStyle: 'italic' }}>Nog geen registraties deze week.</div>
+                                ) : mwLijst.slice(0, 4).map(mw => (
+                                    <div key={mw.naam} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ fontSize: '0.7rem', color: '#cbd5e1', fontWeight: 600, minWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mw.naam.split(' ')[0]}</div>
+                                        <div style={{ flex: 1, background: 'rgba(255,255,255,0.08)', borderRadius: '99px', height: '6px', overflow: 'hidden' }}>
+                                            <div style={{ width: `${(mw.uren / maxUren) * 100}%`, height: '100%', background: 'linear-gradient(90deg, #25D366, #128C7E)', borderRadius: '99px', transition: 'width 0.4s' }}></div>
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', minWidth: '40px', textAlign: 'right', fontWeight: 700 }}>{mw.uren.toFixed(1)}u</div>
+                                    </div>
+                                ))}
+                            </div>
+                            {/* Exportknop */}
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '6px' }}>
+                                <button onClick={exportUrenCsv} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fa-solid fa-file-csv" style={{ color: '#22c55e' }}></i> Export CSV
+                                </button>
+                                <div style={{ fontSize: '0.6rem', color: '#475569', textAlign: 'center' }}>{urenLog.length} totaal</div>
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
 
                     {/* Left: Beheer + Log */}
@@ -933,7 +1131,10 @@ export default function WhatsAppPage() {
                                                 <button onClick={() => startSim(mw)} style={{ ...btnSecondary, padding: '5px 10px', fontSize: '0.72rem' }}>
                                                     <i className="fa-brands fa-whatsapp" style={{ color: '#25D366' }}></i>Simuleer
                                                 </button>
-                                                <button onClick={() => setMedewerkers(prev => prev.filter(m => m.id !== mw.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem' }}>
+                                                <button onClick={() => { setEditMwId(mw.id); setEditMwData({ ...mw }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: '0.8rem', padding: '4px' }}>
+                                                    <i className="fa-solid fa-pen"></i>
+                                                </button>
+                                                <button onClick={() => { if (window.confirm(`${mw.naam} verwijderen?`)) setMedewerkers(prev => prev.filter(m => m.id !== mw.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem', padding: '4px' }}>
                                                     <i className="fa-solid fa-trash-can"></i>
                                                 </button>
                                             </div>
@@ -942,6 +1143,60 @@ export default function WhatsAppPage() {
                                 })}
                             </div>
                         </div>
+
+                        {/* Medewerker bewerken modal */}
+                        {editMwId && (
+                            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ background: '#fff', borderRadius: '16px', padding: '24px', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
+                                            <i className="fa-solid fa-pen" style={{ color: '#3b82f6', marginRight: '8px' }}></i>
+                                            Medewerker bewerken
+                                        </h3>
+                                        <button onClick={() => setEditMwId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem' }}>✕</button>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                        <div><label style={labelS}>Naam</label><input style={inputS} value={editMwData.naam || ''} onChange={e => setEditMwData({ ...editMwData, naam: e.target.value })} /></div>
+                                        <div><label style={labelS}>Telefoon</label><input style={inputS} value={editMwData.telefoon || ''} onChange={e => setEditMwData({ ...editMwData, telefoon: e.target.value })} /></div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 90px', gap: '10px', marginBottom: '10px' }}>
+                                        <div><label style={labelS}>Type</label>
+                                            <select style={inputS} value={editMwData.type || 'medewerker'} onChange={e => setEditMwData({ ...editMwData, type: e.target.value })}>
+                                                <option value="medewerker">Medewerker</option>
+                                                <option value="zzp">ZZP&apos;er</option>
+                                            </select>
+                                        </div>
+                                        <div><label style={labelS}>KvK-nummer</label><input style={inputS} value={editMwData.kvk || ''} onChange={e => setEditMwData({ ...editMwData, kvk: e.target.value })} placeholder="12345678" /></div>
+                                        <div><label style={labelS}>Uurtarief (€)</label><input style={inputS} type="number" value={editMwData.uurtarief || ''} onChange={e => setEditMwData({ ...editMwData, uurtarief: parseFloat(e.target.value) || 0 })} /></div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                        <div><label style={labelS}>BTW-nummer</label><input style={inputS} value={editMwData.btwNummer || ''} onChange={e => setEditMwData({ ...editMwData, btwNummer: e.target.value })} placeholder="NL123456789B01" /></div>
+                                        <div><label style={labelS}>E-mail</label><input style={inputS} type="email" value={editMwData.email || ''} onChange={e => setEditMwData({ ...editMwData, email: e.target.value })} placeholder="naam@zzp.nl" /></div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                        <div><label style={labelS}>Adres</label><input style={inputS} value={editMwData.adres || ''} onChange={e => setEditMwData({ ...editMwData, adres: e.target.value })} /></div>
+                                        <div><label style={labelS}>Postcode + Plaats</label><input style={inputS} value={editMwData.postcode || ''} onChange={e => setEditMwData({ ...editMwData, postcode: e.target.value })} /></div>
+                                    </div>
+                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '8px', marginTop: '4px' }}>
+                                        <i className="fa-solid fa-certificate" style={{ marginRight: '5px' }}></i>Documenten &amp; Certificaten
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+                                        <div><label style={labelS}>VCA verloopdatum</label><input style={inputS} type="date" value={editMwData.vcaVerloopdatum || ''} onChange={e => setEditMwData({ ...editMwData, vcaVerloopdatum: e.target.value })} /></div>
+                                        <div><label style={labelS}>AVB verloopdatum</label><input style={inputS} type="date" value={editMwData.avbVerloopdatum || ''} onChange={e => setEditMwData({ ...editMwData, avbVerloopdatum: e.target.value })} /></div>
+                                        <div><label style={labelS}>CAV verloopdatum</label><input style={inputS} type="date" value={editMwData.cavVerloopdatum || ''} onChange={e => setEditMwData({ ...editMwData, cavVerloopdatum: e.target.value })} /></div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                        <button onClick={() => setEditMwId(null)} style={btnSecondary}>Annuleren</button>
+                                        <button onClick={() => {
+                                            setMedewerkers(prev => prev.map(m => m.id === editMwId ? { ...editMwData } : m));
+                                            setEditMwId(null);
+                                        }} style={btnPrimary}>
+                                            <i className="fa-solid fa-check"></i> Opslaan
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Projecten */}
                         <div style={panelS}>
@@ -983,10 +1238,20 @@ export default function WhatsAppPage() {
                                 <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
                                     <i className="fa-solid fa-list-check" style={{ color: '#F5850A', marginRight: '8px' }}></i>Urenregistraties
                                     <span style={{ marginLeft: '8px', background: '#F5850A', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem' }}>{urenLog.length}</span>
+                                    {urenLog.filter(u => !u.status || u.status === 'pending').length > 0 && (
+                                        <span style={{ marginLeft: '4px', background: '#fef9c3', color: '#92400e', border: '1px solid #fde047', padding: '2px 6px', borderRadius: '10px', fontSize: '0.65rem', fontWeight: 700 }}>
+                                            ⏳ {urenLog.filter(u => !u.status || u.status === 'pending').length} open
+                                        </span>
+                                    )}
                                 </h3>
-                                <button onClick={() => setShowManualEntry(!showManualEntry)} style={{ ...btnPrimary, background: '#F5850A' }}>
-                                    <i className="fa-solid fa-plus"></i>Handmatig
-                                </button>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button onClick={exportUrenCsv} title="Exporteer naar CSV" style={{ ...btnSecondary, padding: '6px 10px' }}>
+                                        <i className="fa-solid fa-file-csv" style={{ color: '#16a34a' }}></i>
+                                    </button>
+                                    <button onClick={() => setShowManualEntry(!showManualEntry)} style={{ ...btnPrimary, background: '#F5850A' }}>
+                                        <i className="fa-solid fa-plus"></i>Handmatig
+                                    </button>
+                                </div>
                             </div>
                             {showManualEntry && (
                                 <div style={{ padding: '12px 20px', background: 'rgba(245,133,10,0.04)', borderBottom: '1px solid #e2e8f0' }}>
@@ -1024,23 +1289,65 @@ export default function WhatsAppPage() {
                                         <i className="fa-solid fa-inbox" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '6px', color: '#cbd5e1' }}></i>
                                         Nog geen urenregistraties. Start een WhatsApp simulatie of voeg handmatig toe.
                                     </div>
-                                ) : urenLog.map(entry => (
-                                    <div key={entry.id} style={{ padding: '8px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', fontSize: '0.82rem' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#25D366', fontWeight: 800, fontSize: '0.75rem' }}>
-                                                {entry.uren}u
+                                ) : urenLog.map(entry => {
+                                    const statusBadge = entry.status === 'goedgekeurd'
+                                        ? { label: '✅ Ok', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }
+                                        : entry.status === 'afgekeurd'
+                                        ? { label: '❌ Afg.', bg: '#fef2f2', color: '#b91c1c', border: '#fca5a5' }
+                                        : entry.preContract
+                                        ? { label: '⚠️ Pre', bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
+                                        : { label: '⏳', bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
+                                    return (
+                                        <div key={entry.id} style={{
+                                            padding: '8px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                            borderBottom: '1px solid #f1f5f9', fontSize: '0.82rem',
+                                            background: entry.status === 'afgekeurd' ? 'rgba(239,68,68,0.02)' : 'transparent'
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div style={{
+                                                    width: '34px', height: '34px', borderRadius: '8px',
+                                                    background: statusBadge.bg, border: `1px solid ${statusBadge.border}`,
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    color: statusBadge.color, fontWeight: 800, fontSize: '0.72rem'
+                                                }}>
+                                                    {entry.uren}u
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        {entry.medewerkerNaam}
+                                                        <span style={{ fontSize: '0.58rem', fontWeight: 700, padding: '1px 5px', borderRadius: '99px', background: statusBadge.bg, color: statusBadge.color, border: `1px solid ${statusBadge.border}` }}>
+                                                            {statusBadge.label}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                                                        {entry.projectNaam}
+                                                        {entry.opmerking && <span style={{ marginLeft: '4px', color: '#ef4444' }}>— {entry.opmerking}</span>}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <div style={{ fontWeight: 600 }}>{entry.medewerkerNaam}</div>
-                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{entry.projectNaam}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <div style={{ textAlign: 'right' }}>
+                                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{entry.datum}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                                                        {entry.pauze ? `☕ ${entry.pauze}min` : ''} {entry.tijdstempel || ''}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        if (window.confirm(`Weet je zeker dat je de registratie van ${entry.medewerkerNaam} (${entry.datum}) wilt verwijderen?`)) {
+                                                            setUrenLog(prev => prev.filter(u => u.id !== entry.id));
+                                                        }
+                                                    }}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px' }}
+                                                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                                    onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}
+                                                >
+                                                    <i className="fa-solid fa-trash-can" style={{ fontSize: '0.72rem' }}></i>
+                                                </button>
                                             </div>
                                         </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{entry.datum}</div>
-                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{entry.tijdstempel}</div>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
@@ -1110,7 +1417,8 @@ export default function WhatsAppPage() {
                                 </div>
                             )}
                         </div>
-                    </div>
+                       </div>
+                </div>
                 </div>
             )}
 
@@ -1462,70 +1770,38 @@ export default function WhatsAppPage() {
                                     <button onClick={() => setShowNewContract(false)} style={btnSecondary}>Annuleren</button>
                                 </div>
 
-                                {/* Bevestigingspopup */}
+                                {/* ── Bevestigingspopup → Inline Sign Flow ── */}
                                 {showContractConfirm && (
                                     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         onClick={() => setShowContractConfirm(false)}
                                     >
-                                        <div style={{ background: '#fff', borderRadius: '16px', padding: '32px 36px', maxWidth: '420px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', position: 'relative' }}
+                                        <div style={{ background: '#fff', borderRadius: '16px', padding: '28px 32px', maxWidth: '400px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
                                             onClick={e => e.stopPropagation()}
                                         >
-                                            {/* Icoon */}
-                                            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fff7ed', border: '2px solid #fed7aa', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                                                <i className="fa-solid fa-eye" style={{ fontSize: '1.4rem', color: '#F5850A' }}></i>
+                                            <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#f0fdf4', border: '2px solid #86efac', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+                                                <i className="fa-solid fa-file-circle-plus" style={{ fontSize: '1.3rem', color: '#16a34a' }}></i>
                                             </div>
-                                            <h3 style={{ margin: '0 0 8px', fontSize: '1rem', fontWeight: 700, color: '#1e293b', textAlign: 'center' }}>
-                                                Controleer het previewvenster
-                                            </h3>
-                                            <p style={{ margin: '0 0 6px', fontSize: '0.82rem', color: '#475569', textAlign: 'center', lineHeight: 1.6 }}>
-                                                Controleer het <strong>Voorbeeld Document</strong> en kies hoe u verder wilt gaan.
+                                            <h3 style={{ margin: '0 0 6px', fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', textAlign: 'center' }}>Contract aanmaken en tekenen?</h3>
+                                            <p style={{ margin: '0 0 18px', fontSize: '0.78rem', color: '#64748b', textAlign: 'center', lineHeight: 1.5 }}>
+                                                Het contract wordt direct aangemaakt. Daarna zet jij meteen jouw paraaf en handtekening (als aannemer), waarna je het via WhatsApp doorstuurt naar de ZZP'er.
                                             </p>
-                                            {/* Optie 1: Ter review via WhatsApp */}
-                                            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 16px', marginBottom: '10px', cursor: 'pointer', transition: 'background 0.15s' }}
+                                            <button
                                                 onClick={() => {
-                                                    const reviewMw = medewerkers.find(m => m.id === newContract.medewerkerId);
-                                                    const reviewPrj = projecten.find(p => p.id === newContract.projectId);
-                                                    const payload = btoa(unescape(encodeURIComponent(JSON.stringify({
-                                                        cn: newContract.contractnummer,
-                                                        naam: reviewMw?.naam || '??',
-                                                        project: reviewPrj?.name || '??',
-                                                        start: newContract.startDatum,
-                                                        eind: newContract.eindDatum,
-                                                        totaal: newContract.totaalOvereenkomst,
-                                                        uren: newContract.totaalUren,
-                                                    }))));
-                                                    const reviewUrl = `${window.location.origin}/review?d=${payload}`;
-                                                    const msg = encodeURIComponent(`Beste collega 👋\n\nKun jij dit concept contract even controleren?\n\n📋 Contract: *${newContract.contractnummer}*\n👷 ZZP: ${reviewMw?.naam || '??'}\n🏗️ Project: ${reviewPrj?.name || '??'}\n📅 ${newContract.startDatum} t/m ${newContract.eindDatum}\n💶 € ${(newContract.totaalOvereenkomst || 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}\n\n🔗 Bekijk & beoordeel: ${reviewUrl}`);
-                                                    window.open(`https://wa.me/?text=${msg}`, '_blank');
                                                     setShowContractConfirm(false);
+                                                    const cd = generateContract();
+                                                    if (cd) { setSignFlow({ step: 'sign', contractData: cd }); setSignStep(1); setSignHasDrawn(false); setSignTempParaaf(null); }
                                                 }}
-                                                onMouseEnter={e => e.currentTarget.style.background = '#dcfce7'}
-                                                onMouseLeave={e => e.currentTarget.style.background = '#f0fdf4'}
+                                                style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #16a34a, #15803d)', color: '#fff', fontSize: '0.85rem', fontWeight: 700, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                                             >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                    <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.4rem', color: '#16a34a' }}></i>
-                                                    <div style={{ textAlign: 'left' }}>
-                                                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#15803d' }}>Ter review delen via WhatsApp</div>
-                                                        <div style={{ fontSize: '0.72rem', color: '#4ade80' }}>Collega beoordeelt → goedkeuren of afkeuren met opmerking</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {/* Optie 2: Direct aanmaken */}
-                                            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px', cursor: 'pointer', transition: 'background 0.15s' }}
-                                                onClick={() => { setShowContractConfirm(false); generateContract(); setActiveTab('overzicht_contract'); }}
-                                                onMouseEnter={e => e.currentTarget.style.background = '#dbeafe'}
-                                                onMouseLeave={e => e.currentTarget.style.background = '#eff6ff'}
+                                                <i className="fa-solid fa-pen-nib"></i> Aanmaken & Nu Tekenen
+                                            </button>
+                                            <button onClick={() => { setShowContractConfirm(false); generateContract(); setActiveTab('overzicht_contract'); }}
+                                                style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0', cursor: 'pointer', background: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: 600, marginBottom: '8px' }}
                                             >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                    <i className="fa-solid fa-file-circle-plus" style={{ fontSize: '1.2rem', color: '#2563eb' }}></i>
-                                                    <div style={{ textAlign: 'left' }}>
-                                                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1d4ed8' }}>Direct aanmaken</div>
-                                                        <div style={{ fontSize: '0.72rem', color: '#60a5fa' }}>Review is niet nodig — meteen definitief opslaan</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <button onClick={() => setShowContractConfirm(false)} style={{ ...btnSecondary, fontSize: '0.78rem', width: '100%', justifyContent: 'center' }}>
-                                                <i className="fa-solid fa-arrow-left"></i> Terug naar preview
+                                                Aanmaken zonder tekenen
+                                            </button>
+                                            <button onClick={() => setShowContractConfirm(false)} style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', padding: '4px' }}>
+                                                ← Terug naar preview
                                             </button>
                                         </div>
                                     </div>
@@ -1533,6 +1809,111 @@ export default function WhatsAppPage() {
                             </div>
                         )}
                     </div>
+
+                    {/* ── Inline Aannemer Signing Modal (buiten formulierblok) ── */}
+                    {signFlow && (
+                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+                            <div style={{ background: '#fff', borderRadius: '20px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.35)' }}>
+
+                                {signFlow.step === 'sign' && (
+                                    <>
+                                        {/* Header */}
+                                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', background: 'linear-gradient(135deg, #1e293b, #334155)', borderRadius: '20px 20px 0 0', color: '#fff' }}>
+                                            <div style={{ fontSize: '0.72rem', fontWeight: 700, opacity: 0.65, marginBottom: '4px', letterSpacing: '0.08em' }}>STAP {signStep} VAN 2</div>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: 800 }}>
+                                                {signStep === 1 ? '✍️ Zet jouw paraaf (Aannemer)' : '✍️ Zet jouw handtekening (Aannemer)'}
+                                            </div>
+                                            <div style={{ fontSize: '0.72rem', opacity: 0.7, marginTop: '3px' }}>
+                                                {signStep === 1 ? 'Paraaf komt onderaan elke pagina.' : 'Handtekening komt op de laatste pagina.'}
+                                            </div>
+                                            <div style={{ marginTop: '10px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.15)' }}>
+                                                <div style={{ height: '100%', borderRadius: '2px', background: '#25D366', width: signStep === 1 ? '50%' : '100%', transition: 'width 0.3s' }} />
+                                            </div>
+                                        </div>
+                                        {/* Canvas */}
+                                        <div style={{ padding: '16px 20px' }}>
+                                            <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '8px', textAlign: 'center' }}>Teken hieronder met je muis of vinger</div>
+                                            <canvas ref={signCanvasRef}
+                                                style={{ width: '100%', height: '160px', borderRadius: '10px', border: '2px dashed #cbd5e1', cursor: 'crosshair', touchAction: 'none', background: '#fefce8', display: 'block' }}
+                                            />
+                                            {signStep === 2 && signTempParaaf && (
+                                                <div style={{ marginTop: '8px', fontSize: '0.68rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <span>Paraaf opgeslagen:</span>
+                                                    <img src={signTempParaaf} style={{ height: '24px', opacity: 0.7 }} alt="paraaf" />
+                                                </div>
+                                            )}
+                                        </div>
+                                        {/* Buttons */}
+                                        <div style={{ padding: '0 20px 20px', display: 'flex', gap: '8px' }}>
+                                            <button onClick={signClear} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>🗑️ Wissen</button>
+                                            <button onClick={signNextStep} disabled={!signHasDrawn}
+                                                style={{ flex: 2, padding: '10px', borderRadius: '8px', border: 'none', cursor: signHasDrawn ? 'pointer' : 'not-allowed', background: signHasDrawn ? '#16a34a' : '#cbd5e1', color: '#fff', fontSize: '0.82rem', fontWeight: 700 }}
+                                            >
+                                                {signStep === 1 ? 'Volgende →' : '✅ Bevestig Handtekening'}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+
+                                {signFlow.step === 'dispatch' && (() => {
+                                    const dc = signFlow.contractData;
+                                    const zzp = medewerkers.find(m => m.id === dc.medewerkerId);
+                                    const email = zzp?.email || '';
+                                    const signUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/contract/${dc.id}`;
+                                    const bedrag = `€ ${(dc.totaalBedrag || 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}`;
+                                    const voornaam = dc.medewerkerNaam.split(' ')[0];
+                                    const waMsg = `Hoi ${voornaam} 👋\n\nEr staat een nieuwe modelovereenkomst voor je klaar.\n\n📋 ${dc.contractnummer}\n🏗️ ${dc.projectNaam}\n💶 ${bedrag} excl. BTW\n\nKlik hier om te bekijken en te tekenen:\n${signUrl}`;
+                                    const phone = (dc.medewerkerTelefoon || '').replace(/^0/, '31');
+                                    const mailBody = `Beste ${voornaam},\n\nEr staat een nieuwe modelovereenkomst voor je klaar.\n\n${dc.contractnummer}\nProject: ${dc.projectNaam}\nPeriode: ${dc.startDatum} t/m ${dc.eindDatum}\nBedrag: ${bedrag} excl. BTW\n\nKlik op onderstaande link om het contract te bekijken, paraferen en te ondertekenen:\n\n${signUrl}\n\nMet vriendelijke groet,\nDe Schilders uit Katwijk`;
+                                    const mailto = `mailto:${email}?subject=${encodeURIComponent(`Modelovereenkomst ${dc.contractnummer} — ${dc.projectNaam}`)}&body=${encodeURIComponent(mailBody)}`;
+                                    return (
+                                        <>
+                                            <div style={{ padding: '28px 24px 16px', textAlign: 'center' }}>
+                                                <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#f0fdf4', border: '2px solid #86efac', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px', fontSize: '1.8rem' }}>✅</div>
+                                                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', marginBottom: '4px' }}>Contract getekend!</div>
+                                                <div style={{ fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5 }}>
+                                                    <strong>{dc.contractnummer}</strong> — {dc.medewerkerNaam}<br />
+                                                    Stuur nu een melding naar de ZZP'er.
+                                                </div>
+                                            </div>
+                                            <div style={{ padding: '0 20px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`, '_blank');
+                                                        setContracten(prev => { const u = prev.map(c => c.id === dc.id ? { ...c, status: 'verzonden', kanbanStatus: 'Nog te ondertekenen' } : c); localStorage.setItem('wa_contracten', JSON.stringify(u)); return u; });
+                                                    }}
+                                                    style={{ width: '100%', padding: '14px', borderRadius: '10px', border: 'none', cursor: 'pointer', background: '#25D366', color: '#fff', fontSize: '0.88rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(37,211,102,0.3)' }}
+                                                >
+                                                    <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
+                                                    WhatsApp sturen naar {dc.medewerkerNaam.split(' ')[0]}
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        window.open(mailto, '_blank');
+                                                        setTimeout(() => {
+                                                            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`, '_blank');
+                                                        }, 500);
+                                                        setContracten(prev => { const u = prev.map(c => c.id === dc.id ? { ...c, status: 'verzonden', kanbanStatus: 'Nog te ondertekenen' } : c); localStorage.setItem('wa_contracten', JSON.stringify(u)); return u; });
+                                                    }}
+                                                    style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', cursor: 'pointer', background: '#3b82f6', color: '#fff', fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                                >
+                                                    <i className="fa-regular fa-envelope"></i>
+                                                    <i className="fa-brands fa-whatsapp" style={{ fontSize: '0.9rem' }}></i>
+                                                    E-mail + WhatsApp melding sturen {email ? `(${email})` : ''}
+                                                </button>
+                                                <button
+                                                    onClick={() => { setSignFlow(null); setActiveTab('overzicht_contract'); }}
+                                                    style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
+                                                >
+                                                    Naar Contracten overzicht →
+                                                </button>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+                    )}
 
                     {/* ─── Document Preview ─── */}
                     {(() => {
@@ -1738,7 +2119,7 @@ export default function WhatsAppPage() {
                                 <p style={pvS}>Genoemde bedragen zijn exclusief BTW, inclusief parkeerkosten, transportkosten, e.d.</p>
                                 <p style={pvS}>Gelieve akkoord te geven voor het aanvaarden van de opdracht. Uw akkoord dient te worden gegeven door te reageren op deze e-mail.</p>
                                 <p style={pvS}>Door akkoordverklaring aanvaart de onderaannemer de hierboven beschreven opdracht en zal deze overeenkomstig de getekende overeenkomst van onderaanneming d.d. [datum] uitvoeren.</p>
-                                <p style={{ ...pvS, marginTop: '8px' }}>Met vriendelijke groet,<br /><strong>De Schilders uit Katwijk</strong></p>
+                                <p style={{ ...pvS, marginTop: '8px' }}>Met vriendelijke groet,<br /><br /><strong>De Schilders uit Katwijk</strong><br /><span style={{ fontSize: '0.66rem', color: '#475569', display: 'inline-block', marginTop: '2px' }}>Namens: <strong>{newContract.aannemerNaam || 'André Hazenoot'}</strong></span></p>
                             </div>
                         ];
 
@@ -1978,8 +2359,8 @@ export default function WhatsAppPage() {
                                 </button>
                             </div>
                         ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(320px, 1fr))', gap: '16px', overflowX: 'auto', paddingBottom: '20px', padding: '16px' }}>
-                            {['Concept', 'WhatsApp', 'E-mail', 'Notitie', 'Ondertekend', 'Archief'].map(kolom => (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(320px, 1fr))', gap: '16px', overflowX: 'auto', paddingBottom: '20px', padding: '16px' }}>
+                            {['Nog te ondertekenen', 'Lopende modelovereenkomsten', 'Afgeronde modelovereenkomsten'].map(kolom => (
                                 <div key={kolom}
                                      onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
                                      onDragLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
@@ -1996,10 +2377,10 @@ export default function WhatsAppPage() {
                                     <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                         {kolom}
                                         <span style={{ background: '#e2e8f0', color: '#64748b', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem' }}>
-                                            {contracten.filter(c => (c.kanbanStatus || 'Concept') === kolom).length}
+                                            {contracten.filter(c => (c.kanbanStatus || 'Nog te ondertekenen') === kolom).length}
                                         </span>
                                     </div>
-                                    {contracten.filter(c => (c.kanbanStatus || 'Concept') === kolom).map(c => {
+                                    {contracten.filter(c => (c.kanbanStatus || 'Nog te ondertekenen') === kolom).map(c => {
                                         const zzp = medewerkers.find(m => m.id === c.medewerkerId);
                                         const email = (zzp && zzp.email) ? zzp.email : '';
                                         const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/contract/${c.id}`;

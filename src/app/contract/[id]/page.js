@@ -29,7 +29,7 @@ export default function ContractSignPage() {
             if (found) {
                 setContract(found);
                 if (found.getekend) setSigned(true);
-                
+
                 const medewerkers = JSON.parse(localStorage.getItem('wa_medewerkers')) || [];
                 const m = medewerkers.find(x => x.id === found.medewerkerId);
                 if (m && m.telefoon) {
@@ -127,10 +127,10 @@ export default function ContractSignPage() {
         if (!hasDrawn || !canvasRef.current) return;
         const todayStr = new Date().toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
         const signatureData = canvasRef.current.toDataURL('image/png');
-        
+
         const isAannemer = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'aannemer';
         let contracten = [];
-        
+
         try {
             contracten = JSON.parse(localStorage.getItem('wa_contracten')) || [];
             const index = contracten.findIndex(c => c.id === contractId);
@@ -144,7 +144,7 @@ export default function ContractSignPage() {
                     contracten[index].getekendDatum = todayStr;
                     contracten[index].getekendHandtekening = signatureData;
                     contracten[index].getekendParaaf = tempParaaf;
-                    contracten[index].kanbanStatus = 'Ondertekend';
+                    contracten[index].kanbanStatus = 'Lopende modelovereenkomsten';
                 }
                 localStorage.setItem('wa_contracten', JSON.stringify(contracten));
             }
@@ -154,13 +154,13 @@ export default function ContractSignPage() {
             setContract(prev => ({ ...prev, aannemerHandtekening: signatureData, aannemerParaaf: tempParaaf, aannemerDatum: todayStr }));
             setIsSigning(false);
             setShowSuccess(true);
-            setTimeout(() => { setShowSuccess(false); }, 2000); // Popup kort tonen, daarna document laten zien
+            setTimeout(() => { setShowSuccess(false); }, 2000);
         } else {
-            setContract(prev => ({ ...prev, getekend: true, getekendDatum: todayStr, getekendHandtekening: signatureData, getekendParaaf: tempParaaf, kanbanStatus: 'Ondertekend' }));
+            // ZZP-ondertekening: kanbanStatus 'Lopende modelovereenkomsten' (correct kanban kolom)
+            setContract(prev => ({ ...prev, getekend: true, getekendDatum: todayStr, getekendHandtekening: signatureData, getekendParaaf: tempParaaf, kanbanStatus: 'Lopende modelovereenkomsten' }));
             setSigned(true);
             setIsSigning(false);
             setShowSuccess(true);
-            // Voor de ZZP'er laten we het venster open staan zodat hij de PDF kan downloaden
         }
     };
 
@@ -270,7 +270,7 @@ export default function ContractSignPage() {
             <p style={{ ...pvS, paddingLeft: '8px' }}>7. De onderaannemer is niet gerechtigd derden in te schakelen, daar er sprake is van specifieke vaardigheden en kwaliteiten van de onderaannemer.</p>
             <p style={{ ...pvS, paddingLeft: '8px' }}>8. De opdracht zal worden uitgevoerd met inachtneming van wettelijke voorschriften.</p>
             <p style={{ ...pvS, paddingLeft: '8px' }}>9. Indien de opdracht wordt uitgevoerd op een bouwplaats waar ook werknemers werkzaam zijn, is de aannemer verantwoordelijk voor de naleving van de sectorale arbo-catalogus.</p>
-            <p style={{ ...pvS, paddingLeft: '8px' }}>10. Onderaannemer verstrekt de aannemer <strong><span style={{ color: '#C8700A' }}>{c.vcaCertificaat ? 'wel' : 'geen'}</span></strong> kopie van een geldig certificaat VOL VCA.</p>
+            <p style={{ ...pvS, paddingLeft: '8px' }}>10. Onderaannemer verstrekt de aannemer <strong><span style={{ color: '#C8700A' }}>{c.vcaCertificaat === 'wel' ? 'wel' : 'geen'}</span></strong> kopie van een geldig certificaat VOL VCA.</p>
             <p style={{ ...pvS, paddingLeft: '8px' }}>11. De onderaannemer is volledig vrij in het aannemen van opdrachten van derden.</p>
             <p style={{ ...pvS, paddingLeft: '8px' }}>12. De onderaannemer is niet afhankelijk van één opdrachtgever.</p>
             <p style={{ ...pvS, paddingLeft: '8px' }}>13. De onderaannemer is verantwoordelijk voor schade die hij jegens derden veroorzaakt.</p>
@@ -333,7 +333,7 @@ export default function ContractSignPage() {
                 </div>
             )}
             <h3 style={pvTitle}><span style={{ color: '#5a7a96' }}>F.</span> Btw-verleggingsregeling</h3>
-            <p style={pvS}>Op deze overeenkomst is de verleggingsregeling met betrekking tot de btw <strong><span style={{ color: '#5a7a96' }}>{c.btwVerlegd ? 'wel' : 'niet'}</span></strong> van toepassing.</p>
+            <p style={pvS}>Op deze overeenkomst is de verleggingsregeling met betrekking tot de btw <strong><span style={{ color: '#5a7a96' }}>{c.btwVerlegd === 'wel' ? 'wel' : 'niet'}</span></strong> van toepassing.</p>
             <h3 style={pvTitle}><span style={{ color: '#5a7a96' }}>G.</span> Betalingstermijn</h3>
             <p style={pvS}>De aannemer zal, na het indienen van de factuur door de onderaannemer, de factuur binnen <strong><span style={pvField}>{c.betaaltermijn || '14 dagen na factuurdatum'}</span></strong> voldoen.</p>
             <h3 style={pvTitle}><span style={{ color: '#5a7a96' }}>H.</span> Verzekeringen</h3>
@@ -439,7 +439,7 @@ export default function ContractSignPage() {
                 <div>
                     <div style={{ fontSize: '0.88rem', fontWeight: 800, lineHeight: 1.2 }}>Je handtekening is geplaatst!</div>
                     <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '2px' }}>
-                        Klopt het document met de handtekening daarop zo? Stuur de unieke ZZP-link dan direct door via WhatsApp! 
+                        Klopt het document met de handtekening daarop zo? Stuur de unieke ZZP-link dan direct door via WhatsApp!
                     </div>
                 </div>
             </div>
@@ -593,8 +593,8 @@ export default function ContractSignPage() {
                                 fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
                                 boxShadow: '0 4px 16px rgba(37,211,102,0.3)'
                             }}>
-                            {isAannemerMode 
-                                ? '✍️ Ik plaats hier mijn paraaf en handtekening (als Aannemer)' 
+                            {isAannemerMode
+                                ? '✍️ Ik plaats hier mijn paraaf en handtekening (als Aannemer)'
                                 : '✍️ Ik ga digitaal akkoord met deze overeenkomst'}
                         </button>
                     ) : (
@@ -609,7 +609,7 @@ export default function ContractSignPage() {
                             </div>
                             <canvas ref={canvasRef}
                                 style={{ width: '100%', height: '200px', cursor: 'crosshair', touchAction: 'none', background: '#fefce8' }} />
-                            
+
                             <div style={{ padding: '12px 16px', display: 'flex', gap: '8px' }}>
                                 <button onClick={clearCanvas}
                                     style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', cursor: 'pointer', background: '#fff', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>
@@ -669,7 +669,7 @@ export default function ContractSignPage() {
                             <button onClick={handlePrintPdf} style={{ width: '100%', padding: '16px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', color: '#fff', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 16px rgba(59,130,246,0.4)', animation: 'popIn 0.8s' }}>
                                 💾 Afdrukvoorbeeld / Opslaan als PDF
                             </button>
-                            
+
                             <button onClick={() => {
                                 const msg = `Hoi,\n\nIk heb zojuist het contract *${c.contractnummer || 'SUK-' + c.id}* digitaal getekend! Alles is helemaal rond.\n\nGroetjes,\n${c.medewerkerNaam.split(' ')[0]}`;
                                 window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');

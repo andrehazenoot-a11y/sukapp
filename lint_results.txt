@@ -1,0 +1,300 @@
+﻿
+> backend-app@0.1.0 lint
+> eslint
+
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\_snapshots\contract-stijl_2026-03-10_22-20\whatsapp_page.js
+    19:20   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  17 |
+  18 |     useEffect(() => {
+> 19 |         if (!open) setZoek('');
+     |                    ^^^^^^^ Avoid calling setState() directly within an effect
+  20 |     }, [open]);
+  21 |
+  22 |     // Klik buiten ÔåÆ sluit  react-hooks/set-state-in-effect
+   214:24   error    Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  212 |         const nieuweUren = parseFloat(simUren);
+  213 |         const newEntry = {
+> 214 |             id: String(Date.now()),
+      |                        ^^^^^^^^^^ Cannot call impure function
+  215 |             datum: today,
+  216 |             medewerkerId: simMw.id,
+  217 |             medewerkerNaam: simMw.naam,                                                                                                                                                                                                                                                                           react-hooks/purity
+   978:82   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+   978:91   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  1056:37   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @next/next/no-img-element
+  1372:49   error    Comments inside children section of tag should be placed inside braces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react/jsx-no-comment-textnodes
+  1649:135  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  1649:159  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  1974:69   error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\_snapshots\paraaf-switch-toggle_2026-03-11_11-15\whatsapp_page.js
+    19:20   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  17 |
+  18 |     useEffect(() => {
+> 19 |         if (!open) setZoek('');
+     |                    ^^^^^^^ Avoid calling setState() directly within an effect
+  20 |     }, [open]);
+  21 |
+  22 |     // Klik buiten ÔåÆ sluit  react-hooks/set-state-in-effect
+   220:24   error    Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  218 |         const nieuweUren = parseFloat(simUren);
+  219 |         const newEntry = {
+> 220 |             id: String(Date.now()),
+      |                        ^^^^^^^^^^ Cannot call impure function
+  221 |             datum: today,
+  222 |             medewerkerId: simMw.id,
+  223 |             medewerkerNaam: simMw.naam,                                                                                                                                                                                                                                                                           react-hooks/purity
+   984:82   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+   984:91   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  1067:37   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @next/next/no-img-element
+  1493:49   error    Comments inside children section of tag should be placed inside braces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react/jsx-no-comment-textnodes
+  1795:135  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  1795:159  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  2120:69   error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\contract\[id]\page.js
+   36:21  error    Error: Cannot access variable before it is declared
+
+`setCustomTelefoon` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+  34 |                 const m = medewerkers.find(x => x.id === found.medewerkerId);
+  35 |                 if (m && m.telefoon) {
+> 36 |                     setCustomTelefoon(m.telefoon);
+     |                     ^^^^^^^^^^^^^^^^^ `setCustomTelefoon` accessed before it is declared
+  37 |                 }
+  38 |             }
+  39 |         } catch { }
+
+  108 |     const [signingStep, setSigningStep] = useState(1); // 1 = Paraaf, 2 = Handtekening
+  109 |     const [tempParaaf, setTempParaaf] = useState(null);
+> 110 |     const [customTelefoon, setCustomTelefoon] = useState('');
+      |                            ^^^^^^^^^^^^^^^^^ `setCustomTelefoon` is declared here
+  111 |     const [showSuccess, setShowSuccess] = useState(false);
+  112 |
+  113 |     const checkNextStep = () => {  react-hooks/immutability
+  357:52  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @next/next/no-img-element
+  367:29  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @next/next/no-img-element
+  552:41  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @next/next/no-img-element
+  562:41  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @next/next/no-img-element
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\layout.js
+  25:9  warning  Custom fonts not added in `pages/_document.js` will only load for a single page. This is discouraged. See: https://nextjs.org/docs/messages/no-page-custom-font  @next/next/no-page-custom-font
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\page.js
+  39:18  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  37 |
+  38 |   const formatTijd = (iso) => {
+> 39 |     const diff = Date.now() - new Date(iso).getTime();
+     |                  ^^^^^^^^^^ Cannot call impure function
+  40 |     const min = Math.floor(diff / 60000);
+  41 |     if (min < 1) return t('common.justNow');
+  42 |     if (min < 60) return `${min} ${t('common.minutesAgo')}`;  react-hooks/purity
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\profiel\page.js
+   333:58   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  331 |     // Reset active section if it doesn't exist in the new type
+  332 |     useEffect(() => {
+> 333 |         if (!sections.find(s => s.id === activeSection)) setActiveSection('gegevens');
+      |                                                          ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  334 |     }, [profielType]);
+  335 |
+  336 |  react-hooks/set-state-in-effect
+   334:8    warning  React Hook useEffect has missing dependencies: 'activeSection' and 'sections'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/exhaustive-deps
+   982:147  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react/no-unescaped-entities
+  1570:69   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react/no-unescaped-entities
+  1570:88   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react/no-unescaped-entities
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\review\page.js
+  16:17  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  14 |             if (d) {
+  15 |                 const decoded = JSON.parse(decodeURIComponent(escape(atob(d))));
+> 16 |                 setData(decoded);
+     |                 ^^^^^^^ Avoid calling setState() directly within an effect
+  17 |             }
+  18 |         } catch (e) {
+  19 |             console.error('Ongeldige review-link', e);  react-hooks/set-state-in-effect
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\toegang\page.js
+  36:13  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  34 |     useEffect(() => {
+  35 |         if (selectedUser) {
+> 36 |             setLocalPerms([...getUserPermissions(selectedUser.id)]);
+     |             ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  37 |             setSaved(false);
+  38 |         }
+  39 |     }, [selectedUser]);  react-hooks/set-state-in-effect
+  39:8   warning  React Hook useEffect has a missing dependency: 'getUserPermissions'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-hooks/exhaustive-deps
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\uren\page.js
+  348:38  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  346 |     // Sync tab when URL params change (sidebar navigation)
+  347 |     useEffect(() => {
+> 348 |         if (tabFromUrl === 'verlof') setActiveTab('verlof');
+      |                                      ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  349 |         else if (tabFromUrl === 'planner') setActiveTab('planner');
+  350 |         else setActiveTab('uren');
+  351 |     }, [tabFromUrl]);  react-hooks/set-state-in-effect
+  436:17  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  434 |             const saved = localStorage.getItem(storageKey);
+  435 |             if (saved) {
+> 436 |                 setProjects(JSON.parse(saved));
+      |                 ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  437 |             } else {
+  438 |                 setProjects(defaultProjects);
+  439 |             }                                                                              react-hooks/set-state-in-effect
+  443:8   warning  React Hook useEffect has missing dependencies: 'defaultProjects', 'statusKey', and 'storageKey'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          react-hooks/exhaustive-deps
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\verfvoorraad\page.js
+   766:8   warning  React Hook useCallback has a missing dependency: 'processImage'. Either include it or remove the dependency array                                                                                                                                                                        react-hooks/exhaustive-deps
+  1140:49  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  1192:41  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  1374:33  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  1519:33  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\app\whatsapp\page.js
+    19:20   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  17 |
+  18 |     useEffect(() => {
+> 19 |         if (!open) setZoek('');
+     |                    ^^^^^^^ Avoid calling setState() directly within an effect
+  20 |     }, [open]);
+  21 |
+  22 |     // Klik buiten ÔåÆ sluit  react-hooks/set-state-in-effect
+   281:24   error    Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  279 |         const nieuweUren = parseFloat(simUren);
+  280 |         const newEntry = {
+> 281 |             id: String(Date.now()),
+      |                        ^^^^^^^^^^ Cannot call impure function
+  282 |             datum: today,
+  283 |             medewerkerId: simMw.id,
+  284 |             medewerkerNaam: simMw.naam,                                                                                                                                                                                                                                                                           react-hooks/purity
+  1066:82   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  1066:91   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  1149:37   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @next/next/no-img-element
+  2155:135  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  2155:159  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  2210:119  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+  2515:69   error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react/no-unescaped-entities
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\components\AppShell.jsx
+  71:33  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  99:49  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\components\AuthContext.jsx
+  93:17  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  91 |
+  92 |             if (storedPerms) {
+> 93 |                 setPermissions(JSON.parse(storedPerms));
+     |                 ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  94 |             } else {
+  95 |                 setPermissions({ ...DEFAULT_PERMISSIONS });
+  96 |                 localStorage.setItem('schildersapp_permissions', JSON.stringify(DEFAULT_PERMISSIONS));  react-hooks/set-state-in-effect
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\components\ChatBot.jsx
+  294:8  warning  React Hook useEffect has a missing dependency: 'hasNotified'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\components\LanguageContext.jsx
+  30:13  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  28 |         const saved = localStorage.getItem('schildersapp_language');
+  29 |         if (saved && translations[saved]) {
+> 30 |             setLanguageState(saved);
+     |             ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  31 |         }
+  32 |     }, []);
+  33 |  react-hooks/set-state-in-effect
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\components\LoginPage.jsx
+  71:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\src\components\Sidebar.jsx
+   72:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  115:33  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\desch\.gemini\antigravity\scratch\backend-app\tmp_git.js
+  1:0  error  Parsing error: Unexpected character '´┐¢'. (1:0)
+
+Ô£û 59 problems (37 errors, 22 warnings)
+

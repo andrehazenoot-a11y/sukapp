@@ -34,12 +34,7 @@ export const ALL_PAGES = [
             { id: 'verfvoorraad.scan', name: 'Scan & Herken', icon: 'fa-camera' },
         ]
     },
-    {
-        id: 'zzp', name: 'ZZP Portaal', path: '/zzp', icon: 'fa-file-contract', subs: [
-            { id: 'zzp.facturen', name: 'Facturen', icon: 'fa-file-invoice-dollar' },
-            { id: 'zzp.documenten', name: 'Documenten', icon: 'fa-folder-open' },
-        ]
-    },
+
     {
         id: 'projecten', name: 'Projecten (Woub)', path: '/projecten', icon: 'fa-folder-tree', subs: [
             { id: 'projecten.overzicht', name: 'Overzicht', icon: 'fa-list-check' },
