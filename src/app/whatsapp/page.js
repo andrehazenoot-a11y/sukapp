@@ -131,6 +131,9 @@ export default function WhatsAppPage() {
     // ─── Module 1: Uren Helpers ───
     const [showNewMedewerker, setShowNewMedewerker] = useState(false);
     const [newMw, setNewMw] = useState({ naam: '', telefoon: '', type: 'medewerker', uurtarief: 0, kvk: '', btwNummer: '', adres: '', postcode: '', vcaVerloopdatum: '', avbVerloopdatum: '', cavVerloopdatum: '' });
+    // ─── Interne notities op registraties ───
+    const [editingNoteId, setEditingNoteId] = useState(null);
+    const [noteInput, setNoteInput] = useState('');
 
     // ─── Modelovereenkomst panel collapse states ───
     const [showBriefpapierPanel, setShowBriefpapierPanel] = useState(false);
@@ -302,8 +305,8 @@ export default function WhatsAppPage() {
     // ─── Chatbot Simulation ───
     const [simStep, setSimStep] = useState(0);
     const [simMw, setSimMw] = useState(null);
-    const [simContract, setSimContract] = useState(null); // ← vast contract (DBA)
-    const [simPrj, setSimPrj] = useState(null);           // ← werkelijk project (bewaking)
+    const [simContract, setSimContract] = useState(null);
+    const [simPrj, setSimPrj] = useState(null);
     const [simUren, setSimUren] = useState('');
     const [simPauze, setSimPauze] = useState('30');
     const [simMessages, setSimMessages] = useState([]);
@@ -343,7 +346,7 @@ export default function WhatsAppPage() {
         setSimMessages(prev => [
             ...prev,
             { from: 'user', text: prj.name },
-            { from: 'bot', text: `📍 ${prj.name}\n\nHoeveel uur heb je vandaag gewerkt?\n\n⏱️ Kies: 4 | 6 | 7.5 | 8 uur\nOf typ een ander aantal.` }
+            { from: 'bot', text: `📍 ${prj.name}\n\nHoeveel uur heb je vandaag gewerkt?\n\n⏱️ Kies: 4 | 6 | 7.5 | 8 | 9 uur\nOf typ een ander aantal.\n\n_Standaard werkdag = 7,5 uur. Uren boven 7,5 worden als overuren geregistreerd._` }
         ]);
     };
 
@@ -353,31 +356,39 @@ export default function WhatsAppPage() {
         setSimMessages(prev => [
             ...prev,
             { from: 'user', text: `${uren} uur` },
-            { from: 'bot', text: `${uren} uur genoteerd! ✅\n\nHoeveel minuten pauze heb je gehad?\n\n☕ Kies: 0 | 15 | 30 | 45 | 60 min` }
+            { from: 'bot', text: `${uren} uur genoteerd! ✅\n\nIk sla dit op voor vandaag...` }
         ]);
+        // Pauze automatisch: volle dag (≥ 7,5u) = 60 min, anders 30 min
+        const autoPauze = parseFloat(uren) >= 7.5 ? '60' : '30';
+        simSelectPauze(autoPauze, '');
     };
 
-    const simSelectPauze = (pauze) => {
+    const simSelectPauze = (pauze, opmerking = '') => {
         setSimPauze(pauze);
         setSimStep(4);
+
         const today = new Date().toISOString().split('T')[0];
+
         const nieuweUren = parseFloat(simUren);
+        const MAX_REGULIER = 7.5;
+        const regulierUren = Math.min(nieuweUren, MAX_REGULIER);
+        const overuren = Math.max(0, nieuweUren - MAX_REGULIER);
+
         const newEntry = {
             id: String(Date.now()),
             datum: today,
             medewerkerId: simMw.id,
             medewerkerNaam: simMw.naam,
-            // Officieel: altijd op contract (DBA-compliant)
             contractId: simContract?.id || null,
             projectId: simContract?.projectId || simPrj?.id || null,
             projectNaam: simContract?.projectNaam || simPrj?.name || '—',
             preContract: !simContract,
             preContractDatum: !simContract ? today : null,
-            // Intern: werkelijk project voor projectbewaking
             werkelijkProjectId: simPrj?.id || null,
             werkelijkProjectNaam: simPrj?.name || null,
             internProjectId: simPrj?.id || null,
-            uren: nieuweUren,
+            uren: regulierUren,
+            overuren: overuren,
             pauze: parseInt(pauze),
             tijdstempel: new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
         };
@@ -435,7 +446,6 @@ export default function WhatsAppPage() {
             }).join('\n');
 
             const fmt = (n) => `€ ${n.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
             // Euro's verdiend binnen de actieve termijn
             const eurosInTermijn = Math.round(urenInVenster * contract.uurtarief);
             const termijnTotaal = termijnBedragen[actiefIdx] || 0;
@@ -451,8 +461,16 @@ export default function WhatsAppPage() {
             : '⚠️ Pre-contract registratie';
         setSimMessages(prev => [
             ...prev,
-            { from: 'user', text: `${pauze} min` },
-            { from: 'bot', text: `✅ Uren opgeslagen!\n\n👤 ${simMw.naam}\n${contractInfo}\n📍 Gewerkt op: ${simPrj?.name || '—'}\n⏱️ ${simUren} uur · ☕ ${pauze} min pauze\n📅 ${new Date().toLocaleDateString('nl-NL')}${termijnStatusTekst}\n\nBedankt! Tot morgen 👋` }
+            { from: 'bot', text: `✅ Uren opgeslagen!
+
+👤 ${simMw.naam}
+${contractInfo}
+📍 Gewerkt op: ${simPrj?.name || '—'}
+⏱️ ${regulierUren}u regulier${overuren > 0 ? ` + ${overuren}u 🔥 overuren` : ''} · ☕ ${pauze} min pauze
+📅 ${new Date().toLocaleDateString('nl-NL')}${opmerking ? `
+💬 "${opmerking}"` : ''}${termijnStatusTekst}
+
+Bedankt! Tot morgen 👋` }
         ]);
     };
 
@@ -660,7 +678,8 @@ export default function WhatsAppPage() {
         const volgnummer = String(bestaandeDitJaar + 1).padStart(4, '0');
         const contractnummer = `SUK-${jaar}-${volgnummer}`;
 
-        const pdfHtml = buildPrintHtml() || '';
+        // pdfHtml wordt NIET opgeslagen — te groot voor localStorage (~500KB per contract).
+        // Printen gaat altijd via de live contractpagina /contract/[id]
         const contractData = {
             id: String(Date.now()),
             contractnummer,
@@ -684,7 +703,6 @@ export default function WhatsAppPage() {
             status: 'concept',
             getekend: false, getekendDatum: '',
             aangemaakt: new Date().toISOString(),
-            pdfHtml,
             ...extraData,
         };
         setContracten(prev => {
@@ -710,7 +728,8 @@ export default function WhatsAppPage() {
         const phone = contract.medewerkerTelefoon.replace(/^0/, '31');
         const msg = `📄 Je opdrachtovereenkomst staat klaar!\n\nHoi ${contract.medewerkerNaam.split(' ')[0]} 👋\n\nJe contract voor project "${contract.projectNaam}" is klaar om te bekijken en te ondertekenen.\n\n👉 Bekijk & teken: ${baseUrl}/contract/${contract.id}\n\n💶 Uurtarief: € ${contract.uurtarief}\n⏱️ Totaal uren: ${contract.totaalUren}\n📅 Start: ${contract.startDatum}`;
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
-        const updated = contracten.map(c => c.id === contract.id ? { ...c, status: 'verzonden', kanbanStatus: 'WhatsApp' } : c);
+        // Alleen 'status' bijwerken, kanbanStatus NIET wijzigen zodat de kaart zichtbaar blijft in het overzicht
+        const updated = contracten.map(c => c.id === contract.id ? { ...c, status: 'verzonden', whatsappVerzonden: true } : c);
         setContracten(updated);
         localStorage.setItem('wa_contracten', JSON.stringify(updated));
     };
@@ -720,7 +739,8 @@ export default function WhatsAppPage() {
         const phone = contract.medewerkerTelefoon ? contract.medewerkerTelefoon.replace(/^0/, '31') : '';
         const msg = `🔔 Herinnering vanuit De Schilders Katwijk.\n\nHoi ${contract.medewerkerNaam.split(' ')[0]},\n\nDit is een vriendelijke herinnering voor je contract "${contract.projectNaam}".\nWe zouden het op prijs stellen als je hier even naar wilt kijken.\n\n👉 Bekijk & teken: ${baseUrl}/contract/${contract.id}`;
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
-        const updated = contracten.map(c => c.id === contract.id ? { ...c, status: 'verzonden', kanbanStatus: 'WhatsApp' } : c);
+        // Alleen 'status' bijwerken, kanbanStatus NIET wijzigen
+        const updated = contracten.map(c => c.id === contract.id ? { ...c, status: 'verzonden', whatsappVerzonden: true } : c);
         setContracten(updated);
         localStorage.setItem('wa_contracten', JSON.stringify(updated));
     };
@@ -2377,10 +2397,18 @@ export default function WhatsAppPage() {
                                     <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                         {kolom}
                                         <span style={{ background: '#e2e8f0', color: '#64748b', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem' }}>
-                                            {contracten.filter(c => (c.kanbanStatus || 'Nog te ondertekenen') === kolom).length}
+                                            {contracten.filter(c => {
+                                                const status = c.kanbanStatus;
+                                                const norm = (!status || status === 'WhatsApp' || status === 'E-mail') ? 'Nog te ondertekenen' : status;
+                                                return norm === kolom;
+                                            }).length}
                                         </span>
                                     </div>
-                                    {contracten.filter(c => (c.kanbanStatus || 'Nog te ondertekenen') === kolom).map(c => {
+                                    {contracten.filter(c => {
+                                        const status = c.kanbanStatus;
+                                        const norm = (!status || status === 'WhatsApp' || status === 'E-mail') ? 'Nog te ondertekenen' : status;
+                                        return norm === kolom;
+                                    }).map(c => {
                                         const zzp = medewerkers.find(m => m.id === c.medewerkerId);
                                         const email = (zzp && zzp.email) ? zzp.email : '';
                                         const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/contract/${c.id}`;
@@ -2393,9 +2421,21 @@ export default function WhatsAppPage() {
                                                  style={{ background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '12px', cursor: 'grab', opacity: draggedContractId === c.id ? 0.4 : 1, transform: draggedContractId === c.id ? 'scale(0.98)' : 'scale(1)', transition: 'transform 0.1s', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                                                     <div>
-                                                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a' }}>{c.projectNaam}</div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.88rem', color: '#0f172a' }}>
+                                                            {c.projectNaam}
+                                                            {c.getekend && (
+                                                                <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', borderRadius: '10px', padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                                                                    ✅ Ondertekend
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{c.medewerkerNaam} • € {(c.totaalBedrag || c.totaalOvereenkomst || 0).toLocaleString('nl-NL')}</div>
-                                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>Aangemaakt: {new Date(c.aangemaakt).toLocaleDateString('nl-NL')}</div>
+                                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>
+                                                            Aangemaakt: {new Date(c.aangemaakt).toLocaleDateString('nl-NL')}
+                                                            {c.getekend && c.getekendDatum && (
+                                                                <span style={{ marginLeft: '6px', color: '#15803d' }}>· Getekend: {c.getekendDatum}</span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                     <button onClick={() => {
                                                         if(window.confirm(`Weet je zeker dat je het contract "${c.projectNaam}" wil verwijderen?\nDit kan niet ongedaan worden gemaakt.`)) {
@@ -2407,6 +2447,28 @@ export default function WhatsAppPage() {
                                                         <i className="fa-solid fa-trash-can"></i>
                                                     </button>
                                                 </div>
+
+                                                {/* Afdrukken / PDF knop — alleen als contract volledig ondertekend is */}
+                                                {c.getekend && (
+                                                    <button
+                                                        onClick={() => window.open(`/contract/${c.id}`, '_blank')}
+                                                        style={{
+                                                            width: '100%', marginBottom: '8px', padding: '9px 12px',
+                                                            borderRadius: '8px', border: '1.5px solid #3b82f6',
+                                                            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                                                            color: '#1d4ed8', fontSize: '0.78rem', fontWeight: 700,
+                                                            cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                                            justifyContent: 'center', gap: '6px',
+                                                            boxShadow: '0 1px 4px rgba(59,130,246,0.15)',
+                                                            transition: 'all 0.15s ease',
+                                                        }}
+                                                        onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(59,130,246,0.25)'; }}
+                                                        onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(59,130,246,0.15)'; }}
+                                                    >
+                                                        <i className="fa-solid fa-file-pdf" style={{ color: '#ef4444' }}></i>
+                                                        Afdrukken / Opslaan als PDF
+                                                    </button>
+                                                )}
                                                 
                                                 <div style={{ marginTop: '8px', marginBottom: '8px' }}>
                                                     <textarea 
@@ -2445,13 +2507,46 @@ export default function WhatsAppPage() {
                                                     <button onClick={() => sendReminderWhatsApp(c)} style={{ flex: '1 1 45%', padding: '6px', borderRadius: '6px', border: '1px solid #25D366', background: '#f0fdf4', color: '#15803d', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
                                                         <i className="fa-regular fa-bell" style={{ marginRight: '4px' }}></i>Herinnering
                                                     </button>
-                                                    <a href={mailto} onClick={() => {
-                                                        const updated = contracten.map(cont => cont.id === c.id ? { ...cont, kanbanStatus: 'E-mail' } : cont);
-                                                        setContracten(updated);
-                                                        localStorage.setItem('wa_contracten', JSON.stringify(updated));
-                                                    }} target="_blank" style={{ flex: '1 1 100%', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
-                                                        <i className="fa-regular fa-envelope" style={{ marginRight: '4px' }}></i>E-mail
-                                                    </a>
+                                                     <button
+                                                        onClick={async () => {
+                                                            const zzpEmail = email || prompt(`E-mailadres van ${c.medewerkerNaam}:`);
+                                                            if (!zzpEmail) return;
+                                                            const btn = document.getElementById(`email-btn-${c.id}`);
+                                                            if (btn) { btn.disabled = true; btn.textContent = '📤 Versturen...'; }
+                                                            try {
+                                                                const res = await fetch('/api/send-email', {
+                                                                    method: 'POST',
+                                                                    headers: { 'Content-Type': 'application/json' },
+                                                                    body: JSON.stringify({
+                                                                        to: zzpEmail,
+                                                                        toName: c.medewerkerNaam,
+                                                                        contractNummer: c.contractnummer || 'SUK-' + c.id,
+                                                                        projectNaam: c.projectNaam,
+                                                                        contractUrl: `${window.location.origin}/contract/${c.id}`,
+                                                                    }),
+                                                                });
+                                                                const data = await res.json();
+                                                                if (data.success) {
+                                                                    alert(`✅ E-mail verstuurd naar ${zzpEmail}!`);
+                                                                    // Sla e-mailadres op bij medewerker voor volgende keer
+                                                                    if (!email && zzpEmail) {
+                                                                        const updM = medewerkers.map(m => m.id === c.medewerkerId ? { ...m, email: zzpEmail } : m);
+                                                                        setMedewerkers(updM);
+                                                                        localStorage.setItem('wa_medewerkers', JSON.stringify(updM));
+                                                                    }
+                                                                } else {
+                                                                    alert(`❌ Fout: ${data.error}\n\nControleer of SMTP_USER en SMTP_PASS correct zijn in .env.local`);
+                                                                }
+                                                            } catch (err) {
+                                                                alert('❌ Verbindingsfout. Is de server actief?');
+                                                            }
+                                                            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-regular fa-envelope" style="margin-right:4px"></i>E-mail'; }
+                                                        }}
+                                                        id={`email-btn-${c.id}`}
+                                                        style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}
+                                                    >
+                                                        <i className="fa-regular fa-envelope" style={{ marginRight: '4px' }}></i>E-mail{email ? '' : ' (?)'}
+                                                    </button>
                                                 </div>
                                             </div>
                                         );
@@ -2746,6 +2841,13 @@ export default function WhatsAppPage() {
                                                                     <span style={{ color: '#94a3b8' }}>·</span>
                                                                     <span style={{ fontWeight: 700, color: u.status === 'goedgekeurd' ? '#16a34a' : u.status === 'afgekeurd' ? '#dc2626' : '#F5850A' }}>{u.uren} uur</span>
                                                                 </div>
+                                                                {/* Interne notitie weergave */}
+                                                                {u.internNotitie && editingNoteId !== u.id && (
+                                                                    <div style={{ fontSize: '0.62rem', color: '#6366f1', marginTop: '2px', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                        <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.55rem' }}></i>
+                                                                        {u.internNotitie}
+                                                                    </div>
+                                                                )}
                                                                 {u.status === 'afgekeurd' && u.opmerking && (
                                                                     <div style={{ fontSize: '0.65rem', color: '#b91c1c', marginTop: '2px', fontStyle: 'italic' }}>↩ {u.opmerking}</div>
                                                                 )}
@@ -2768,22 +2870,6 @@ export default function WhatsAppPage() {
                                                                     </button>
                                                                 </div>
                                                             )}
-                                                            {u.status === 'goedgekeurd' && (
-                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-end', flexShrink: 0 }}>
-                                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: '99px' }}>✅ OK</span>
-                                                                    {/* Intern project tag — alleen admin ziet dit */}
-                                                                    <select
-                                                                        value={u.internProjectId || ''}
-                                                                        onChange={e => setUrenLog(prev => prev.map(x => x.id === u.id ? { ...x, internProjectId: e.target.value || null } : x))}
-                                                                        title="Intern project bewaking (niet zichtbaar voor ZZP'er)"
-                                                                        style={{ fontSize: '0.6rem', padding: '2px 4px', borderRadius: '5px', border: '1px solid #bfdbfe', background: u.internProjectId ? '#eff6ff' : '#f8fafc', color: u.internProjectId ? '#1d4ed8' : '#94a3b8', cursor: 'pointer', maxWidth: '110px' }}>
-                                                                        <option value="">📂 intern project</option>
-                                                                        {projecten.map(p => (
-                                                                            <option key={p.id} value={p.id}>{p.name}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                </div>
-                                                            )}
                                                             {u.status === 'afgekeurd' && (
                                                                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
                                                                     <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#b91c1c', background: '#fee2e2', padding: '2px 7px', borderRadius: '99px' }}>❌ Afgekeurd</span>
@@ -2796,11 +2882,67 @@ export default function WhatsAppPage() {
                                                                         style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', cursor: 'pointer', background: editUrenId === u.id ? '#1e40af' : '#3b82f6', color: '#fff', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                                                         <i className="fa-solid fa-pen"></i>
                                                                     </button>
+                                                                    <button
+                                                                        onClick={() => { setEditingNoteId(editingNoteId === u.id ? null : u.id); setNoteInput(u.internNotitie || ''); }}
+                                                                        title="Interne notitie"
+                                                                        style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', cursor: 'pointer', background: u.internNotitie ? '#6366f1' : '#e0e7ff', color: u.internNotitie ? '#fff' : '#6366f1', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                        <i className="fa-solid fa-note-sticky"></i>
+                                                                    </button>
                                                                 </div>
                                                             )}
+                                                            {/* Notitie knop ook bij goedgekeurde registraties */}
+                                                            {u.status === 'goedgekeurd' && (
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-end', flexShrink: 0 }}>
+                                                                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                                        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: '99px' }}>✅ OK</span>
+                                                                        <button
+                                                                            onClick={() => { setEditingNoteId(editingNoteId === u.id ? null : u.id); setNoteInput(u.internNotitie || ''); }}
+                                                                            title="Interne notitie"
+                                                                            style={{ width: '24px', height: '24px', borderRadius: '5px', border: 'none', cursor: 'pointer', background: u.internNotitie ? '#6366f1' : '#e0e7ff', color: u.internNotitie ? '#fff' : '#6366f1', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                            <i className="fa-solid fa-note-sticky"></i>
+                                                                        </button>
+                                                                    </div>
+                                                                    <select
+                                                                        value={u.internProjectId || ''}
+                                                                        onChange={e => setUrenLog(prev => prev.map(x => x.id === u.id ? { ...x, internProjectId: e.target.value || null } : x))}
+                                                                        title="Intern project bewaking (niet zichtbaar voor ZZP'er)"
+                                                                        style={{ fontSize: '0.6rem', padding: '2px 4px', borderRadius: '5px', border: '1px solid #bfdbfe', background: u.internProjectId ? '#eff6ff' : '#f8fafc', color: u.internProjectId ? '#1d4ed8' : '#94a3b8', cursor: 'pointer', maxWidth: '110px' }}>
+                                                                        <option value="">📂 intern project</option>
+                                                                        {projecten.map(p => (
+                                                                            <option key={p.id} value={p.id}>{p.name}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                            )}
+
                                                         </div>
 
-                                                        {/* Afkeur textarea — alleen onder deze rij */}
+                                                        {/* Interne notitie bewerkingsveld */}
+                                                        {editingNoteId === u.id && (
+                                                            <div style={{ marginTop: '4px', padding: '6px 8px', background: '#f5f3ff', borderRadius: '6px', border: '1px solid #c4b5fd' }}>
+                                                                <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#6366f1', marginBottom: '4px' }}>
+                                                                    <i className="fa-solid fa-note-sticky" style={{ marginRight: '4px' }}></i>Interne notitie (alleen zichtbaar voor beheerder)
+                                                                </div>
+                                                                <textarea
+                                                                    autoFocus
+                                                                    rows={2}
+                                                                    value={noteInput}
+                                                                    onChange={e => setNoteInput(e.target.value)}
+                                                                    placeholder="Bijv. 'wacht op meer info', 'factuur klaar', ..."
+                                                                    style={{ width: '100%', padding: '4px 6px', borderRadius: '5px', border: '1px solid #c4b5fd', fontSize: '0.7rem', resize: 'vertical', fontFamily: 'inherit', outline: 'none', background: '#fff', boxSizing: 'border-box' }}
+                                                                />
+                                                                <div style={{ display: 'flex', gap: '6px', marginTop: '4px', justifyContent: 'flex-end' }}>
+                                                                    <button onClick={() => { setEditingNoteId(null); setNoteInput(''); }} style={{ padding: '3px 8px', borderRadius: '5px', border: '1px solid #d1d5db', background: '#fff', color: '#6b7280', fontSize: '0.65rem', cursor: 'pointer' }}>Annuleer</button>
+                                                                    <button onClick={() => {
+                                                                        setUrenLog(prev => prev.map(x => x.id === u.id ? { ...x, internNotitie: noteInput.trim() } : x));
+                                                                        setEditingNoteId(null);
+                                                                        setNoteInput('');
+                                                                    }} style={{ padding: '3px 8px', borderRadius: '5px', border: 'none', background: '#6366f1', color: '#fff', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                                        <i className="fa-solid fa-check" style={{ marginRight: '3px' }}></i>Opslaan
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                         {isAfkeuren && isPending && (
                                                             <div style={{ padding: '8px 10px', borderRadius: '0 0 7px 7px', background: '#fff7ed', border: '1px solid #fed7aa', borderTop: 'none', marginTop: '-3px' }}>
                                                                 <textarea

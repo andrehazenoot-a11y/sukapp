@@ -373,35 +373,87 @@ export default function ContractSignPage() {
             </div>
         </div>,
 
-        // Pagina 6: Bijlage 1
+        // Pagina 6: Bijlage 1 — inhoud afhankelijk van of contract al getekend is
         <div key="p6">
             <h3 style={{ ...pvTitle, fontSize: '0.72rem', borderBottom: '2px solid #1e293b' }}>BIJLAGE 1</h3>
             <p style={pvS}>Beste <span style={pvField}>{c.medewerkerNaam?.split(' ')[0]}</span>,</p>
-            <p style={pvS}>Ingevolge de overeenkomst van onderaanneming getekend d.d. {today} doen wij (aannemer) u (onderaannemer) middels dit schrijven het voorstel tot uitvoering van de hieronder beschreven opdracht. Dit voorstel geldt als vrijblijvend aanbod.</p>
-            <p style={{ ...pvS, fontWeight: 600 }}>De opdracht tot uitvoer van werkzaamheden omvat:</p>
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '4px' }}><tbody>
-                <tr><td style={{ ...pvTdS, fontWeight: 600, width: '220px' }}>Plaats/locatie waar het werk wordt uitgevoerd:</td><td style={pvTdS}><span style={pvField}>{c.projectLocatie}</span></td></tr>
-                <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Projectnummer:</td><td style={pvTdS}><span style={pvField}>{c.projectId}</span></td></tr>
-                <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Start van de werkzaamheden:</td><td style={pvTdS}><span style={pvField}>{fmtDate(c.startDatum)}</span></td></tr>
-                <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Einddatum van de werkzaamheden:</td><td style={pvTdS}><span style={pvField}>{fmtDate(c.eindDatum)}</span></td></tr>
-                <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Aanneemsom:</td><td style={pvTdS}><span style={{ ...pvField, color: '#166534' }}>€ {c.totaalBedrag?.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} excl. BTW</span></td></tr>
-            </tbody></table>
-            <p style={pvS}>Genoemde bedragen zijn exclusief BTW, inclusief parkeerkosten, transportkosten, e.d.</p>
-            <p style={{ ...pvS, marginTop: '6px' }}>Wij verzoeken u het bijgevoegde contract van onderaanneming goed door te lezen. Indien u akkoord gaat met de inhoud en de daarin opgenomen voorwaarden, dient u:</p>
-            <p style={{ ...pvS, paddingLeft: '8px' }}>1. Elke bladzijde van het contract te <strong>paraferen</strong> (initialen onderaan elke pagina).</p>
-            <p style={{ ...pvS, paddingLeft: '8px' }}>2. De laatste pagina volledig te <strong>ondertekenen</strong>.</p>
-            <p style={{ ...pvS, paddingLeft: '8px' }}>3. Het getekende contract zo spoedig mogelijk <strong>te retourneren</strong> aan De Schilders uit Katwijk, via e-mail naar <strong>info@deschildersuitkatwijk.nl</strong> of per post.</p>
-            <p style={pvS}>Door het ondertekend retourneren van dit contract aanvaardt u de hierboven beschreven opdracht en verbindt u zich aan de in de overeenkomst van onderaanneming d.d. {today} opgenomen afspraken en voorwaarden.</p>
-            <p style={pvS}>Indien dit contract niet getekend geretourneerd is, kunnen facturen niet in behandeling worden genomen.</p>
-            <p style={{ ...pvS, marginTop: '16px' }}>Met vriendelijke groet,<br /><br /><strong>De Schilders uit Katwijk</strong><br /><span style={{ fontSize: '0.66rem', color: '#475569', display: 'inline-block', marginTop: '2px' }}>Namens: <strong>{contract.aannemerNaam || 'André Hazenoot'}</strong></span></p>
+
+            {c.getekend ? (
+                // ── Versie voor GETEKEND contract ──
+                <>
+                    <p style={{ ...pvS, fontWeight: 600, color: '#15803d', marginBottom: '6px' }}>
+                        ✅ Dit contract is door beide partijen digitaal ondertekend en rechtsgeldig.
+                    </p>
+                    <p style={pvS}>Ingevolge de overeenkomst van onderaanneming ondertekend d.d. <strong>{c.getekendDatum || today}</strong> bevestigen wij hierbij dat de hieronder beschreven opdracht door beide partijen is aanvaard.</p>
+                    <p style={{ ...pvS, fontWeight: 600 }}>De opdracht tot uitvoer van werkzaamheden omvat:</p>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '4px' }}><tbody>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600, width: '220px' }}>Plaats/locatie:</td><td style={pvTdS}><span style={pvField}>{c.projectLocatie}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Projectnummer:</td><td style={pvTdS}><span style={pvField}>{c.projectId}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Start van de werkzaamheden:</td><td style={pvTdS}><span style={pvField}>{fmtDate(c.startDatum)}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Einddatum van de werkzaamheden:</td><td style={pvTdS}><span style={pvField}>{fmtDate(c.eindDatum)}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Aanneemsom:</td><td style={pvTdS}><span style={{ ...pvField, color: '#166534' }}>€ {c.totaalBedrag?.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} excl. BTW</span></td></tr>
+                    </tbody></table>
+                    <p style={{ ...pvS, marginTop: '10px', fontWeight: 600 }}>Ondertekening door onderaannemer:</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
+                        <div style={{ border: '1px solid #d4dbe3', borderRadius: '4px', padding: '8px 10px' }}>
+                            <div style={{ fontSize: '0.5rem', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '4px' }}>Paraaf onderaannemer</div>
+                            <div style={{ height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {c.getekendParaaf
+                                    ? <img src={c.getekendParaaf} style={{ maxHeight: '46px', maxWidth: '100%', objectFit: 'contain' }} alt="Paraaf" />
+                                    : <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>—</span>}
+                            </div>
+                        </div>
+                        <div style={{ border: '1px solid #d4dbe3', borderRadius: '4px', padding: '8px 10px' }}>
+                            <div style={{ fontSize: '0.5rem', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '4px' }}>Handtekening onderaannemer</div>
+                            <div style={{ height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {c.getekendHandtekening
+                                    ? <img src={c.getekendHandtekening} style={{ maxHeight: '46px', maxWidth: '100%', objectFit: 'contain' }} alt="Handtekening" />
+                                    : <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>—</span>}
+                            </div>
+                            <div style={{ fontSize: '0.52rem', color: '#475569', marginTop: '4px' }}>{c.medewerkerNaam}</div>
+                            <div style={{ fontSize: '0.5rem', color: '#94a3b8' }}>Datum: {c.getekendDatum}</div>
+                        </div>
+                    </div>
+                    <p style={{ ...pvS, marginTop: '16px' }}>Met vriendelijke groet,<br /><br /><strong>De Schilders uit Katwijk</strong><br /><span style={{ fontSize: '0.66rem', color: '#475569', display: 'inline-block', marginTop: '2px' }}>Namens: <strong>{contract.aannemerNaam || 'André Hazenoot'}</strong></span></p>
+                </>
+            ) : (
+                // ── Versie voor NOG TE TEKENEN contract ──
+                <>
+                    <p style={pvS}>Ingevolge de overeenkomst van onderaanneming getekend d.d. {today} doen wij (aannemer) u (onderaannemer) middels dit schrijven het voorstel tot uitvoering van de hieronder beschreven opdracht. Dit voorstel geldt als vrijblijvend aanbod.</p>
+                    <p style={{ ...pvS, fontWeight: 600 }}>De opdracht tot uitvoer van werkzaamheden omvat:</p>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '4px' }}><tbody>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600, width: '220px' }}>Plaats/locatie waar het werk wordt uitgevoerd:</td><td style={pvTdS}><span style={pvField}>{c.projectLocatie}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Projectnummer:</td><td style={pvTdS}><span style={pvField}>{c.projectId}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Start van de werkzaamheden:</td><td style={pvTdS}><span style={pvField}>{fmtDate(c.startDatum)}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Einddatum van de werkzaamheden:</td><td style={pvTdS}><span style={pvField}>{fmtDate(c.eindDatum)}</span></td></tr>
+                        <tr><td style={{ ...pvTdS, fontWeight: 600 }}>Aanneemsom:</td><td style={pvTdS}><span style={{ ...pvField, color: '#166534' }}>€ {c.totaalBedrag?.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} excl. BTW</span></td></tr>
+                    </tbody></table>
+                    <p style={pvS}>Genoemde bedragen zijn exclusief BTW, inclusief parkeerkosten, transportkosten, e.d.</p>
+                    <p style={{ ...pvS, marginTop: '6px' }}>Wij verzoeken u het bijgevoegde contract van onderaanneming goed door te lezen. Indien u akkoord gaat met de inhoud en de daarin opgenomen voorwaarden, dient u:</p>
+                    <p style={{ ...pvS, paddingLeft: '8px' }}>1. Elke bladzijde van het contract te <strong>paraferen</strong> (initialen onderaan elke pagina).</p>
+                    <p style={{ ...pvS, paddingLeft: '8px' }}>2. De laatste pagina volledig te <strong>ondertekenen</strong>.</p>
+                    <p style={{ ...pvS, paddingLeft: '8px' }}>3. Het getekende contract zo spoedig mogelijk <strong>te retourneren</strong> aan De Schilders uit Katwijk, via e-mail naar <strong>info@deschildersuitkatwijk.nl</strong> of per post.</p>
+                    <p style={pvS}>Door het ondertekend retourneren van dit contract aanvaardt u de hierboven beschreven opdracht en verbindt u zich aan de in de overeenkomst van onderaanneming d.d. {today} opgenomen afspraken en voorwaarden.</p>
+                    <p style={pvS}>Indien dit contract niet getekend geretourneerd is, kunnen facturen niet in behandeling worden genomen.</p>
+                    <p style={{ ...pvS, marginTop: '16px' }}>Met vriendelijke groet,<br /><br /><strong>De Schilders uit Katwijk</strong><br /><span style={{ fontSize: '0.66rem', color: '#475569', display: 'inline-block', marginTop: '2px' }}>Namens: <strong>{contract.aannemerNaam || 'André Hazenoot'}</strong></span></p>
+                </>
+            )}
         </div>
     ];
 
+
     const handleBack = () => {
         if (window.opener) {
-            window.close();
+            // Geopend via window.open() — sluit tab en ververs de opener
+            try {
+                window.opener.location.href = '/whatsapp?tab=overzicht_contract';
+                window.close();
+            } catch {
+                window.location.href = '/whatsapp?tab=overzicht_contract';
+            }
         } else {
-            router.back();
+            // Direct geopend — navigeer naar overzicht
+            window.location.href = '/whatsapp?tab=overzicht_contract';
         }
     };
 
