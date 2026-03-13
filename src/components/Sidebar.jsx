@@ -66,22 +66,16 @@ export default function Sidebar({ user, onLogout }) {
             <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
                 <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '20px 20px 0px', position: 'relative'
+                    padding: '0', position: 'relative', overflow: 'hidden',
+                    background: '#fff',
+                    borderBottom: '1px solid rgba(255,255,255,0.25)',
                 }}>
-                    <div style={{ width: '220px', maxHeight: '255px', overflow: 'hidden' }}>
-                        <img
-                            src="/ds-logo.png"
-                            alt="De Schilders uit Katwijk Logo"
-                            style={{ width: 'calc(100% + 4px)', height: 'auto', display: 'block', margin: '-2px' }}
-                        />
-                    </div>
+                    <img
+                        src="/ds-logo.png"
+                        alt="De Schilders uit Katwijk Logo"
+                        style={{ width: '100%', height: 'auto', display: 'block' }}
+                    />
                 </div>
-                {/* Vloeiende overgang logo → navigatie */}
-                <div style={{
-                    height: '20px',
-                    background: 'linear-gradient(to bottom, rgba(255,255,255,0.08), transparent)',
-                    marginBottom: '4px'
-                }}></div>
 
                 <nav className="sidebar-nav">
                     <ul className="nav-list">
