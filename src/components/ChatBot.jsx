@@ -435,17 +435,17 @@ export default function ChatBot() {
                 style={{
                     position: 'fixed', bottom: '24px', right: '24px', width: '56px', height: '56px',
                     borderRadius: '50%', border: 'none', cursor: 'pointer', zIndex: 10000,
-                    background: 'linear-gradient(135deg, #FA9F52, #F5850A)',
-                    boxShadow: '0 4px 20px rgba(245, 133, 10, 0.4)',
+                    background: isOpen ? '#f1f5f9' : `url('/ds-logo-rond.png') center center / cover no-repeat white`,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '1.4rem', color: '#fff',
+                    overflow: 'hidden', padding: 0,
                     transition: 'transform 0.2s, box-shadow 0.2s',
                     animation: showPulse ? 'chatPulse 2s infinite' : 'none',
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.1)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
-                <i className={isOpen ? 'fa-solid fa-xmark' : 'fa-solid fa-robot'}></i>
+                {isOpen && <i className="fa-solid fa-xmark" style={{ fontSize: '1.3rem', color: '#64748b' }}></i>}
             </button>
 
             {showPulse && !isOpen && (
