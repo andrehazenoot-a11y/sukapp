@@ -310,6 +310,8 @@ export default function WhatsAppPage() {
     const [simUren, setSimUren] = useState('');
     const [simPauze, setSimPauze] = useState('30');
     const [simMessages, setSimMessages] = useState([]);
+    const [simOverurenToelichting, setSimOverurenToelichting] = useState('');
+    const [simAwaitToelichting, setSimAwaitToelichting] = useState(false);
 
     const startSim = (mw) => {
         setSimMw(mw);
@@ -381,12 +383,14 @@ export default function WhatsAppPage() {
     const simBevestigOveruren = (ja) => {
         const urenNum = parseFloat(simUren);
         if (ja) {
+            // Eerst vragen om toelichting
+            setSimAwaitToelichting(true);
+            setSimOverurenToelichting('');
             setSimMessages(prev => [
                 ...prev,
                 { from: 'user', text: 'Ja' },
-                { from: 'bot', text: `Prima! Ik sla ${urenNum}u op als 7,5u regulier + ${(urenNum - 7.5).toFixed(1)}u overuren.` }
+                { from: 'bot', text: `Prima! Geef kort aan waarom er overuren zijn gemaakt.\n\nBijv. 'spoedreparatie', 'klant gevraagd', 'deadline'...\n\n(Optioneel — druk op Overslaan als je geen reden wilt opgeven)` }
             ]);
-            simSlaOp(simUren, '60');
         } else {
             setSimMessages(prev => [
                 ...prev,
@@ -397,9 +401,24 @@ export default function WhatsAppPage() {
         }
     };
 
+    // Toelichting overuren versturen en opslaan
+    const simVerstuurToelichting = (toelichting) => {
+        const urenNum = parseFloat(simUren);
+        setSimAwaitToelichting(false);
+        const msgText = toelichting
+            ? `Toelichting: "${toelichting}"`
+            : '(Geen toelichting)';
+        setSimMessages(prev => [
+            ...prev,
+            { from: 'user', text: msgText },
+            { from: 'bot', text: `Begrepen! Ik sla ${urenNum}u op als 7,5u regulier + ${(urenNum - 7.5).toFixed(1)}u overuren.` }
+        ]);
+        simSlaOp(simUren, '60', toelichting);
+    };
+
     // Centraal opslaan — uren als expliciete param om React state-race (NaN) te voorkomen
-    const simSlaOp = (uren, pauze) => {
-        const opmerking = '';
+    const simSlaOp = (uren, pauze, toelichting = '') => {
+        const opmerking = toelichting;
         setSimPauze(pauze);
         setSimStep(4);
 
@@ -426,6 +445,7 @@ export default function WhatsAppPage() {
             uren: regulierUren,
             overuren: overuren,
             pauze: parseInt(pauze),
+            internNotitie: toelichting || '',
             tijdstempel: new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
         };
 
@@ -518,6 +538,8 @@ Bedankt! Tot morgen 👋` }
         setSimUren('');
         setSimPauze('30');
         setSimMessages([]);
+        setSimAwaitToelichting(false);
+        setSimOverurenToelichting('');
     };
 
     // ─── Module 2: Contract Helpers ───
@@ -1463,7 +1485,7 @@ Bedankt! Tot morgen 👋` }
                                 </div>
                             )}
                             {/* Stap 3: overuren bevestiging (alleen bij > 7.5u) */}
-                            {simStep === 3 && parseFloat(simUren) > 7.5 && (
+                            {simStep === 3 && parseFloat(simUren) > 7.5 && !simAwaitToelichting && (
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                                     <button onClick={() => simBevestigOveruren(true)}
                                         style={{ padding: '8px 20px', borderRadius: '16px', border: 'none', background: '#25D366', color: '#fff', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>
@@ -1475,6 +1497,32 @@ Bedankt! Tot morgen 👋` }
                                     </button>
                                 </div>
                             )}
+                            {/* Toelichting invoer na "Ja, klopt" */}
+                            {simAwaitToelichting && (
+                                <div style={{ marginTop: '8px', background: '#fff', borderRadius: '12px', padding: '10px 12px', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
+                                    <div style={{ fontSize: '0.72rem', color: '#8696a0', marginBottom: '6px' }}>✏️ Reden overuren (optioneel):</div>
+                                    <textarea
+                                        autoFocus
+                                        rows={2}
+                                        value={simOverurenToelichting}
+                                        onChange={e => setSimOverurenToelichting(e.target.value)}
+                                        placeholder="Bijv. spoedreparatie, klant gevraagd, deadline..."
+                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.78rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }}
+                                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); simVerstuurToelichting(simOverurenToelichting); } }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', justifyContent: 'flex-end' }}>
+                                        <button onClick={() => simVerstuurToelichting('')}
+                                            style={{ padding: '5px 12px', borderRadius: '10px', border: '1px solid #d1d5db', background: '#f8fafc', color: '#6b7280', fontSize: '0.72rem', cursor: 'pointer' }}>
+                                            Overslaan
+                                        </button>
+                                        <button onClick={() => simVerstuurToelichting(simOverurenToelichting)}
+                                            style={{ padding: '5px 14px', borderRadius: '10px', border: 'none', background: '#25D366', color: '#fff', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                                            📨 Versturen
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
 
                         </div>
                        </div>
