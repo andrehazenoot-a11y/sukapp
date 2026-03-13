@@ -34,3 +34,8 @@ input, select, textarea, button {
   background-color: #ffffff;
   color: #1e293b;
 }
+
+@keyframes bounce {
+  from { transform: translateY(0px); }
+  to   { transform: translateY(-6px); }
+}

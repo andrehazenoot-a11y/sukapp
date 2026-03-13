@@ -720,11 +720,20 @@ export default function VerfvoorraadPage() {
         setCameraStatus('Camera starten...');
         setLiveText('');
         setLiveVerfInfo(null);
+
+        // Op HTTP (niet-localhost) is getUserMedia geblokkeerd door browsers (beveiligingsbeleid).
+        // In dat geval: file-input met capture="environment" → opent camera-app direct.
+        const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (!isSecure || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            // Geen live stream beschikbaar → direct foto nemen via OS camera
+            setCameraStatus('Foto-modus (HTTP): maak een foto van het label');
+            setStap('scan');
+            // Even wachten tot scan-UI zichtbaar is, dan direct camera openen
+            setTimeout(() => { fileRef.current?.click(); }, 150);
+            return;
+        }
+
         try {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                setCameraStatus('getUserMedia niet beschikbaar op dit apparaat');
-                return;
-            }
             // getUserMedia MOET het eerste async call zijn vanuit user gesture!
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
@@ -734,8 +743,8 @@ export default function VerfvoorraadPage() {
             // PAS NA getUserMedia de UI updaten
             setStap('scan');
         } catch (err) {
-            setCameraStatus('Fout: ' + err.name + ' - ' + err.message);
-            // Bij fout: toch scan-scherm tonen zodat gebruiker het ziet
+            setCameraStatus('Camera fout — gebruik "Foto kiezen"');
+            // Toon scan-scherm met de Foto kiezen knop als fallback
             setStap('scan');
         }
     }, []);

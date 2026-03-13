@@ -17,7 +17,7 @@ export async function POST(request) {
         const mediaType = image.match(/^data:(image\/[a-z]+);base64,/)?.[1] || 'image/jpeg';
 
         const response = await anthropic.messages.create({
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-opus-4-5',
             max_tokens: 1024,
             messages: [
                 {

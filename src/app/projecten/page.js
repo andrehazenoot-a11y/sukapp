@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { useAuth } from '../../components/AuthContext';
 import './planning.css';
 
@@ -97,7 +98,10 @@ export default function ProjectenPage() {
     const { getAllUsers } = useAuth();
     const allUsers = getAllUsers();
     const [tab, setTab] = useState('project');
-    const [projects, setProjects] = useState(INITIAL_PROJECTS);
+    const [projects, setProjects] = useState(() => {
+        if (typeof window === 'undefined') return INITIAL_PROJECTS;
+        try { const s = localStorage.getItem('schildersapp_projecten'); return s ? JSON.parse(s) : INITIAL_PROJECTS; } catch { return INITIAL_PROJECTS; }
+    });
     const [viewMode, setViewMode] = useState('month'); // week, month
     const [planningView, setPlanningView] = useState('gantt');
     const [zoomLevel, setZoomLevel] = useState(32); // gantt, grid
@@ -118,6 +122,11 @@ export default function ProjectenPage() {
     const moveBarRef = useRef(null);
     const [zoekTerm, setZoekTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('alle');
+
+    // Persist projects to localStorage whenever they change
+    useEffect(() => {
+        localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
+    }, [projects]);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -696,6 +705,9 @@ export default function ProjectenPage() {
                 <button className={`planning-tab ${tab === 'jaar' ? 'active' : ''}`} onClick={() => setTab('jaar')}>
                     <i className="fa-solid fa-calendar"></i> Jaarplanning
                 </button>
+                <button className={`planning-tab ${tab === 'mappen' ? 'active' : ''}`} onClick={() => setTab('mappen')}>
+                    <i className="fa-solid fa-folder-open"></i> Projectmappen
+                </button>
             </div>
 
             {/* ===== TAB 1: PROJECT PLANNING (GANTT) ===== */}
@@ -1167,15 +1179,21 @@ export default function ProjectenPage() {
                                                     </div>
                                                 )}
                                             </div>
-                                            {/* Expand/collapse toggle */}
-                                            <div
-                                                onClick={(e) => { e.stopPropagation(); setExpandedProjects(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }); }}
-                                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', padding: '6px 0', marginTop: '8px', cursor: 'pointer', fontSize: '0.65rem', color: '#94a3b8', borderTop: '1px dashed #e2e8f0', transition: 'color 0.2s' }}
-                                                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
-                                                onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
-                                            >
-                                                <i className={expandedProjects.has(p.id) ? "fa-solid fa-chevron-up" : "fa-solid fa-chevron-down"} style={{ fontSize: '0.5rem' }}></i>
-                                                <span>{expandedProjects.has(p.id) ? 'Taken verbergen' : `Taken tonen (${totalTasks})`}</span>
+                                            {/* Dossier + Expand/collapse */}
+                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0' }}>
+                                                <Link href={`/projecten/${p.id}`} onClick={e => e.stopPropagation()}
+                                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', padding: '6px', borderRadius: '8px', background: 'rgba(245,133,10,0.08)', color: '#F5850A', textDecoration: 'none', fontSize: '0.72rem', fontWeight: 700, transition: 'background 0.15s' }}
+                                                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,133,10,0.16)'}
+                                                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(245,133,10,0.08)'}>
+                                                    <i className="fa-solid fa-folder-open" /> Dossier
+                                                </Link>
+                                                <div onClick={(e) => { e.stopPropagation(); setExpandedProjects(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }); }}
+                                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.65rem', color: '#94a3b8', borderRadius: '8px', border: '1px solid #f1f5f9', transition: 'color 0.2s' }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}>
+                                                    <i className={expandedProjects.has(p.id) ? "fa-solid fa-chevron-up" : "fa-solid fa-chevron-down"} style={{ fontSize: '0.5rem' }}></i>
+                                                    <span>{expandedProjects.has(p.id) ? 'Verbergen' : `Taken (${totalTasks})`}</span>
+                                                </div>
                                             </div>
                                             {/* Expandable task list */}
                                             {expandedProjects.has(p.id) && (
@@ -1692,6 +1710,94 @@ export default function ProjectenPage() {
                     );
                 })()
             }
+            {/* ===== TAB 4: PROJECTMAPPEN ===== */}
+            {tab === 'mappen' && (
+                <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
+                        {filteredProjects.map(p => {
+                            const done = p.tasks.filter(t => t.completed).length;
+                            const total = p.tasks.length;
+                            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                            const daysLeft = Math.ceil((new Date(p.endDate + 'T00:00:00') - new Date()) / 86400000);
+                            const statusLabels = { active: 'Actief', planning: 'In Planning', completed: 'Afgerond', paused: 'Gepauzeerd' };
+                            const statusColors = { active: { bg: '#dcfce7', color: '#16a34a' }, planning: { bg: '#dbeafe', color: '#2563eb' }, completed: { bg: '#f1f5f9', color: '#475569' }, paused: { bg: '#fef9c3', color: '#ca8a04' } };
+                            const sc = statusColors[p.status] || statusColors.planning;
+                            const teamIds = [...new Set(p.tasks.flatMap(t => t.assignedTo || []))];
+                            const team = allUsers.filter(u => teamIds.includes(u.id));
+                            return (
+                                <div key={p.id} style={{ background: '#fff', borderRadius: '16px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', border: '1px solid #f1f5f9', overflow: 'hidden', transition: 'transform 0.15s, box-shadow 0.15s' }}
+                                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.1)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.07)'; }}>
+                                    {/* Gekleurde bovenrand */}
+                                    <div style={{ height: '5px', background: p.color }} />
+                                    <div style={{ padding: '18px' }}>
+                                        {/* Header */}
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '14px' }}>
+                                            <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: p.color + '22', color: p.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                                                <i className="fa-solid fa-folder-open" />
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                                                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                                                    <i className="fa-solid fa-user" style={{ marginRight: '4px', opacity: 0.6 }} />{p.client || '—'}
+                                                </div>
+                                            </div>
+                                            <span style={{ background: sc.bg, color: sc.color, padding: '3px 9px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 700, flexShrink: 0 }}>
+                                                {statusLabels[p.status] || p.status}
+                                            </span>
+                                        </div>
+                                        {/* Info rij */}
+                                        <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: '#64748b', marginBottom: '14px' }}>
+                                            <span><i className="fa-solid fa-location-dot" style={{ marginRight: '3px', opacity: 0.6 }} />{p.address?.split(',')[0] || '—'}</span>
+                                            <span style={{ marginLeft: 'auto', color: daysLeft < 0 ? '#ef4444' : daysLeft < 14 ? '#f59e0b' : '#64748b', fontWeight: daysLeft < 14 ? 700 : 400 }}>
+                                                <i className="fa-solid fa-calendar-days" style={{ marginRight: '3px' }} />
+                                                {daysLeft < 0 ? 'Verlopen' : `${daysLeft}d over`}
+                                            </span>
+                                        </div>
+                                        {/* Voortgang balk */}
+                                        <div style={{ marginBottom: '14px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '5px' }}>
+                                                <span>Voortgang taken</span>
+                                                <span style={{ fontWeight: 700, color: pct === 100 ? '#16a34a' : '#1e293b' }}>{pct}%</span>
+                                            </div>
+                                            <div style={{ height: '7px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                                                <div style={{ height: '100%', width: pct + '%', background: pct === 100 ? '#22c55e' : p.color, borderRadius: '4px', transition: 'width 0.4s ease' }} />
+                                            </div>
+                                        </div>
+                                        {/* Team avatars */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'flex' }}>
+                                                {team.slice(0, 4).map((u, i) => (
+                                                    <div key={u.id} title={u.name} style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'linear-gradient(135deg,#F5850A,#E07000)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, border: '2px solid #fff', marginLeft: i === 0 ? '0' : '-8px', zIndex: team.length - i }}>
+                                                        {u.initials}
+                                                    </div>
+                                                ))}
+                                                {team.length === 0 && <span style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>Geen team</span>}
+                                            </div>
+                                            <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{done}/{total} taken</span>
+                                        </div>
+                                    </div>
+                                    {/* Dossier button */}
+                                    <Link href={`/projecten/${p.id}`}
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '13px', background: 'linear-gradient(135deg, rgba(245,133,10,0.06), rgba(245,133,10,0.1))', borderTop: '1px solid rgba(245,133,10,0.15)', color: '#F5850A', textDecoration: 'none', fontWeight: 700, fontSize: '0.85rem', transition: 'background 0.15s' }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'linear-gradient(135deg, rgba(245,133,10,0.14), rgba(245,133,10,0.2))'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'linear-gradient(135deg, rgba(245,133,10,0.06), rgba(245,133,10,0.1))'}
+                                    >
+                                        <i className="fa-solid fa-folder-open" /> Dossier openen
+                                        <i className="fa-solid fa-arrow-right" style={{ fontSize: '0.75rem', opacity: 0.7 }} />
+                                    </Link>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {filteredProjects.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                            <i className="fa-solid fa-folder-open" style={{ fontSize: '2.5rem', marginBottom: '12px', display: 'block' }} />
+                            <p style={{ margin: 0 }}>Geen projecten gevonden</p>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
