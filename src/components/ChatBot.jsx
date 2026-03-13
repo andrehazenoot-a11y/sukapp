@@ -429,24 +429,48 @@ export default function ChatBot() {
 
     return (
         <>
-            {/* Floating chat button */}
+            {/* ── Floating chatbot knop ── */}
             <button
                 onClick={() => { setIsOpen(!isOpen); setShowPulse(false); }}
                 style={{
-                    position: 'fixed', bottom: '80px', right: '24px', width: '56px', height: '56px',
-                    borderRadius: '50%', border: 'none', cursor: 'pointer', zIndex: 10000,
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-                    overflow: 'hidden', padding: 0,
-                    background: '#ebebeb',
+                    position: 'fixed', bottom: '24px', right: '24px',
+                    width: '64px', height: '64px',
+                    borderRadius: '12px',
+                    border: 'none', cursor: 'pointer', zIndex: 10000,
+                    background: 'transparent',
+                    padding: 0,
+                    boxShadow: '0 4px 20px rgba(245,133,10,0.5), 0 2px 8px rgba(0,0,0,0.18)',
                     transition: 'transform 0.2s, box-shadow 0.2s',
                     animation: showPulse ? 'chatPulse 2s infinite' : 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    overflow: 'hidden',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.1)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'scale(1.06)';
+                    e.currentTarget.style.boxShadow = '0 6px 28px rgba(245,133,10,0.7), 0 2px 8px rgba(0,0,0,0.2)';
+                }}
+                onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                    e.currentTarget.style.boxShadow = '0 4px 20px rgba(245,133,10,0.5), 0 2px 8px rgba(0,0,0,0.18)';
+                }}
             >
                 {isOpen
-                    ? <i className="fa-solid fa-xmark" style={{ fontSize: '1.3rem', color: '#64748b' }}></i>
-                    : <img src="/ds-logo-rond.png" alt="DS" style={{ width: '56px', height: '56px', display: 'block' }} />
+                    ? (
+                        <div style={{
+                            width: '100%', height: '100%',
+                            background: 'linear-gradient(145deg, #FA9F52, #F5850A)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <i className="fa-solid fa-xmark" style={{ fontSize: '1.5rem', color: '#fff' }}></i>
+                        </div>
+                    )
+                    : (
+                        <img
+                            src="/logo aangepast.png?v=1"
+                            alt="DS Assistent"
+                            style={{ width: '64px', height: '64px', display: 'block', objectFit: 'cover' }}
+                        />
+                    )
                 }
             </button>
 
@@ -473,11 +497,11 @@ export default function ChatBot() {
                         padding: '14px 18px', color: '#fff', display: 'flex', alignItems: 'center', gap: '12px',
                         flexShrink: 0
                     }}>
-                        <div style={{
-                            width: '36px', height: '36px', borderRadius: '50%',
-                            background: 'rgba(255,255,255,0.2)', display: 'flex',
-                            alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem'
-                        }}>{BOT_AVATAR}</div>
+                        <img
+                            src="/logo aangepast.png?v=1"
+                            alt="DS Assistent"
+                            style={{ width: '36px', height: '36px', borderRadius: '8px', display: 'block', objectFit: 'cover' }}
+                        />
                         <div>
                             <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{BOT_NAME}</div>
                             <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>
