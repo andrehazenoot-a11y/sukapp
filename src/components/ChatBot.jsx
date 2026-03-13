@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
 
 const BOT_NAME = 'DS Assistent';
-
+const BOT_AVATAR = '🤖';
 
 // App URL voor WhatsApp links (pas aan naar je productie-URL)
 const APP_URL = 'https://schildersapp-katwijk.nl';
@@ -435,21 +435,17 @@ export default function ChatBot() {
                 style={{
                     position: 'fixed', bottom: '24px', right: '24px', width: '56px', height: '56px',
                     borderRadius: '50%', border: 'none', cursor: 'pointer', zIndex: 10000,
-                    background: '#fff',
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+                    background: 'linear-gradient(135deg, #FA9F52, #F5850A)',
+                    boxShadow: '0 4px 20px rgba(245, 133, 10, 0.4)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    overflow: 'hidden', padding: 0,
+                    fontSize: '1.4rem', color: '#fff',
                     transition: 'transform 0.2s, box-shadow 0.2s',
                     animation: showPulse ? 'chatPulse 2s infinite' : 'none',
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.1)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
-                {isOpen ? (
-                    <i className="fa-solid fa-xmark" style={{ fontSize: '1.3rem', color: '#64748b' }}></i>
-                ) : (
-                    <img src="/ds-logo.png" alt="DS" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                )}
+                <i className={isOpen ? 'fa-solid fa-xmark' : 'fa-solid fa-robot'}></i>
             </button>
 
             {showPulse && !isOpen && (
@@ -477,11 +473,9 @@ export default function ChatBot() {
                     }}>
                         <div style={{
                             width: '36px', height: '36px', borderRadius: '50%',
-                            background: '#fff', overflow: 'hidden', flexShrink: 0,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}>
-                            <img src="/ds-logo.png" alt="DS Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        </div>
+                            background: 'rgba(255,255,255,0.2)', display: 'flex',
+                            alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem'
+                        }}>{BOT_AVATAR}</div>
                         <div>
                             <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{BOT_NAME}</div>
                             <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>
