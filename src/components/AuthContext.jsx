@@ -6,6 +6,12 @@ import { createContext, useContext, useState, useEffect } from 'react';
 export const ALL_PAGES = [
     { id: 'dashboard', name: 'Dashboard', path: '/', icon: 'fa-house' },
     {
+        id: 'urenregistratie', name: 'Urenregistratie', path: '/urenregistratie', icon: 'fa-user-clock', subs: [
+            { id: 'urenregistratie.mijn', name: 'Mijn Uren', icon: 'fa-pen-to-square' },
+            { id: 'urenregistratie.team', name: 'Team Overzicht', icon: 'fa-users' },
+        ]
+    },
+    {
         id: 'uren', name: 'Urenstaat', path: '/uren', icon: 'fa-clock', subs: [
             { id: 'uren.registratie', name: 'Uren registratie', icon: 'fa-pen-to-square' },
         ]
@@ -52,18 +58,18 @@ export const ALL_PAGES = [
 
 // == Demo gebruikers — in productie vervangen door database ==
 const USERS = [
-    { id: 1, username: 'admin', password: 'admin123', name: 'Jan Modaal', role: 'Beheerder', initials: 'JM', phone: '31612345678' },
-    { id: 2, username: 'schilder', password: 'verf2025', name: 'Piet Kwast', role: 'Schilder', initials: 'PK', phone: '31687654321' },
-    { id: 3, username: 'zzp', password: 'zzp2025', name: 'Klaas Roller', role: 'ZZP\'er', initials: 'KR', phone: '31698765432' },
-    { id: 4, username: 'voorman', password: 'voorman123', name: 'Henk de Vries', role: 'Voorman', initials: 'HV', phone: '31676543210' },
+    { id: 1, username: 'admin',    password: 'admin123',   name: 'Jan Modaal',    role: 'Beheerder', initials: 'JM', phone: '31612345678', bsn: '123456782' },
+    { id: 2, username: 'schilder', password: 'verf2025',   name: 'Piet Kwast',    role: 'Schilder',  initials: 'PK', phone: '31687654321', bsn: '211320894' },
+    { id: 3, username: 'zzp',      password: 'zzp2025',    name: 'Klaas Roller',  role: "ZZP'er",    initials: 'KR', phone: '31698765432', bsn: '987654321' },
+    { id: 4, username: 'voorman',  password: 'voorman123', name: 'Henk de Vries', role: 'Voorman',   initials: 'HV', phone: '31676543210', bsn: '345678901' },
 ];
 
 // Standaard rechten per gebruiker (alle pagina-ids)
 const DEFAULT_PERMISSIONS = {
-    1: ['dashboard', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'materieel.toevoegen', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'zzp', 'zzp.facturen', 'zzp.documenten', 'projecten', 'projecten.overzicht', 'projecten.planning', 'whatsapp', 'whatsapp.uren', 'whatsapp.contracten', 'whatsapp.termijnen'],
-    2: ['dashboard', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'profiel', 'profiel.werknemer', 'projecten', 'projecten.overzicht', 'projecten.planning'],
+    1: ['dashboard', 'urenregistratie', 'urenregistratie.mijn', 'urenregistratie.team', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'materieel.toevoegen', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'zzp', 'zzp.facturen', 'zzp.documenten', 'projecten', 'projecten.overzicht', 'projecten.planning', 'whatsapp', 'whatsapp.uren', 'whatsapp.contracten', 'whatsapp.termijnen'],
+    2: ['dashboard', 'urenregistratie', 'urenregistratie.mijn', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'profiel', 'profiel.werknemer', 'projecten', 'projecten.overzicht', 'projecten.planning'],
     3: ['dashboard', 'zzp', 'zzp.facturen', 'zzp.documenten'],
-    4: ['dashboard', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'materieel.toevoegen', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'projecten', 'projecten.overzicht', 'projecten.planning'],
+    4: ['dashboard', 'urenregistratie', 'urenregistratie.mijn', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'materieel.toevoegen', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'projecten', 'projecten.overzicht', 'projecten.planning'],
 };
 
 const AuthContext = createContext(null);

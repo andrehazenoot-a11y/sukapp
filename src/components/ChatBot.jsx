@@ -10,12 +10,12 @@ const BOT_AVATAR = '🤖';
 const APP_URL = 'https://schildersapp-katwijk.nl';
 
 const PROJECTS = [
-    { id: '1', name: 'Nieuwbouw Villa Wassenaar' },
-    { id: '2', name: 'Onderhoud Rijtjeshuizen Leiden' },
-    { id: '3', name: 'Renovatie Kantoorpand Den Haag' },
-    { id: '4', name: 'Schilderwerk VVE De Branding' },
-    { id: '5', name: 'Werkplaats / Magazijn' },
-    { id: '6', name: 'Houtrot Reparatie Oegstgeest' },
+    { id: '1', name: 'Schilderwerk Familie Bakker' },
+    { id: '2', name: 'Nieuwbouw Villa Wassenaar' },
+    { id: '3', name: 'Onderhoud Rijtjeshuizen Leiden' },
+    { id: '4', name: 'Renovatie Kantoorpand Den Haag' },
+    { id: '5', name: 'Schilderwerk VVE De Branding' },
+    { id: '6', name: 'Werkplaats / Magazijn' },
 ];
 
 const DAY_LABELS = ['Ma', 'Di', 'Wo', 'Do', 'Vr'];
@@ -35,6 +35,24 @@ function getWeekNumber() {
     d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+// Storage helpers — IDENTIEK aan urenregistratie/page.js
+function uren2StorageKey(userId, week, year) {
+    return `schildersapp_urv2_u${userId}_w${week}_${year}`;
+}
+function uren2LoadData(userId, week, year) {
+    try { const r = localStorage.getItem(uren2StorageKey(userId, week, year)); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+function uren2SaveData(userId, week, year, data) {
+    try { localStorage.setItem(uren2StorageKey(userId, week, year), JSON.stringify(data)); } catch {}
+}
+function uren2HasHours(userId, week, year) {
+    const proj = uren2LoadData(userId, week, year);
+    if (!proj) return false;
+    return proj.some(p => Object.entries(p.types || {}).some(([tid, hrs]) =>
+        tid !== 'ziek' && tid !== 'vrij' && hrs.some(h => parseFloat(h) > 0)
+    ));
 }
 
 function getDayName() {
@@ -215,16 +233,10 @@ export default function ChatBot() {
             const greeting = getGreeting();
             const day = getDayName();
 
-            // ── 1. Urenstaat check ──
-            const weekKey = getWeekKey();
-            const urenData = JSON.parse(localStorage.getItem('schildersapp_uren') || '{}');
-            const weekData = urenData[weekKey];
-            let hasHours = false;
-            if (weekData && typeof weekData === 'object') {
-                Object.values(weekData).forEach(d => {
-                    if (d && typeof d === 'object') Object.values(d).forEach(v => { if (v && parseFloat(v) > 0) hasHours = true; });
-                });
-            }
+            // ── 1. Urenstaat check (nieuwe sleutel) ──
+            const weekNum = getWeekNumber();
+            const year = new Date().getFullYear();
+            const hasHours = uren2HasHours(user?.id, weekNum, year);
 
             // ── 2. Contract tracker check ──
             const contracten = JSON.parse(localStorage.getItem('wa_contracten') || '[]');
@@ -306,14 +318,24 @@ export default function ChatBot() {
     };
 
     const handleSaveTemplate = (rows) => {
+        const weekNum = getWeekNumber();
+        const year = new Date().getFullYear();
         const total = rows.reduce((sum, r) => sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0), 0);
-        const projectNames = rows
-            .filter(r => r.projectId)
-            .map(r => PROJECTS.find(p => p.id === r.projectId)?.name || 'Onbekend');
+        const projectNames = rows.filter(r => r.projectId).map(r => PROJECTS.find(p => p.id === r.projectId)?.name || 'Onbekend');
+
+        // Sla op in NIEUWE format (zelfde als MijnUren component)
+        const existing = uren2LoadData(user?.id, weekNum, year) || [];
+        const newProjects = rows.map((r, i) => ({
+            id: 'p' + Date.now() + i,
+            projectId: r.projectId || '1',
+            types: { normaal: r.hours.map(h => String(h)) },
+            notes: { normaal: ['','','','',''] }
+        }));
+        uren2SaveData(user?.id, weekNum, year, newProjects);
 
         setShowTemplate(false);
-        addBotMessage(`✅ Opgeslagen! ${total} uur verdeeld over ${projectNames.join(', ')}.\n\nJe urenstaat voor week ${getWeekNumber()} is bijgewerkt. Ga naar de Urenstaat pagina om de volledige versie te zien.`, [
-            { label: '📋 Bekijk Urenstaat', action: 'goto_uren' }
+        addBotMessage(`✅ Opgeslagen! ${total} uur verdeeld over ${projectNames.join(', ')}.\n\nJe weekstaat voor week ${weekNum} is bijgewerkt. Je ziet ze direct in de Urenregistratie!`, [
+            { label: '📋 Naar Urenregistratie', action: 'goto_uren' }
         ]);
     };
 
@@ -325,10 +347,10 @@ export default function ChatBot() {
                 setTimeout(() => setShowTemplate(true), 300);
             }, 400);
         } else if (action === 'goto_uren') {
-            addUserMessage('Ga naar Urenstaat');
+            addUserMessage('Ga naar Urenregistratie');
             setTimeout(() => {
-                addBotMessage('Top! Ik open de urenstaat voor je. 📋');
-                setTimeout(() => { window.location.href = '/uren'; }, 800);
+                addBotMessage('Top! Ik open de urenregistratie voor je. 📋');
+                setTimeout(() => { window.location.href = '/urenregistratie'; }, 800);
             }, 500);
         } else if (action === 'later') {
             addUserMessage('Later');
@@ -400,10 +422,72 @@ export default function ChatBot() {
 
         setTimeout(() => {
             const lower = text.toLowerCase();
-            if (lower.includes('uren') || lower.includes('urenstaat') || lower.includes('invullen')) {
+
+            // ── NLP: uren invullen via chatbot ──
+            const hourMatch = lower.match(/(\d+[,.]?\d*)\s*(?:uur|u\b)/);
+            const hours = hourMatch ? parseFloat(hourMatch[1].replace(',', '.')) : null;
+
+            // Dag detectie
+            const DAY_MAP = {
+                'vandaag': new Date().getDay() === 0 ? -1 : new Date().getDay() - 1,
+                'gisteren': new Date().getDay() <= 1 ? -1 : new Date().getDay() - 2,
+                'maandag': 0, 'ma': 0,
+                'dinsdag': 1, 'di': 1,
+                'woensdag': 2, 'wo': 2,
+                'donderdag': 3, 'do': 3,
+                'vrijdag': 4, 'vr': 4,
+            };
+            let dayIdx = -1;
+            for (const [word, idx] of Object.entries(DAY_MAP)) {
+                if (lower.includes(word)) { dayIdx = idx; break; }
+            }
+            if (dayIdx === -1 && lower.includes('vandaag')) {
+                dayIdx = Math.max(0, new Date().getDay() - 1);
+            }
+
+            // Project detectie
+            const matchedProject = PROJECTS.find(p =>
+                p.name.toLowerCase().split(' ').some(word => word.length > 3 && lower.includes(word))
+            );
+
+            // Directe uren-invulling via NLP
+            if (hours !== null && hours > 0 && hours <= 24 && dayIdx >= 0) {
+                const weekNum = getWeekNumber();
+                const year = new Date().getFullYear();
+                const proj = uren2LoadData(user?.id, weekNum, year) || [{
+                    id: 'p' + Date.now(), projectId: matchedProject?.id || '1',
+                    types: { normaal: ['','','','',''] }, notes: { normaal: ['','','','',''] }
+                }];
+                // Zet uren op de juiste dag in het eerste project
+                const target = matchedProject ? (proj.find(p => p.projectId === matchedProject.id) || proj[0]) : proj[0];
+                if (target) {
+                    const hrs = [...(target.types.normaal || ['','','','',''])];
+                    hrs[dayIdx] = String(hours);
+                    target.types.normaal = hrs;
+                    if (matchedProject && !proj.find(p => p.projectId === matchedProject.id)) {
+                        target.projectId = matchedProject.id;
+                    }
+                }
+                uren2SaveData(user?.id, weekNum, year, proj);
+                const DAY_NAMES = ['maandag','dinsdag','woensdag','donderdag','vrijdag'];
+                const projName = PROJECTS.find(p => p.id === (target?.projectId || '1'))?.name || 'project';
+                addBotMessage(`✅ Opgeslagen! ${hours} uur op ${DAY_NAMES[dayIdx]} voor ${projName}.\n\nWeek ${weekNum} bijgewerkt. 💪`, [
+                    { label: '📋 Bekijk Urenregistratie', action: 'goto_uren' },
+                    { label: '📝 Meer invullen', action: 'fill_template' },
+                ]);
+                return;
+            }
+
+            // Ziek / vrij detectie
+            if (lower.includes('ziek') || lower.includes('ziekmelding')) {
+                addBotMessage('Wil je een ziekmelding doorgeven voor vandaag? 🤒', [
+                    { label: '🤒 Ja, meld ziek', action: 'fill_template' },
+                    { label: '❌ Nee', action: 'later' }
+                ]);
+            } else if (lower.includes('uren') || lower.includes('urenstaat') || lower.includes('invullen') || lower.includes('uur')) {
                 addBotMessage('Wil je je uren direct hier invullen of naar de volledige pagina? 📋', [
                     { label: '📝 Vul hier in', action: 'fill_template' },
-                    { label: '📋 Ga naar Urenstaat', action: 'goto_uren' }
+                    { label: '📋 Naar Urenregistratie', action: 'goto_uren' }
                 ]);
             } else if (lower.includes('project')) {
                 addBotMessage('Wil je naar de projectenplanning? 📊', [
@@ -414,11 +498,11 @@ export default function ChatBot() {
                     { label: '🔧 Ga naar Materieel', action: 'goto_materieel' }
                 ]);
             } else if (lower.includes('hallo') || lower.includes('hey') || lower.includes('hoi')) {
-                addBotMessage(`Hoi ${userName}! 👋 Hoe kan ik je helpen?`);
+                addBotMessage(`Hoi ${userName}! 👋 Hoe kan ik je helpen?\n\nJe kunt o.a. typen:\n• "vandaag 7.5 uur" om uren in te vullen\n• "maandag 8 uur op Bakker"\n• "uren invullen" voor het formulier`);
             } else if (lower.includes('help')) {
-                addBotMessage('Ik kan je helpen met:\n• 📝 Urenstaat invullen\n• 📊 Projecten bekijken\n• 🔧 Materieelbeheer\n\nTyp gewoon wat je wilt doen!');
+                addBotMessage('Ik kan je helpen met:\n• ⏱️ "vandaag 7.5 uur" → direct invullen\n• "maandag 8 uur op Bakker" → specifieke dag + project\n• 📝 "uren invullen" → weekformulier\n• 📊 "projecten" → projectplanning\n• 🔧 "materieel" → gereedschapsbeheer');
             } else {
-                addBotMessage(`Ik begrijp je nog niet helemaal 😅 Probeer "uren", "projecten" of "materieel". Of typ "help".`);
+                addBotMessage(`Tips om uren in te vullen:\n• Typ "vandaag 7.5 uur"\n• Of "maandag 8 uur op Wassenaar"\n\nOf typ "help" voor alle opties. 😊`);
             }
         }, 600);
     };
