@@ -435,9 +435,9 @@ export default function ChatBot() {
                 style={{
                     position: 'fixed', bottom: '80px', right: '24px', width: '56px', height: '56px',
                     borderRadius: '50%', border: 'none', cursor: 'pointer', zIndex: 10000,
-                    background: 'transparent',
+                    background: '#f1f5f9',
                     boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    display: 'grid', placeItems: 'center',
                     overflow: 'hidden', padding: 0,
                     transition: 'transform 0.2s, box-shadow 0.2s',
                     animation: showPulse ? 'chatPulse 2s infinite' : 'none',
@@ -446,8 +446,8 @@ export default function ChatBot() {
                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
                 {isOpen
-                    ? <i className="fa-solid fa-xmark" style={{ fontSize: '1.3rem', color: '#64748b', background: '#f1f5f9', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}></i>
-                    : <img src="/ds-logo-rond.png" alt="DS" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center center', display: 'block' }} />
+                    ? <i className="fa-solid fa-xmark" style={{ fontSize: '1.3rem', color: '#64748b' }}></i>
+                    : <img src="/ds-logo-rond.png" alt="DS" style={{ width: '56px', height: '56px', display: 'block' }} />
                 }
             </button>
 
