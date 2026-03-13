@@ -351,25 +351,61 @@ export default function WhatsAppPage() {
     };
 
     const simSelectUren = (uren) => {
+        const urenNum = parseFloat(uren);
         setSimUren(uren);
-        setSimStep(3);
-        setSimMessages(prev => [
-            ...prev,
-            { from: 'user', text: `${uren} uur` },
-            { from: 'bot', text: `${uren} uur genoteerd! ✅\n\nIk sla dit op voor vandaag...` }
-        ]);
-        // Pauze automatisch: volle dag (≥ 7,5u) = 60 min, anders 30 min
-        const autoPauze = parseFloat(uren) >= 7.5 ? '60' : '30';
-        simSelectPauze(autoPauze, '');
+
+        if (urenNum > 7.5) {
+            // Meer dan standaard werkdag — eerst bevestiging vragen
+            const regulier = 7.5;
+            const over = (urenNum - 7.5).toFixed(1);
+            setSimStep(3); // wacht op bevestiging
+            setSimMessages(prev => [
+                ...prev,
+                { from: 'user', text: `${uren} uur` },
+                { from: 'bot', text: `⚠️ ${uren} uur is meer dan de standaard werkdag van 7,5 uur.\n\nDit wordt geregistreerd als:\n⏱️ ${regulier}u regulier + 🔥 ${over}u overuren\n\nKlopt dit?` }
+            ]);
+        } else {
+            // Normale dag — direct opslaan
+            setSimStep(3);
+            setSimMessages(prev => [
+                ...prev,
+                { from: 'user', text: `${uren} uur` },
+                { from: 'bot', text: `${uren} uur genoteerd! ✅\n\nIk sla dit op voor vandaag...` }
+            ]);
+            const autoPauze = urenNum >= 7.5 ? '60' : '30';
+            simSlaOp(uren, autoPauze);
+        }
     };
 
-    const simSelectPauze = (pauze, opmerking = '') => {
+    // Bevestiging overuren (Ja / Nee)
+    const simBevestigOveruren = (ja) => {
+        const urenNum = parseFloat(simUren);
+        if (ja) {
+            setSimMessages(prev => [
+                ...prev,
+                { from: 'user', text: 'Ja' },
+                { from: 'bot', text: `Prima! Ik sla ${urenNum}u op als 7,5u regulier + ${(urenNum - 7.5).toFixed(1)}u overuren.` }
+            ]);
+            simSlaOp(simUren, '60');
+        } else {
+            setSimMessages(prev => [
+                ...prev,
+                { from: 'user', text: 'Nee' },
+                { from: 'bot', text: `Geen probleem! Hoeveel uur wil je registreren?\n\n⏱️ Kies: 4 | 6 | 7.5 uur` }
+            ]);
+            setSimStep(2); // terug naar uren stap
+        }
+    };
+
+    // Centraal opslaan — uren als expliciete param om React state-race (NaN) te voorkomen
+    const simSlaOp = (uren, pauze) => {
+        const opmerking = '';
         setSimPauze(pauze);
         setSimStep(4);
 
         const today = new Date().toISOString().split('T')[0];
 
-        const nieuweUren = parseFloat(simUren);
+        const nieuweUren = parseFloat(uren); // param, niet simUren state
         const MAX_REGULIER = 7.5;
         const regulierUren = Math.min(nieuweUren, MAX_REGULIER);
         const overuren = Math.max(0, nieuweUren - MAX_REGULIER);
@@ -1417,8 +1453,8 @@ Bedankt! Tot morgen 👋` }
                                 </div>
                             )}
                             {simStep === 2 && (
-                                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-                                    {['4', '6', '7.5', '8'].map(u => (
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                                    {['4', '6', '7.5', '8', '9'].map(u => (
                                         <button key={u} onClick={() => simSelectUren(u)}
                                             style={{ padding: '6px 14px', borderRadius: '16px', border: '1px solid #25D366', background: '#fff', cursor: 'pointer', fontSize: '0.82rem', color: '#075E54', fontWeight: 600 }}>
                                             {u} uur
@@ -1426,16 +1462,20 @@ Bedankt! Tot morgen 👋` }
                                     ))}
                                 </div>
                             )}
-                            {simStep === 3 && (
-                                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-                                    {['0', '15', '30', '45', '60'].map(p => (
-                                        <button key={p} onClick={() => simSelectPauze(p)}
-                                            style={{ padding: '6px 14px', borderRadius: '16px', border: '1px solid #25D366', background: '#fff', cursor: 'pointer', fontSize: '0.82rem', color: '#075E54', fontWeight: 600 }}>
-                                            {p} min
-                                        </button>
-                                    ))}
+                            {/* Stap 3: overuren bevestiging (alleen bij > 7.5u) */}
+                            {simStep === 3 && parseFloat(simUren) > 7.5 && (
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                    <button onClick={() => simBevestigOveruren(true)}
+                                        style={{ padding: '8px 20px', borderRadius: '16px', border: 'none', background: '#25D366', color: '#fff', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>
+                                        ✅ Ja, klopt
+                                    </button>
+                                    <button onClick={() => simBevestigOveruren(false)}
+                                        style={{ padding: '8px 20px', borderRadius: '16px', border: '1px solid #dc2626', background: '#fff', color: '#dc2626', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>
+                                        ❌ Nee, aanpassen
+                                    </button>
                                 </div>
                             )}
+
                         </div>
                        </div>
                 </div>
