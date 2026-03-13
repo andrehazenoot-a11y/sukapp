@@ -293,12 +293,12 @@ export default function WhatsAppPage() {
     };
 
     const [showNewProject, setShowNewProject] = useState(false);
-    const [newPrj, setNewPrj] = useState({ name: '', locatie: '' });
+    const [newPrj, setNewPrj] = useState({ name: '', locatie: '', nummer: '' });
 
     const addProject = () => {
         if (!newPrj.name.trim()) return;
         setProjecten(prev => [...prev, { ...newPrj, id: String(Date.now()) }]);
-        setNewPrj({ name: '', locatie: '' });
+        setNewPrj({ name: '', locatie: '', nummer: '' });
         setShowNewProject(false);
     };
 
@@ -312,6 +312,7 @@ export default function WhatsAppPage() {
     const [simMessages, setSimMessages] = useState([]);
     const [simOverurenToelichting, setSimOverurenToelichting] = useState('');
     const [simAwaitToelichting, setSimAwaitToelichting] = useState(false);
+    const [simProjectZoek, setSimProjectZoek] = useState('');
 
     const startSim = (mw) => {
         setSimMw(mw);
@@ -540,6 +541,7 @@ Bedankt! Tot morgen 👋` }
         setSimMessages([]);
         setSimAwaitToelichting(false);
         setSimOverurenToelichting('');
+        setSimProjectZoek('');
     };
 
     // Optioneel: nog een project toevoegen (zelfde medewerker, nieuw project)
@@ -1304,7 +1306,8 @@ Bedankt! Tot morgen 👋` }
                             </div>
                             {showNewProject && (
                                 <div style={{ padding: '12px 20px', background: '#eff6ff', borderBottom: '1px solid #e2e8f0' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                                        <div><label style={labelS}>Projectnummer</label><input style={inputS} value={newPrj.nummer} onChange={e => setNewPrj({ ...newPrj, nummer: e.target.value })} placeholder="Bijv. PRJ-2026-001" /></div>
                                         <div><label style={labelS}>Projectnaam</label><input style={inputS} value={newPrj.name} onChange={e => setNewPrj({ ...newPrj, name: e.target.value })} placeholder="Bijv. Schilderwerk Fam. Bakker" /></div>
                                         <div><label style={labelS}>Locatie</label><input style={inputS} value={newPrj.locatie} onChange={e => setNewPrj({ ...newPrj, locatie: e.target.value })} placeholder="Adres" /></div>
                                     </div>
@@ -1315,6 +1318,7 @@ Bedankt! Tot morgen 👋` }
                                 {projecten.map(prj => (
                                     <div key={prj.id} style={{ padding: '8px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
                                         <div>
+                                            {prj.nummer && <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#3b82f6', marginBottom: '1px' }}>#{prj.nummer}</div>}
                                             <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{prj.name}</div>
                                             <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{prj.locatie}</div>
                                         </div>
@@ -1481,13 +1485,34 @@ Bedankt! Tot morgen 👋` }
 
                             {/* Interactive buttons during simulation */}
                             {simStep === 1 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-                                    {projecten.map(prj => (
-                                        <button key={prj.id} onClick={() => simSelectProject(prj)}
-                                            style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #25D366', background: '#fff', cursor: 'pointer', fontSize: '0.78rem', color: '#075E54', fontWeight: 600 }}>
-                                            📍 {prj.name}
-                                        </button>
-                                    ))}
+                                <div style={{ marginTop: '8px' }}>
+                                    {/* Zoekbalk */}
+                                    <div style={{ position: 'relative', marginBottom: '8px' }}>
+                                        <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#25D366', fontSize: '0.75rem' }}></i>
+                                        <input
+                                            autoFocus
+                                            type="text"
+                                            value={simProjectZoek}
+                                            onChange={e => setSimProjectZoek(e.target.value)}
+                                            placeholder="Zoek op naam of projectnummer..."
+                                            style={{ width: '100%', padding: '7px 10px 7px 28px', borderRadius: '12px', border: '1px solid #25D366', fontSize: '0.78rem', outline: 'none', background: '#fff', boxSizing: 'border-box' }}
+                                        />
+                                    </div>
+                                    {/* Gefilterde projecten */}
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                        {projecten
+                                            .filter(prj => {
+                                                const q = simProjectZoek.toLowerCase();
+                                                return !q || prj.name.toLowerCase().includes(q) || (prj.nummer && prj.nummer.toLowerCase().includes(q));
+                                            })
+                                            .map(prj => (
+                                                <button key={prj.id} onClick={() => { simSelectProject(prj); setSimProjectZoek(''); }}
+                                                    style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #25D366', background: '#fff', cursor: 'pointer', fontSize: '0.78rem', color: '#075E54', fontWeight: 600 }}>
+                                                    {prj.nummer ? <><span style={{ fontSize: '0.65rem', color: '#3b82f6', marginRight: '4px' }}>#{prj.nummer}</span>{prj.name}</> : `📍 ${prj.name}`}
+                                                </button>
+                                            ))
+                                        }
+                                    </div>
                                 </div>
                             )}
                             {simStep === 2 && (
