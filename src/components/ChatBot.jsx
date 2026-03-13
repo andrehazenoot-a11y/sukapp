@@ -434,10 +434,13 @@ export default function ChatBot() {
                 onClick={() => { setIsOpen(!isOpen); setShowPulse(false); }}
                 style={{
                     position: 'fixed', bottom: '80px', right: '24px', width: '56px', height: '56px',
-                    borderRadius: '50%', border: 'none', cursor: 'pointer', zIndex: 10000,
-                    background: '#f1f5f9',
+                    borderRadius: '50%',
+                    border: isOpen ? '3px solid #e2e8f0' : '4px solid #F5850A',
+                    cursor: 'pointer', zIndex: 10000,
+                    background: '#ebebeb',
+                    boxSizing: 'border-box',
                     boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-                    display: 'grid', placeItems: 'center',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                     overflow: 'hidden', padding: 0,
                     transition: 'transform 0.2s, box-shadow 0.2s',
                     animation: showPulse ? 'chatPulse 2s infinite' : 'none',
@@ -447,7 +450,7 @@ export default function ChatBot() {
             >
                 {isOpen
                     ? <i className="fa-solid fa-xmark" style={{ fontSize: '1.3rem', color: '#64748b' }}></i>
-                    : <img src="/ds-logo-rond.png" alt="DS" style={{ width: '56px', height: '56px', display: 'block' }} />
+                    : <img src="/ds-logo-inner.png" alt="DS" style={{ width: '100%', height: '100%', display: 'block' }} />
                 }
             </button>
 
