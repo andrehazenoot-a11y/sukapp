@@ -435,9 +435,7 @@ export default function ChatBot() {
                 style={{
                     position: 'fixed', bottom: '80px', right: '24px', width: '56px', height: '56px',
                     borderRadius: '50%', border: 'none', cursor: 'pointer', zIndex: 10000,
-                    boxShadow: isOpen
-                        ? '0 4px 16px rgba(0,0,0,0.2)'
-                        : '0 0 0 3px #F5850A, 0 4px 16px rgba(0,0,0,0.2)',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
                     overflow: 'hidden', padding: 0,
                     background: '#ebebeb',
                     transition: 'transform 0.2s, box-shadow 0.2s',
