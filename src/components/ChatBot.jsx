@@ -435,7 +435,7 @@ export default function ChatBot() {
                 style={{
                     position: 'fixed', bottom: '24px', right: '24px', width: '56px', height: '56px',
                     borderRadius: '50%', border: 'none', cursor: 'pointer', zIndex: 10000,
-                    background: isOpen ? '#f1f5f9' : `url('/ds-logo-rond.png') center center / cover no-repeat white`,
+                    background: isOpen ? '#f1f5f9' : `url('/ds-logo-rond.png') center center / 94% 94% no-repeat white`,
                     boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     overflow: 'hidden', padding: 0,
