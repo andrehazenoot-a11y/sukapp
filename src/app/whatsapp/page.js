@@ -389,7 +389,7 @@ export default function WhatsAppPage() {
             setSimMessages(prev => [
                 ...prev,
                 { from: 'user', text: 'Ja' },
-                { from: 'bot', text: `Prima! Geef kort aan waarom er overuren zijn gemaakt.\n\nBijv. 'spoedreparatie', 'klant gevraagd', 'deadline'...\n\n(Optioneel — druk op Overslaan als je geen reden wilt opgeven)` }
+                { from: 'bot', text: `Prima! Je kunt optioneel een opmerking toevoegen.\n\n(Druk op Overslaan als je geen opmerking wilt opgeven)` }
             ]);
         } else {
             setSimMessages(prev => [
@@ -541,6 +541,22 @@ Bedankt! Tot morgen 👋` }
         setSimAwaitToelichting(false);
         setSimOverurenToelichting('');
     };
+
+    // Optioneel: nog een project toevoegen (zelfde medewerker, nieuw project)
+    const simNogEenProject = () => {
+        setSimContract(null);
+        setSimPrj(null);
+        setSimUren('');
+        setSimPauze('30');
+        setSimAwaitToelichting(false);
+        setSimOverurenToelichting('');
+        setSimStep(1); // terug naar project-selectie
+        setSimMessages(prev => [
+            ...prev,
+            { from: 'bot', text: `Op welk project heb je nog meer gewerkt?` }
+        ]);
+    };
+
 
     // ─── Module 2: Contract Helpers ───
     const [showNewContract, setShowNewContract] = useState(false);
@@ -1506,7 +1522,7 @@ Bedankt! Tot morgen 👋` }
                                         rows={2}
                                         value={simOverurenToelichting}
                                         onChange={e => setSimOverurenToelichting(e.target.value)}
-                                        placeholder="Bijv. spoedreparatie, klant gevraagd, deadline..."
+                                        placeholder="Bijv. opmerking"
                                         style={{ width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.78rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }}
                                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); simVerstuurToelichting(simOverurenToelichting); } }}
                                     />
@@ -1522,7 +1538,19 @@ Bedankt! Tot morgen 👋` }
                                     </div>
                                 </div>
                             )}
-
+                            {/* Optioneel: Nog een project registreren (alleen na opslaan) */}
+                            {simStep === 4 && (
+                                <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'center' }}>
+                                    <button onClick={simNogEenProject} style={{
+                                        padding: '8px 18px', borderRadius: '16px',
+                                        border: '2px solid #25D366', background: '#fff',
+                                        color: '#075E54', fontSize: '0.82rem', fontWeight: 700,
+                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                    }}>
+                                        ➕ Nog een project toevoegen
+                                    </button>
+                                </div>
+                            )}
 
                         </div>
                        </div>
