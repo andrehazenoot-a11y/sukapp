@@ -1454,7 +1454,9 @@ Bedankt! Tot morgen 👋` }
                     <div style={{ ...panelS, display: 'flex', flexDirection: 'column', maxHeight: '700px' }}>
                         <div style={{ ...headerS, background: '#075E54', color: '#fff', borderRadius: '12px 12px 0 0' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>🤖</div>
+                                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#fff', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <img src="/ds-logo.png" alt="DS Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                </div>
                                 <div>
                                     <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>DS Schilder Bot</div>
                                     <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>{simMw ? `Chat met ${simMw.naam}` : 'Selecteer een medewerker om te starten'}</div>

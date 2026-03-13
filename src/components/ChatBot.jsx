@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
 
 const BOT_NAME = 'DS Assistent';
-const BOT_AVATAR = '🤖';
+
 
 // App URL voor WhatsApp links (pas aan naar je productie-URL)
 const APP_URL = 'https://schildersapp-katwijk.nl';
@@ -473,9 +473,11 @@ export default function ChatBot() {
                     }}>
                         <div style={{
                             width: '36px', height: '36px', borderRadius: '50%',
-                            background: 'rgba(255,255,255,0.2)', display: 'flex',
-                            alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem'
-                        }}>{BOT_AVATAR}</div>
+                            background: '#fff', overflow: 'hidden', flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                            <img src="/ds-logo.png" alt="DS Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </div>
                         <div>
                             <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{BOT_NAME}</div>
                             <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>
