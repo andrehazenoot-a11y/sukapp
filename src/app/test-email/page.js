@@ -174,7 +174,7 @@ export default function TestEmailPage() {
                         <li>Opmaak ziet er professioneel uit</li>
                         <li>Gegevens kloppen (naam, bedrag, datum)</li>
                         <li>Afzender toont &quot;De Schilders uit Katwijk&quot;</li>
-                        <li>Antwoorden gaat naar info@deschildersuitkatwijk.nl</li>
+                        <li>Antwoorden gaat naar andre@deschildersuitkatwijk.nl</li>
                         <li>Geen vreemde tekens of kapotte opmaak</li>
                     </ul>
                 </div>

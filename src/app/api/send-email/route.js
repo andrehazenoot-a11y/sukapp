@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 
 const BEDRIJF = 'De Schilders uit Katwijk';
-const BEDRIJF_EMAIL = 'info@deschildersuitkatwijk.nl';
+const BEDRIJF_EMAIL = 'andre@deschildersuitkatwijk.nl';
 const BEDRIJF_TELEFOON = '06-10 29 87 66';
 const BEDRIJF_ADRES = 'Ambachtsweg 12, 2223 AM Katwijk';
 
