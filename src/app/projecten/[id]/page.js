@@ -222,6 +222,131 @@ export default function ProjectDossierPage() {
     const [showAddTermijn, setShowAddTermijn] = useState(false);
     const [newTermijn, setNewTermijn] = useState({ omschrijving: '', bedrag: '', percentage: '', datum: '', vervaldatum: '', factuurNr: '' });
     const [editTermijnId, setEditTermijnId] = useState(null);
+    const [scanStatus, setScanStatus] = useState(null); // null | 'scanning' | 'confirm' | 'error'
+    const [scanResult, setScanResult] = useState([]); // gevonden termijnen
+    const [scanRawText, setScanRawText] = useState('');
+    const scanInputRef = useRef(null);
+
+    // ── Termijnenstaat tekst-parser ──
+    const parseTermijnText = (text) => {
+        const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+        const found = [];
+
+        // Herkende patronen (NL-formaat)
+        const amountRe  = /[€Ee]\s*([0-9][0-9.]*[,.]?[0-9]{0,2})/g;
+        const dateRe    = /(\d{1,2})[\-\/\.\s](\d{1,2})[\-\/\.\s](\d{2,4})/g;
+        const factuurRe = /([A-Z]{1,3}[-_]?\d{4}[-_]?\d{1,4})/g;
+        const pctRe     = /(\d{1,3})\s*%/g;
+
+        // Groepeer regels in blokken (regels die een bedrag bevatten)
+        let i = 0;
+        while (i < lines.length) {
+            const line = lines[i];
+            const amounts = [...line.matchAll(amountRe)];
+            if (amounts.length > 0) {
+                // Neem context: deze regel + 1 voor en 1 na
+                const ctx = [lines[i-1] || '', line, lines[i+1] || ''].join(' ');
+
+                // Bedrag
+                const rawAmt = amounts[0][1].replace(/\./g, '').replace(',', '.');
+                const bedrag = parseFloat(rawAmt) || 0;
+
+                // Datum (eerste die gevonden wordt)
+                const dates = [...ctx.matchAll(dateRe)];
+                let datum = '';
+                if (dates.length > 0) {
+                    const [,d,m,y] = dates[0];
+                    const year = y.length === 2 ? '20' + y : y;
+                    datum = `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+                }
+
+                // Factuurnummer
+                const factMatches = [...ctx.matchAll(factuurRe)];
+                const factuurNr = factMatches.length > 0 ? factMatches[0][1] : '';
+
+                // Percentage
+                const pctMatches = [...ctx.matchAll(pctRe)];
+                const percentage = pctMatches.length > 0 ? parseInt(pctMatches[0][1]) : 0;
+
+                // Omschrijving: neem de langste niet-bedrag tekst
+                const descLine = (lines[i-1] || line)
+                    .replace(amountRe, '')
+                    .replace(dateRe, '')
+                    .replace(factuurRe, '')
+                    .replace(pctRe, '')
+                    .replace(/[€%,\.]/g, ' ')
+                    .trim();
+                const omschrijving = descLine.length > 4 ? descLine : line.replace(amountRe, '').trim();
+
+                if (bedrag > 0) {
+                    found.push({
+                        id: Date.now() + i,
+                        omschrijving: omschrijving || `Termijn ${found.length + 1}`,
+                        bedrag,
+                        percentage,
+                        datum,
+                        vervaldatum: '',
+                        betaaldatum: '',
+                        factuurNr,
+                        betaald: false,
+                    });
+                }
+            }
+            i++;
+        }
+        return found;
+    };
+
+    const scanTermijnDoc = async (file) => {
+        if (!file) return;
+        setScanStatus('scanning');
+        setScanRawText('');
+        setScanResult([]);
+        try {
+            let rawText = '';
+            const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+            if (isPdf) {
+                // PDF: gebruik PDF.js CDN om tekst te extraheren
+                const pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.mjs');
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.mjs';
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                for (let p = 1; p <= pdf.numPages; p++) {
+                    const page = await pdf.getPage(p);
+                    const tc = await page.getTextContent();
+                    rawText += tc.items.map(item => item.str).join(' ') + '\n';
+                }
+            } else {
+                // Foto/scan: Tesseract OCR
+                const Tesseract = (await import('tesseract.js')).default;
+                const dataUrl = await new Promise(res => {
+                    const r = new FileReader();
+                    r.onload = e => res(e.target.result);
+                    r.readAsDataURL(file);
+                });
+                const result = await Tesseract.recognize(dataUrl, 'nld+eng');
+                rawText = result.data.text;
+            }
+
+            setScanRawText(rawText);
+            const parsed = parseTermijnText(rawText);
+            setScanResult(parsed);
+            setScanStatus(parsed.length > 0 ? 'confirm' : 'error');
+        } catch (err) {
+            console.error('Scan fout:', err);
+            setScanStatus('error');
+        }
+    };
+
+    const importScanResult = () => {
+        const updated = [...termijnen, ...scanResult.map((t,i) => ({ ...t, id: Date.now() + i }))];
+        setTermijnen(updated);
+        localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        setScanStatus(null);
+        setScanResult([]);
+    };
+
     const handleFileUpload = (taskId, files) => {
         const fileArr = Array.from(files);
         let loaded = 0;
@@ -1121,11 +1246,23 @@ export default function ProjectDossierPage() {
                                 <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>Termijnenstaat</span>
                                 <span style={{ background: '#fff7ed', color: '#F5850A', fontWeight: 700, fontSize: '0.72rem', padding: '2px 8px', borderRadius: '20px' }}>{termijnen.length} termijnen</span>
                             </div>
-                            <button onClick={() => setShowAddTermijn(v => !v)}
-                                style={{ padding: '7px 14px', borderRadius: '9px', border: 'none', background: showAddTermijn ? '#f1f5f9' : '#F5850A', color: showAddTermijn ? '#64748b' : '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <i className={`fa-solid ${showAddTermijn ? 'fa-xmark' : 'fa-plus'}`} />
-                                {showAddTermijn ? 'Annuleren' : 'Termijn toevoegen'}
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                {/* Scan-knop */}
+                                <label style={{ padding: '7px 14px', borderRadius: '9px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+                                    title="Scan een PDF of foto van een termijnenstaat">
+                                    {scanStatus === 'scanning'
+                                        ? <><i className="fa-solid fa-spinner fa-spin" /> Scannen...</>
+                                        : <><i className="fa-solid fa-camera" /> Scan importeren</>
+                                    }
+                                    <input ref={scanInputRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }}
+                                        onChange={e => { if (e.target.files[0]) scanTermijnDoc(e.target.files[0]); e.target.value = ''; }} />
+                                </label>
+                                <button onClick={() => setShowAddTermijn(v => !v)}
+                                    style={{ padding: '7px 14px', borderRadius: '9px', border: 'none', background: showAddTermijn ? '#f1f5f9' : '#F5850A', color: showAddTermijn ? '#64748b' : '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className={`fa-solid ${showAddTermijn ? 'fa-xmark' : 'fa-plus'}`} />
+                                    {showAddTermijn ? 'Annuleren' : 'Termijn toevoegen'}
+                                </button>
+                            </div>
                         </div>
 
                         {/* Toevoeg-formulier */}
@@ -1267,6 +1404,111 @@ export default function ProjectDossierPage() {
                 );
             })()}
 
+
+            {/* ===== SCAN BEVESTIGINGSMODAL ===== */}
+            {(scanStatus === 'confirm' || scanStatus === 'error') && (
+                <div onClick={() => setScanStatus(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    <div onClick={e => e.stopPropagation()}
+                        style={{ background: '#fff', borderRadius: '18px', width: '680px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
+
+                        {/* Modal header */}
+                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: scanStatus === 'error' ? '#fef2f2' : '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className={`fa-solid ${scanStatus === 'error' ? 'fa-triangle-exclamation' : 'fa-camera'}`}
+                                    style={{ color: scanStatus === 'error' ? '#ef4444' : '#F5850A', fontSize: '1.1rem' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>
+                                    {scanStatus === 'error' ? 'Geen termijnen herkend' : `${scanResult.length} termijn${scanResult.length !== 1 ? 'en' : ''} herkend`}
+                                </div>
+                                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                                    {scanStatus === 'error'
+                                        ? 'Het document bevat geen herkenbare bedragen of termijnen. Controleer de scan of voeg handmatig toe.'
+                                        : 'Controleer de herkende termijnen en pas ze eventueel aan voordat je importeert.'}
+                                </div>
+                            </div>
+                            <button onClick={() => setScanStatus(null)}
+                                style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: '#f1f5f9', color: '#64748b', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+
+                        {scanStatus === 'error' ? (
+                            <div style={{ padding: '40px 24px', textAlign: 'center', flex: 1 }}>
+                                <i className="fa-solid fa-file-circle-question" style={{ fontSize: '3rem', color: '#cbd5e1', display: 'block', marginBottom: '16px' }} />
+                                {scanRawText && (
+                                    <details style={{ textAlign: 'left', marginTop: '16px' }}>
+                                        <summary style={{ cursor: 'pointer', fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Bekijk herkende tekst</summary>
+                                        <pre style={{ marginTop: '8px', fontSize: '0.7rem', color: '#475569', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '200px', overflow: 'auto', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>{scanRawText}</pre>
+                                    </details>
+                                )}
+                                <button onClick={() => setScanStatus(null)}
+                                    style={{ marginTop: '20px', padding: '10px 20px', borderRadius: '10px', border: 'none', background: '#f1f5f9', color: '#475569', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}>
+                                    Sluiten
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                {/* Gevonden termijnen */}
+                                <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {scanResult.map((t, idx) => (
+                                        <div key={t.id} style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px 16px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff7ed', border: '1px solid #fed7aa', color: '#F5850A', fontWeight: 800, fontSize: '0.72rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                                <input value={t.omschrijving}
+                                                    onChange={e => setScanResult(prev => prev.map((x, xi) => xi === idx ? { ...x, omschrijving: e.target.value } : x))}
+                                                    style={{ flex: 1, padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 600, outline: 'none', background: '#fff' }} />
+                                                <button onClick={() => setScanResult(prev => prev.filter((_, xi) => xi !== idx))}
+                                                    style={{ width: '28px', height: '28px', borderRadius: '7px', border: 'none', background: '#fee2e2', color: '#ef4444', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <i className="fa-solid fa-xmark" />
+                                                </button>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginLeft: '32px' }}>
+                                                <div>
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '3px' }}>BEDRAG (€)</label>
+                                                    <input type="number" value={t.bedrag}
+                                                        onChange={e => setScanResult(prev => prev.map((x, xi) => xi === idx ? { ...x, bedrag: parseFloat(e.target.value) || 0 } : x))}
+                                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 700, outline: 'none', background: '#fff' }} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '3px' }}>FACTUURDATUM</label>
+                                                    <input type="date" value={t.datum}
+                                                        onChange={e => setScanResult(prev => prev.map((x, xi) => xi === idx ? { ...x, datum: e.target.value } : x))}
+                                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.82rem', outline: 'none', background: '#fff' }} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '3px' }}>FACTUURNR</label>
+                                                    <input value={t.factuurNr}
+                                                        onChange={e => setScanResult(prev => prev.map((x, xi) => xi === idx ? { ...x, factuurNr: e.target.value } : x))}
+                                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.82rem', outline: 'none', background: '#fff' }} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Footer */}
+                                <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc' }}>
+                                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                                        Totaal herkend: <strong style={{ color: '#1e293b' }}>€{scanResult.reduce((s, t) => s + (t.bedrag || 0), 0).toLocaleString('nl-NL')}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => setScanStatus(null)}
+                                            style={{ padding: '9px 18px', borderRadius: '9px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                            Annuleren
+                                        </button>
+                                        <button onClick={importScanResult}
+                                            style={{ padding: '9px 18px', borderRadius: '9px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fa-solid fa-file-import" /> {scanResult.length} termijn{scanResult.length !== 1 ? 'en' : ''} importeren
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ===== FOTO'S ===== */}
             {activeTab === 'fotos' && (
