@@ -227,6 +227,41 @@ export default function ProjectDossierPage() {
     const [scanRawText, setScanRawText] = useState('');
     const scanInputRef = useRef(null);
 
+    // ── Meerdere e-mailcontacten per project ──
+    const [emailContacten, setEmailContacten] = useState(() => {
+        try {
+            const s = localStorage.getItem(`schildersapp_emailcontacten_${id}`);
+            if (s) return JSON.parse(s);
+            // migreer bestaand project.email als startpunt
+            return [];
+        } catch { return []; }
+    });
+    const [newEmailContact, setNewEmailContact] = useState({ naam: '', email: '', label: 'Opdrachtgever' });
+    const [showAddEmailContact, setShowAddEmailContact] = useState(false);
+    // E-mail picker voor meerwerk
+    const [meerwerkEmailPicker, setMeerwerkEmailPicker] = useState(null); // meerwerk-item waarvoor picker open is
+
+    const saveEmailContacten = (updated) => {
+        setEmailContacten(updated);
+        localStorage.setItem(`schildersapp_emailcontacten_${id}`, JSON.stringify(updated));
+    };
+    const addEmailContact = () => {
+        if (!newEmailContact.naam || !newEmailContact.email) return;
+        saveEmailContacten([...emailContacten, { ...newEmailContact, id: Date.now() }]);
+        setNewEmailContact({ naam: '', email: '', label: 'Opdrachtgever' });
+        setShowAddEmailContact(false);
+    };
+    const removeEmailContact = (ecId) => saveEmailContacten(emailContacten.filter(c => c.id !== ecId));
+
+    // Gecombineerde lijst: contacten + project.email als fallback
+    const allEmailTargets = [
+        ...emailContacten,
+        ...(project?.email && !emailContacten.some(c => c.email === project?.email)
+            ? [{ id: 'project-email', naam: project?.client || 'Klant', email: project?.email, label: 'Hoofd' }]
+            : []),
+    ];
+
+
     // ── Termijnenstaat tekst-parser ──
     const parseTermijnText = (text) => {
         const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
@@ -469,16 +504,30 @@ export default function ProjectDossierPage() {
     };
     const deleteMeerwerkItem = (mwId) => saveMeerwerk(meerwerk.filter(m => m.id !== mwId));
 
-    const sendMeerwerkEmail = async (item) => {
-        if (!project?.email) { alert('Vul eerst een e-mailadres van de klant in bij Klantgegevens.'); return; }
+    const sendMeerwerkEmail = (item) => {
+        if (allEmailTargets.length === 0) {
+            alert('Nog geen e-mailcontacten. Voeg er een toe via Overzicht → E-mailcontacten.');
+            return;
+        }
+        if (allEmailTargets.length === 1) {
+            // direct sturen naar enige contact
+            sendMeerwerkEmailTo(item, allEmailTargets[0]);
+        } else {
+            // picker tonen
+            setMeerwerkEmailPicker(item);
+        }
+    };
+
+    const sendMeerwerkEmailTo = async (item, contact) => {
+        setMeerwerkEmailPicker(null);
         setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'sending' }));
         try {
             const res = await fetch('/api/send-email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    to: project.email,
-                    toName: project.client,
+                    to: contact.email,
+                    toName: contact.naam,
                     contractNummer: `MW-${item.id}`,
                     projectNaam: project.name,
                     contractUrl: '',
@@ -489,12 +538,16 @@ export default function ProjectDossierPage() {
             const data = await res.json();
             setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: data.success ? 'sent' : 'error' }));
             if (data.success) {
-                saveMeerwerk(meerwerk.map(m => m.id === item.id ? { ...m, emailVerzonden: new Date().toISOString().split('T')[0] } : m));
+                saveMeerwerk(meerwerk.map(m => m.id === item.id
+                    ? { ...m, emailVerzonden: new Date().toISOString().split('T')[0], emailNaar: contact.email }
+                    : m));
             }
         } catch {
             setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'error' }));
         }
     };
+
+
 
 
     const KWALITEIT_DEFAULTS = [
@@ -875,7 +928,69 @@ export default function ProjectDossierPage() {
                                     </div>
                                 </div>
                             ))
-                        ) : (
+                        )}
+                        {/* E-mailcontacten */}
+                        {!editingClient && (
+                            <div style={{ marginTop: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <i className="fa-solid fa-address-book" /> E-mailcontacten
+                                    </div>
+                                    <button onClick={() => setShowAddEmailContact(v => !v)}
+                                        style={{ padding: '3px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <i className={`fa-solid ${showAddEmailContact ? 'fa-xmark' : 'fa-plus'}`} />
+                                        {showAddEmailContact ? 'Sluiten' : 'Toevoegen'}
+                                    </button>
+                                </div>
+                                {showAddEmailContact && (
+                                    <div style={{ background: '#fffbf5', border: '1px solid #fed7aa', borderRadius: '9px', padding: '12px', marginBottom: '8px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '6px' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '2px' }}>Naam *</label>
+                                                <input value={newEmailContact.naam} onChange={e => setNewEmailContact(p => ({ ...p, naam: e.target.value }))}
+                                                    placeholder="Jan Jansen" style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box' }} />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '2px' }}>Label</label>
+                                                <select value={newEmailContact.label} onChange={e => setNewEmailContact(p => ({ ...p, label: e.target.value }))}
+                                                    style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', background: '#fff' }}>
+                                                    {['Opdrachtgever', 'Contactpersoon', 'Boekhouding', 'Directie', 'Overig'].map(l => <option key={l}>{l}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div style={{ marginBottom: '8px' }}>
+                                            <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '2px' }}>E-mailadres *</label>
+                                            <input type="email" value={newEmailContact.email} onChange={e => setNewEmailContact(p => ({ ...p, email: e.target.value }))}
+                                                placeholder="jan@bedrijf.nl" style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box' }} />
+                                        </div>
+                                        <button onClick={addEmailContact}
+                                            style={{ padding: '6px 14px', borderRadius: '7px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>
+                                            <i className="fa-solid fa-plus" style={{ marginRight: '4px' }} />Contact opslaan
+                                        </button>
+                                    </div>
+                                )}
+                                {allEmailTargets.length === 0 ? (
+                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>Nog geen e-mailcontacten. Voeg er een toe.</div>
+                                ) : allEmailTargets.map(c => (
+                                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid #f8fafc' }}>
+                                        <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', flexShrink: 0 }}>
+                                            <i className="fa-solid fa-envelope" />
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>{c.naam}</div>
+                                            <div style={{ fontSize: '0.7rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email} · <span style={{ color: '#94a3b8' }}>{c.label}</span></div>
+                                        </div>
+                                        {c.id !== 'project-email' && (
+                                            <button onClick={() => removeEmailContact(c.id)}
+                                                style={{ padding: '4px 7px', borderRadius: '6px', border: 'none', background: '#fef2f2', color: '#ef4444', fontSize: '0.7rem', cursor: 'pointer' }}>
+                                                <i className="fa-solid fa-trash" />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {editingClient ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 {[
                                     { field: 'client', label: 'Naam opdrachtgever', icon: 'fa-user', type: 'text' },
@@ -2346,6 +2461,60 @@ export default function ProjectDossierPage() {
     return (
         <>
             {mainContent}
+
+            {/* ===== EMAIL CONTACT PICKER MODAL ===== */}
+            {meerwerkEmailPicker && (
+                <div onClick={() => setMeerwerkEmailPicker(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    <div onClick={e => e.stopPropagation()}
+                        style={{ background: '#fff', borderRadius: '18px', width: '420px', maxWidth: '95vw', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+                        {/* Header */}
+                        <div style={{ padding: '18px 22px', background: 'linear-gradient(135deg,#F5850A,#e06b00)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-envelope" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>Kies e-mailontvanger</div>
+                                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
+                                    Meerwerk: {meerwerkEmailPicker.omschrijving}
+                                </div>
+                            </div>
+                            <button onClick={() => setMeerwerkEmailPicker(null)}
+                                style={{ marginLeft: 'auto', width: '30px', height: '30px', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+                        {/* Contact lijst */}
+                        <div style={{ padding: '16px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                Selecteer ontvanger voor het akkoordverzoek:
+                            </div>
+                            {allEmailTargets.map(contact => (
+                                <button key={contact.id}
+                                    onClick={() => sendMeerwerkEmailTo(meerwerkEmailPicker, contact)}
+                                    style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', border: '2px solid #e2e8f0', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', textAlign: 'left', transition: 'all 0.15s' }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#F5850A'; e.currentTarget.style.background = '#fffbf5'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fff'; }}>
+                                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+                                        <i className="fa-solid fa-user" />
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{contact.naam}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.email}</div>
+                                    </div>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '3px 8px', borderRadius: '20px', background: '#f1f5f9', color: '#64748b' }}>{contact.label}</span>
+                                    <i className="fa-solid fa-paper-plane" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ padding: '10px 16px 16px', borderTop: '1px solid #f1f5f9', fontSize: '0.72rem', color: '#94a3b8', textAlign: 'center' }}>
+                            Extra contacten beheren via <strong>Overzicht → E-mailcontacten</strong>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
             {previewAtt && (
                 <div
                     onClick={() => setPreviewAtt(null)}
