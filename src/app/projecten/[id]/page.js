@@ -446,18 +446,71 @@ export default function ProjectDossierPage() {
     const [kwaliteitsChecks, setKwaliteitsChecks] = useState(() => {
         try { const s = localStorage.getItem(`schildersapp_bewaking_k_${id}`); return s ? JSON.parse(s) : KWALITEIT_DEFAULTS; } catch { return KWALITEIT_DEFAULTS; }
     });
-    const [werkelijkeUren, setWerkelijkeUren] = useState(() => {
-        try { const s = localStorage.getItem(`schildersapp_bewaking_u_${id}`); return s ? Number(s) : 0; } catch { return 0; }
-    });
     const toggleKwaliteit = (kId) => {
         const upd = kwaliteitsChecks.map(k => k.id === kId ? { ...k, done: !k.done } : k);
         setKwaliteitsChecks(upd);
         localStorage.setItem(`schildersapp_bewaking_k_${id}`, JSON.stringify(upd));
     };
-    const saveWerkelijkeUren = (val) => {
-        setWerkelijkeUren(val);
-        localStorage.setItem(`schildersapp_bewaking_u_${id}`, String(val));
+
+    // ── Uren berekenen uit urenregistratie voor dit project ──
+    const calcUrenVoorProject = () => {
+        if (!allUsers || !project) return { totaal: 0, perPersoon: [] };
+        const parseVal = v => parseFloat(String(v).replace(',', '.')) || 0;
+        const parseType = (typeId) => {
+            const ICON_TYPES = ['ziek', 'vrij'];
+            return !ICON_TYPES.includes(typeId);
+        };
+        // Bepaal weken: van projectstart tot vandaag
+        const startD = new Date(project.startDate + 'T00:00:00');
+        const today = new Date();
+        const weekSet = new Set();
+        const cursor = new Date(startD);
+        cursor.setDate(cursor.getDate() - cursor.getDay() + 1); // naar maandag
+        while (cursor <= today) {
+            const d = new Date(cursor);
+            const jan4 = new Date(d.getFullYear(), 0, 4);
+            const dow = jan4.getDay() || 7;
+            const wk = Math.ceil(((d - new Date(d.getFullYear(), 0, 1)) / 86400000 + dow) / 7);
+            weekSet.add(`${wk}_${d.getFullYear()}`);
+            cursor.setDate(cursor.getDate() + 7);
+        }
+        const weeks = [...weekSet];
+        const perPersoon = [];
+        allUsers.forEach(u => {
+            let urenTotaal = 0;
+            let weekBreakdown = [];
+            weeks.forEach(wk => {
+                const [weekNum, yearNum] = wk.split('_').map(Number);
+                const key = `schildersapp_urv2_u${u.id}_w${weekNum}_${yearNum}`;
+                try {
+                    const raw = localStorage.getItem(key);
+                    if (!raw) return;
+                    const projectRows = JSON.parse(raw);
+                    let weekUren = 0;
+                    projectRows.forEach(row => {
+                        if (String(row.projectId) !== String(id)) return;
+                        Object.entries(row.types || {}).forEach(([tid, hrs]) => {
+                            if (!parseType(tid)) return;
+                            (hrs || []).slice(0, 5).forEach(h => { weekUren += parseVal(h); });
+                        });
+                    });
+                    if (weekUren > 0) {
+                        urenTotaal += weekUren;
+                        weekBreakdown.push({ weekNum, yearNum, uren: weekUren });
+                    }
+                } catch { /* skip */ }
+            });
+            if (urenTotaal > 0) {
+                perPersoon.push({ ...u, uren: urenTotaal, weekBreakdown });
+            }
+        });
+        const totaal = perPersoon.reduce((s, p) => s + p.uren, 0);
+        return { totaal: Math.round(totaal * 10) / 10, perPersoon };
     };
+    const urenData = calcUrenVoorProject();
+    const werkelijkeUren = urenData.totaal;
+    const urenPerPersoon = urenData.perPersoon;
+
 
     useEffect(() => {
         const stored = localStorage.getItem('schildersapp_projecten');
@@ -1675,17 +1728,21 @@ export default function ProjectDossierPage() {
                         <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
                             <h3 style={{ margin: '0 0 16px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fa-solid fa-clock" style={{ color: '#F5850A' }} /> Urenbewaking
+                                <span style={{ fontSize: '0.7rem', fontWeight: 500, color: '#94a3b8', marginLeft: '4px' }}>
+                                    — automatisch uit urenregistratie
+                                </span>
                             </h3>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                                     {[
-                                        { label: 'Geschatte uren', value: `${project.estimatedHours}u`, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-hourglass' },
-                                        { label: 'Werkelijke uren', value: `${werkelijkeUren}u`, color: overUren ? '#ef4444' : '#10b981', bg: overUren ? '#fef2f2' : '#f0fdf4', icon: 'fa-stopwatch' },
+                                        { label: 'Geschatte uren', value: `${project.estimatedHours}u`, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-hourglass', sub: 'Planning' },
+                                        { label: 'Geboekte uren', value: `${werkelijkeUren}u`, color: overUren ? '#ef4444' : '#10b981', bg: overUren ? '#fef2f2' : '#f0fdf4', icon: 'fa-stopwatch', sub: `${urenPerPersoon.length} personen` },
                                     ].map((item, i) => (
                                         <div key={i} style={{ background: item.bg, borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
                                             <i className={`fa-solid ${item.icon}`} style={{ color: item.color, marginBottom: '4px', display: 'block' }} />
                                             <div style={{ fontSize: '1.4rem', fontWeight: 800, color: item.color }}>{item.value}</div>
                                             <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{item.label}</div>
+                                            <div style={{ fontSize: '0.6rem', color: item.color, fontWeight: 500, marginTop: '2px' }}>{item.sub}</div>
                                         </div>
                                     ))}
                                 </div>
@@ -1698,15 +1755,44 @@ export default function ProjectDossierPage() {
                                         <div style={{ height: '100%', width: `${Math.min(urenPct, 100)}%`, background: overUren ? '#ef4444' : nearUren ? '#f59e0b' : '#10b981', borderRadius: '999px', transition: 'width 0.6s' }} />
                                     </div>
                                 </div>
-                                <div>
-                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '5px' }}>Werkelijke uren invoeren</label>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <input type="number" min="0" defaultValue={werkelijkeUren} key={werkelijkeUren}
-                                            onBlur={e => saveWerkelijkeUren(parseFloat(e.target.value) || 0)}
-                                            style={{ flex: 1, padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.88rem', outline: 'none' }} />
-                                        <span style={{ display: 'flex', alignItems: 'center', fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>uren</span>
+
+                                {/* Per-medewerker breakdown */}
+                                {urenPerPersoon.length > 0 ? (
+                                    <div style={{ border: '1px solid #f1f5f9', borderRadius: '10px', overflow: 'hidden' }}>
+                                        <div style={{ padding: '8px 12px', background: '#f8fafc', fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>Medewerker / ZZP</span><span>Uren</span>
+                                        </div>
+                                        {urenPerPersoon.map((p, i) => {
+                                            const avatarColors = ['#F5850A','#3b82f6','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ef4444'];
+                                            const ac = avatarColors[i % avatarColors.length];
+                                            const pct = werkelijkeUren > 0 ? Math.round((p.uren / werkelijkeUren) * 100) : 0;
+                                            return (
+                                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}>
+                                                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: ac, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.65rem', flexShrink: 0 }}>
+                                                        {(p.initials || p.name?.slice(0,2).toUpperCase())}
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>{p.name}</div>
+                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{p.role} · {p.weekBreakdown.length} {p.weekBreakdown.length === 1 ? 'week' : 'weken'}</div>
+                                                        <div style={{ height: '4px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden', marginTop: '4px' }}>
+                                                            <div style={{ height: '100%', width: `${pct}%`, background: ac, borderRadius: '999px' }} />
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: ac, textAlign: 'right', flexShrink: 0 }}>
+                                                        {p.uren}u
+                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 500 }}>{pct}%</div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                </div>
+                                ) : (
+                                    <div style={{ textAlign: 'center', padding: '14px', background: '#f8fafc', borderRadius: '10px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                        <i className="fa-regular fa-clock" style={{ display: 'block', marginBottom: '4px', fontSize: '1.1rem' }} />
+                                        Nog geen uren geboekt op dit project
+                                    </div>
+                                )}
+
                                 {project.estimatedHours > 0 && (
                                     <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px 12px', fontSize: '0.78rem', color: '#475569' }}>
                                         Uurtarief offerte: <strong>€{(offerte / project.estimatedHours).toFixed(2)}/u</strong>
@@ -1716,6 +1802,7 @@ export default function ProjectDossierPage() {
                             </div>
                         </div>
                     </div>
+
 
                     {/* ── Kwaliteitschecklist ── */}
                     <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
