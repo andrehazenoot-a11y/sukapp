@@ -247,6 +247,11 @@ export default function ProjectDossierPage() {
     };
     const addEmailContact = () => {
         if (!newEmailContact.naam || !newEmailContact.email) return;
+        // Voorkom dubbele email-adressen
+        if (emailContacten.some(c => c.email.toLowerCase() === newEmailContact.email.toLowerCase())) {
+            alert(`Dit e-mailadres (${newEmailContact.email}) is al toegevoegd.`);
+            return;
+        }
         saveEmailContacten([...emailContacten, { ...newEmailContact, id: Date.now() }]);
         setNewEmailContact({ naam: '', email: '', label: 'Opdrachtgever' });
         setShowAddEmailContact(false);
