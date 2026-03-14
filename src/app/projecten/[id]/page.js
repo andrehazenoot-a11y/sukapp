@@ -236,7 +236,7 @@ export default function ProjectDossierPage() {
             return [];
         } catch { return []; }
     });
-    const [newEmailContact, setNewEmailContact] = useState({ naam: '', email: '', label: 'Opdrachtgever' });
+    const [newEmailContact, setNewEmailContact] = useState({ naam: '', email: '', telefoon: '', label: 'Opdrachtgever' });
     const [showAddEmailContact, setShowAddEmailContact] = useState(false);
     // E-mail picker voor meerwerk
     const [meerwerkEmailPicker, setMeerwerkEmailPicker] = useState(null); // meerwerk-item waarvoor picker open is
@@ -253,7 +253,7 @@ export default function ProjectDossierPage() {
             return;
         }
         saveEmailContacten([...emailContacten, { ...newEmailContact, id: Date.now() }]);
-        setNewEmailContact({ naam: '', email: '', label: 'Opdrachtgever' });
+        setNewEmailContact({ naam: '', email: '', telefoon: '', label: 'Opdrachtgever' });
         setShowAddEmailContact(false);
     };
     const removeEmailContact = (ecId) => saveEmailContacten(emailContacten.filter(c => c.id !== ecId));
@@ -963,10 +963,17 @@ export default function ProjectDossierPage() {
                                                 </select>
                                             </div>
                                         </div>
-                                        <div style={{ marginBottom: '8px' }}>
-                                            <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '2px' }}>E-mailadres *</label>
-                                            <input type="email" value={newEmailContact.email} onChange={e => setNewEmailContact(p => ({ ...p, email: e.target.value }))}
-                                                placeholder="jan@bedrijf.nl" style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box' }} />
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '2px' }}>E-mailadres *</label>
+                                                <input type="email" value={newEmailContact.email} onChange={e => setNewEmailContact(p => ({ ...p, email: e.target.value }))}
+                                                    placeholder="jan@bedrijf.nl" style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box' }} />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '2px' }}>06-nummer</label>
+                                                <input type="tel" value={newEmailContact.telefoon || ''} onChange={e => setNewEmailContact(p => ({ ...p, telefoon: e.target.value }))}
+                                                    placeholder="06-12345678" style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box' }} />
+                                            </div>
                                         </div>
                                         <button onClick={addEmailContact}
                                             style={{ padding: '6px 14px', borderRadius: '7px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>
@@ -984,13 +991,26 @@ export default function ProjectDossierPage() {
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>{c.naam}</div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email} · <span style={{ color: '#94a3b8' }}>{c.label}</span></div>
+                                            {c.telefoon && (
+                                                <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '1px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fa-solid fa-phone" style={{ fontSize: '0.6rem', color: '#94a3b8' }} />
+                                                    {c.telefoon}
+                                                </div>
+                                            )}
                                         </div>
-                                        {c.id !== 'project-email' && (
+                                        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                            {c.telefoon && (
+                                                <a href={`https://wa.me/${c.telefoon.replace(/[^0-9]/g, '').replace(/^06/, '316')}`} target="_blank" rel="noreferrer"
+                                                    title={`WhatsApp naar ${c.naam}`}
+                                                    style={{ padding: '4px 7px', borderRadius: '6px', border: 'none', background: '#dcfce7', color: '#16a34a', fontSize: '0.7rem', cursor: 'pointer', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+                                                    <i className="fa-brands fa-whatsapp" />
+                                                </a>
+                                            )}
                                             <button onClick={() => removeEmailContact(c.id)}
                                                 style={{ padding: '4px 7px', borderRadius: '6px', border: 'none', background: '#fef2f2', color: '#ef4444', fontSize: '0.7rem', cursor: 'pointer' }}>
                                                 <i className="fa-solid fa-trash" />
                                             </button>
-                                        )}
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -2506,9 +2526,26 @@ export default function ProjectDossierPage() {
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{contact.naam}</div>
                                         <div style={{ fontSize: '0.75rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.email}</div>
+                                        {contact.telefoon && (
+                                            <div style={{ fontSize: '0.72rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                                <i className="fa-solid fa-phone" style={{ fontSize: '0.6rem', color: '#94a3b8' }} />
+                                                {contact.telefoon}
+                                            </div>
+                                        )}
                                     </div>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '3px 8px', borderRadius: '20px', background: '#f1f5f9', color: '#64748b' }}>{contact.label}</span>
-                                    <i className="fa-solid fa-paper-plane" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '3px 8px', borderRadius: '20px', background: '#f1f5f9', color: '#64748b' }}>{contact.label}</span>
+                                        {contact.telefoon && (
+                                            <a href={`https://wa.me/${contact.telefoon.replace(/[^0-9]/g, '').replace(/^06/, '316')}`}
+                                                target="_blank" rel="noreferrer"
+                                                onClick={e => e.stopPropagation()}
+                                                title={`WhatsApp naar ${contact.naam}`}
+                                                style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', textDecoration: 'none', flexShrink: 0 }}>
+                                                <i className="fa-brands fa-whatsapp" />
+                                            </a>
+                                        )}
+                                        <i className="fa-solid fa-paper-plane" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
+                                    </div>
                                 </button>
                             ))}
                         </div>
