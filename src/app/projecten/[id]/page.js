@@ -1290,7 +1290,7 @@ export default function ProjectDossierPage() {
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
                                     <div>
-                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Factuurdatum</label>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Termijn aanvraagdatum</label>
                                         <input type="date" value={newTermijn.datum} onChange={e => setNewTermijn(p => ({ ...p, datum: e.target.value }))}
                                             style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }} />
                                     </div>
@@ -1323,7 +1323,7 @@ export default function ProjectDossierPage() {
                             <div>
                                 {/* Tabel-header */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1.2fr 80px', gap: 0, padding: '8px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                                    {['Omschrijving', 'Factuurdatum', 'Vervaldatum', 'Bedrag', 'Status', ''].map(h => (
+                                    {['Omschrijving', 'Termijn aanvraagdatum', 'Vervaldatum', 'Bedrag', 'Status', ''].map(h => (
                                         <div key={h} style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</div>
                                     ))}
                                 </div>
@@ -1356,7 +1356,7 @@ export default function ProjectDossierPage() {
                                                 </div>
                                             </div>
 
-                                            {/* Factuurdatum */}
+                                            {/* Termijn aanvraagdatum */}
                                             <div style={{ fontSize: '0.82rem', color: '#475569' }}>{formatDate(t.datum)}</div>
 
                                             {/* Vervaldatum */}
@@ -1472,7 +1472,7 @@ export default function ProjectDossierPage() {
                                                         style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 700, outline: 'none', background: '#fff' }} />
                                                 </div>
                                                 <div>
-                                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '3px' }}>FACTUURDATUM</label>
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '3px' }}>AANVRAAGDATUM</label>
                                                     <input type="date" value={t.datum}
                                                         onChange={e => setScanResult(prev => prev.map((x, xi) => xi === idx ? { ...x, datum: e.target.value } : x))}
                                                         style={{ width: '100%', padding: '6px 8px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.82rem', outline: 'none', background: '#fff' }} />
