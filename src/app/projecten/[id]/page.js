@@ -908,7 +908,7 @@ export default function ProjectDossierPage() {
                                 </div>
                             )}
                         </div>
-                        {!editingClient ? (
+                        {!editingClient && (
                             [
                                 { icon: 'fa-user', label: 'Naam', value: project.client },
                                 { icon: 'fa-location-dot', label: 'Adres', value: project.address },
@@ -990,7 +990,7 @@ export default function ProjectDossierPage() {
                                 ))}
                             </div>
                         )}
-                        {editingClient ? (
+                        {editingClient && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 {[
                                     { field: 'client', label: 'Naam opdrachtgever', icon: 'fa-user', type: 'text' },
