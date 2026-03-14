@@ -11,11 +11,7 @@ export const ALL_PAGES = [
             { id: 'urenregistratie.team', name: 'Team Overzicht', icon: 'fa-users' },
         ]
     },
-    {
-        id: 'uren', name: 'Urenstaat', path: '/uren', icon: 'fa-clock', subs: [
-            { id: 'uren.registratie', name: 'Uren registratie', icon: 'fa-pen-to-square' },
-        ]
-    },
+
     {
         id: 'verlof', name: 'Verlof', path: '/uren?tab=verlof', icon: 'fa-umbrella-beach', subs: [
             { id: 'verlof.aanvragen', name: 'Verlof aanvragen', icon: 'fa-calendar-check' },
