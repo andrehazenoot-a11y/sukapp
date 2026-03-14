@@ -1,5 +1,10 @@
 import nodemailer from 'nodemailer';
 
+const BEDRIJF = 'De Schilders uit Katwijk';
+const BEDRIJF_EMAIL = 'info@deschildersuitkatwijk.nl';
+const BEDRIJF_TELEFOON = '06-10 29 87 66';
+const BEDRIJF_ADRES = 'Ambachtsweg 12, 2223 AM Katwijk';
+
 export async function POST(request) {
     try {
         const body = await request.json();
@@ -9,146 +14,211 @@ export async function POST(request) {
             return Response.json({ error: 'Ontbrekende velden: to, contractNummer' }, { status: 400 });
         }
 
-        // ── SMTP transporter ──
         const transporter = nodemailer.createTransport({
-            host: 'smtp.gmail.com', port: 587, secure: false,
+            host: 'smtp.gmail.com',
+            port: 587,
+            secure: false,
             auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
             tls: { rejectUnauthorized: false },
         });
-        const voornaam = toName?.split(' ')[0] || 'beste';
 
-        // ── Meerwerk akkoord email ──
+        const aanhef = toName?.trim() ? `Geachte ${toName.trim()}` : 'Geachte heer/mevrouw';
+        const bedragFormatted = (n) =>
+            Number(n).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        // ── MEERWERK AKKOORD EMAIL ──────────────────────────────────────
         if (isMeerwerk && meerwerkItem) {
-            const mwHtml = `
-<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8">
-<style>
-  body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;margin:0;padding:24px;color:#1e293b}
-  .wrapper{max-width:620px;margin:0 auto}
-  .header{background:linear-gradient(135deg,#F5850A,#e06b00);border-radius:12px 12px 0 0;padding:28px 32px}
-  .header h1{margin:0;color:#fff;font-size:1.3rem;font-weight:800}
-  .header p{margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:0.88rem}
-  .body{background:#fff;padding:32px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0}
-  .body p{margin:0 0 14px;line-height:1.6;font-size:0.93rem}
-  .mw-box{background:#fff7ed;border:2px solid #fed7aa;border-radius:12px;padding:20px 24px;margin:20px 0}
-  .mw-box h3{margin:0 0 12px;color:#c2410c;font-size:1rem;display:flex;align-items:center;gap:8px}
-  .mw-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #fed7aa;font-size:0.88rem}
-  .mw-row:last-child{border:none;font-weight:700;font-size:1rem;color:#c2410c}
-  .mw-label{color:#78350f;font-weight:600}
-  .note{background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:14px 18px;margin:16px 0;font-size:0.85rem;color:#713f12}
-  .footer{background:#1e293b;border-radius:0 0 12px 12px;padding:18px 32px;color:rgba(255,255,255,0.6);font-size:0.78rem}
-  .footer strong{color:#F5850A}
-</style></head><body>
-<div class="wrapper">
-  <div class="header">
-    <h1>📋 Meerwerk akkoordverzoek</h1>
-    <p>Project: ${projectNaam} — Ref: ${contractNummer}</p>
-  </div>
-  <div class="body">
-    <p>Beste ${voornaam},</p>
-    <p>Tijdens de uitvoering van project <strong>${projectNaam}</strong> is er aanvullend werk naar voren gekomen waarvoor wij graag uw akkoord ontvangen voordat wij dit uitvoeren.</p>
+            const subject = `Verzoek om akkoord meerwerk - ${projectNaam} (ref. ${contractNummer})`;
 
-    <div class="mw-box">
-      <h3>📄 Meerwerk specificatie</h3>
-      <div class="mw-row"><span class="mw-label">Omschrijving</span><span>${meerwerkItem.omschrijving}</span></div>
-      ${meerwerkItem.toelichting ? `<div class="mw-row"><span class="mw-label">Toelichting</span><span>${meerwerkItem.toelichting}</span></div>` : ''}
-      ${meerwerkItem.uren > 0 ? `<div class="mw-row"><span class="mw-label">Extra uren</span><span>${meerwerkItem.uren} uur</span></div>` : ''}
-      <div class="mw-row"><span class="mw-label">Datum aanvraag</span><span>${meerwerkItem.datum}</span></div>
-      <div class="mw-row"><span class="mw-label">Meerwerknummer</span><span>${contractNummer}</span></div>
-      <div class="mw-row"><span class="mw-label">Totaalbedrag meerwerk</span><span>€ ${meerwerkItem.bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span></div>
-    </div>
+            const textBody =
+`${aanhef},
 
-    <div class="note">
-      ⚠️ <strong>Let op:</strong> Dit meerwerk wordt alleen uitgevoerd na uw akkoord. Geef dit aan ons door via e-mail, WhatsApp of telefoon.
-    </div>
+Tijdens de uitvoering van project "${projectNaam}" is aanvullend werk naar voren gekomen. Wij verzoeken u hiervoor akkoord te verlenen voordat wij met de uitvoering starten.
 
-    <p>U kunt uw akkoord geven door te reageren op deze e-mail, of neem direct contact met ons op:</p>
-    <p>📱 WhatsApp / telefoon: <strong>06-10298766</strong><br>📧 E-mail: <strong>info@deschildersuitkatwijk.nl</strong></p>
-    <p style="margin-top:24px">Met vriendelijke groet,<br><strong>De Schilders uit Katwijk</strong></p>
-  </div>
-  <div class="footer">
-    <strong>De Schilders uit Katwijk</strong> &middot; Ambachtsweg 12, 2223 AM Katwijk &middot; info@deschildersuitkatwijk.nl<br>
-    Dit bericht is automatisch gegenereerd via SchildersApp.
-  </div>
-</div></body></html>`;
+MEERWERK SPECIFICATIE
+---------------------
+Omschrijving : ${meerwerkItem.omschrijving}${meerwerkItem.toelichting ? `\nToelichting  : ${meerwerkItem.toelichting}` : ''}${meerwerkItem.uren > 0 ? `\nExtra uren   : ${meerwerkItem.uren} uur` : ''}
+Datum aanvraag: ${meerwerkItem.datum}
+Referentie   : ${contractNummer}
+Totaalbedrag : EUR ${bedragFormatted(meerwerkItem.bedrag)}
 
-            await transporter.sendMail({
-                from: `"De Schilders Katwijk" <${process.env.SMTP_USER}>`,
-                to: `"${toName}" <${to}>`,
-                subject: `📋 Meerwerk akkoord nodig – ${projectNaam} (${contractNummer})`,
-                html: mwHtml,
-            });
-            return Response.json({ success: true });
-        }
+Dit meerwerk wordt uitsluitend uitgevoerd na uw schriftelijke of mondelinge akkoord.
 
-        // Contract email (fallthrough van meerwerk-blok hierboven)
+U kunt uw akkoord geven door te reageren op dit bericht, of neem contact met ons op:
+Telefoon : ${BEDRIJF_TELEFOON}
+E-mail   : ${BEDRIJF_EMAIL}
 
-        // Maak mooie HTML-email met het contract erin
-        const emailHtml = `
-<!DOCTYPE html>
+Met vriendelijke groet,
+
+${BEDRIJF}
+${BEDRIJF_ADRES}
+${BEDRIJF_EMAIL}
+${BEDRIJF_TELEFOON}`;
+
+            const htmlBody = `<!DOCTYPE html>
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f1f5f9; margin: 0; padding: 24px; color: #1e293b; }
-  .wrapper { max-width: 680px; margin: 0 auto; }
-  .header { background: linear-gradient(135deg, #F5850A 0%, #e06b00 100%); border-radius: 12px 12px 0 0; padding: 28px 32px; }
-  .header h1 { margin: 0; color: #fff; font-size: 1.4rem; font-weight: 800; }
-  .header p { margin: 6px 0 0; color: rgba(255,255,255,0.85); font-size: 0.9rem; }
-  .body { background: #fff; padding: 32px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
-  .body p { margin: 0 0 16px; line-height: 1.6; font-size: 0.95rem; }
-  .cta-btn { display: inline-block; margin: 20px 0; padding: 14px 28px; background: linear-gradient(135deg, #F5850A, #e06b00); color: #fff; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 1rem; }
-  .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
-  .info-box p { margin: 4px 0; font-size: 0.85rem; color: #475569; }
-  .info-box strong { color: #1e293b; }
-  .contract-preview { margin-top: 24px; border: 2px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
-  .contract-preview-header { background: #f1f5f9; padding: 10px 16px; font-size: 0.78rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; }
-  .contract-inner { padding: 20px; font-family: 'Carlito', 'Calibri', Arial, sans-serif; font-size: 0.78rem; color: #1e293b; max-height: 600px; overflow: hidden; }
-  .footer { background: #1e293b; border-radius: 0 0 12px 12px; padding: 20px 32px; color: rgba(255,255,255,0.6); font-size: 0.78rem; }
-  .footer strong { color: #F5850A; }
+  body { font-family: Arial, Helvetica, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; color: #1a1a1a; }
+  .wrapper { max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #d0d0d0; border-radius: 4px; }
+  .header { background: #E07000; padding: 24px 32px; border-radius: 4px 4px 0 0; }
+  .header h1 { margin: 0; color: #ffffff; font-size: 18px; font-weight: bold; font-family: Arial, sans-serif; }
+  .header p { margin: 6px 0 0; color: #ffe0b2; font-size: 13px; }
+  .body { padding: 28px 32px; }
+  .body p { margin: 0 0 14px; line-height: 1.6; font-size: 14px; color: #1a1a1a; }
+  table.spec { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px; }
+  table.spec th { background: #f0f0f0; text-align: left; padding: 8px 12px; border: 1px solid #d0d0d0; color: #444; font-weight: bold; }
+  table.spec td { padding: 8px 12px; border: 1px solid #d0d0d0; color: #1a1a1a; }
+  table.spec tr.total td { font-weight: bold; background: #fff8f0; color: #B45309; }
+  .notice { background: #fff8f0; border-left: 4px solid #E07000; padding: 12px 16px; margin: 18px 0; font-size: 13px; color: #78350f; }
+  .contact-block { background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 4px; padding: 14px 18px; margin: 18px 0; font-size: 13px; }
+  .footer { background: #1a1a1a; padding: 16px 32px; border-radius: 0 0 4px 4px; color: #aaaaaa; font-size: 11px; line-height: 1.6; }
+  .footer a { color: #E07000; text-decoration: none; }
 </style>
 </head>
 <body>
 <div class="wrapper">
   <div class="header">
-    <h1>📄 Modelovereenkomst ${contractNummer}</h1>
-    <p>De Schilders uit Katwijk — Overeenkomst voor ${projectNaam}</p>
+    <h1>Verzoek om akkoord meerwerk</h1>
+    <p>Project: ${projectNaam} &mdash; Referentie: ${contractNummer}</p>
   </div>
   <div class="body">
-    <p>Beste ${voornaam},</p>
-    <p>Bijgaand ontvang je de modelovereenkomst van onderaanneming voor project <strong>${projectNaam}</strong>. Lees het document rustig door en onderteken het digitaal via de knop hieronder.</p>
+    <p>${aanhef},</p>
+    <p>Tijdens de uitvoering van project <strong>${projectNaam}</strong> is aanvullend werk naar voren gekomen. Wij verzoeken u hiervoor akkoord te verlenen voordat wij met de uitvoering starten.</p>
 
-    <a href="${contractUrl}" class="cta-btn">👉 Bekijken &amp; Digitaal Ondertekenen</a>
+    <table class="spec">
+      <tr><th colspan="2">Meerwerk specificatie</th></tr>
+      <tr><td><strong>Omschrijving</strong></td><td>${meerwerkItem.omschrijving}</td></tr>
+      ${meerwerkItem.toelichting ? `<tr><td><strong>Toelichting</strong></td><td>${meerwerkItem.toelichting}</td></tr>` : ''}
+      ${meerwerkItem.uren > 0 ? `<tr><td><strong>Extra uren</strong></td><td>${meerwerkItem.uren} uur</td></tr>` : ''}
+      <tr><td><strong>Datum aanvraag</strong></td><td>${meerwerkItem.datum}</td></tr>
+      <tr><td><strong>Referentie</strong></td><td>${contractNummer}</td></tr>
+      <tr class="total"><td><strong>Totaalbedrag</strong></td><td>EUR ${bedragFormatted(meerwerkItem.bedrag)}</td></tr>
+    </table>
 
-    <div class="info-box">
-      <p>📋 <strong>Contractnummer:</strong> ${contractNummer}</p>
-      <p>📍 <strong>Project:</strong> ${projectNaam}</p>
-      <p>🏢 <strong>Aannemer:</strong> De Schilders uit Katwijk</p>
+    <div class="notice">
+      <strong>Belangrijk:</strong> Dit meerwerk wordt uitsluitend uitgevoerd na uw akkoord.
     </div>
 
-    <p>Heb je vragen over het contract? Neem dan gerust contact op via WhatsApp of e-mail.</p>
-    <p>Na ondertekening ontvangen wij automatisch een bevestiging en kun je meteen aan de slag.</p>
-    <p style="margin-top: 24px">Met vriendelijke groet,<br><strong>De Schilders uit Katwijk</strong></p>
+    <p>U kunt uw akkoord geven door te reageren op dit bericht, of neem direct contact met ons op:</p>
+    <div class="contact-block">
+      Telefoon: <strong>${BEDRIJF_TELEFOON}</strong><br>
+      E-mail: <strong><a href="mailto:${BEDRIJF_EMAIL}">${BEDRIJF_EMAIL}</a></strong>
+    </div>
 
-    ${contractHtml ? `
-    <div class="contract-preview">
-      <div class="contract-preview-header">📋 Voorblad overeenkomst</div>
-      <div class="contract-inner">${contractHtml}</div>
-    </div>` : ''}
+    <p style="margin-top: 24px">Met vriendelijke groet,<br><strong>${BEDRIJF}</strong></p>
   </div>
   <div class="footer">
-    <strong>De Schilders uit Katwijk</strong> &middot; Ambachtsweg 12, 2223 AM Katwijk &middot; info@deschildersuitkatwijk.nl<br>
-    Dit bericht is automatisch gegenereerd via SchildersApp.
+    <strong style="color:#ffffff">${BEDRIJF}</strong> &middot; ${BEDRIJF_ADRES} &middot; <a href="mailto:${BEDRIJF_EMAIL}">${BEDRIJF_EMAIL}</a><br>
+    Dit bericht is verzonden via het projectbeheersysteem van ${BEDRIJF}.
+    Heeft u dit bericht onterecht ontvangen? Neem dan contact met ons op.
+  </div>
+</div>
+</body>
+</html>`;
+
+            await transporter.sendMail({
+                from: `"${BEDRIJF}" <${process.env.SMTP_USER}>`,
+                replyTo: `"${BEDRIJF}" <${BEDRIJF_EMAIL}>`,
+                to: `"${toName}" <${to}>`,
+                subject,
+                text: textBody,
+                html: htmlBody,
+            });
+            return Response.json({ success: true });
+        }
+
+        // ── CONTRACT EMAIL ──────────────────────────────────────────────
+        const subject = `Modelovereenkomst ${contractNummer} - ${projectNaam}`;
+
+        const textBody =
+`${aanhef},
+
+Bijgaand ontvangt u de modelovereenkomst voor project "${projectNaam}".
+Wij verzoeken u het document door te lezen en digitaal te ondertekenen via de onderstaande link.
+
+Ondertekeningslink:
+${contractUrl}
+
+Contractnummer : ${contractNummer}
+Project        : ${projectNaam}
+Aannemer       : ${BEDRIJF}
+
+Heeft u vragen over de overeenkomst? Neem dan gerust contact met ons op.
+
+Met vriendelijke groet,
+
+${BEDRIJF}
+${BEDRIJF_ADRES}
+${BEDRIJF_EMAIL}
+${BEDRIJF_TELEFOON}`;
+
+        const htmlBody = `<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; color: #1a1a1a; }
+  .wrapper { max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #d0d0d0; border-radius: 4px; }
+  .header { background: #E07000; padding: 24px 32px; border-radius: 4px 4px 0 0; }
+  .header h1 { margin: 0; color: #ffffff; font-size: 18px; font-weight: bold; font-family: Arial, sans-serif; }
+  .header p { margin: 6px 0 0; color: #ffe0b2; font-size: 13px; }
+  .body { padding: 28px 32px; }
+  .body p { margin: 0 0 14px; line-height: 1.6; font-size: 14px; color: #1a1a1a; }
+  .cta-btn { display: inline-block; margin: 18px 0; padding: 12px 24px; background: #E07000; color: #ffffff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px; font-family: Arial, sans-serif; }
+  .info-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  .info-table td { padding: 7px 10px; border: 1px solid #d0d0d0; }
+  .info-table td:first-child { background: #f0f0f0; font-weight: bold; width: 40%; color: #444; }
+  .footer { background: #1a1a1a; padding: 16px 32px; border-radius: 0 0 4px 4px; color: #aaaaaa; font-size: 11px; line-height: 1.6; }
+  .footer a { color: #E07000; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <h1>Modelovereenkomst ${contractNummer}</h1>
+    <p>${BEDRIJF} &mdash; Overeenkomst voor ${projectNaam}</p>
+  </div>
+  <div class="body">
+    <p>${aanhef},</p>
+    <p>Bijgaand ontvangt u de modelovereenkomst voor project <strong>${projectNaam}</strong>. Wij verzoeken u het document door te lezen en digitaal te ondertekenen via onderstaande link.</p>
+
+    <a href="${contractUrl}" class="cta-btn">Document bekijken en ondertekenen</a>
+
+    <table class="info-table">
+      <tr><td>Contractnummer</td><td>${contractNummer}</td></tr>
+      <tr><td>Project</td><td>${projectNaam}</td></tr>
+      <tr><td>Aannemer</td><td>${BEDRIJF}</td></tr>
+    </table>
+
+    <p>Heeft u vragen over de overeenkomst? Neem dan gerust contact met ons op via telefoon (${BEDRIJF_TELEFOON}) of e-mail (<a href="mailto:${BEDRIJF_EMAIL}">${BEDRIJF_EMAIL}</a>).</p>
+
+    <p style="margin-top: 24px">Met vriendelijke groet,<br><strong>${BEDRIJF}</strong></p>
+
+    ${contractHtml ? `
+    <hr style="margin: 24px 0; border: none; border-top: 1px solid #e0e0e0;">
+    <p style="font-size: 12px; color: #666; margin-bottom: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Voorblad overeenkomst</p>
+    <div style="border: 1px solid #d0d0d0; border-radius: 4px; padding: 16px; font-size: 12px; color: #1a1a1a; max-height: 500px; overflow: hidden;">${contractHtml}</div>` : ''}
+  </div>
+  <div class="footer">
+    <strong style="color:#ffffff">${BEDRIJF}</strong> &middot; ${BEDRIJF_ADRES} &middot; <a href="mailto:${BEDRIJF_EMAIL}">${BEDRIJF_EMAIL}</a><br>
+    Dit bericht is verzonden via het projectbeheersysteem van ${BEDRIJF}.
+    Heeft u dit bericht onterecht ontvangen? Neem dan contact met ons op.
   </div>
 </div>
 </body>
 </html>`;
 
         await transporter.sendMail({
-            from: `"De Schilders Katwijk" <${process.env.SMTP_USER}>`,
+            from: `"${BEDRIJF}" <${process.env.SMTP_USER}>`,
+            replyTo: `"${BEDRIJF}" <${BEDRIJF_EMAIL}>`,
             to: `"${toName}" <${to}>`,
-            subject: `📄 Contract ${contractNummer} — ${projectNaam} (ter ondertekening)`,
-            html: emailHtml,
+            subject,
+            text: textBody,
+            html: htmlBody,
         });
 
         return Response.json({ success: true });
