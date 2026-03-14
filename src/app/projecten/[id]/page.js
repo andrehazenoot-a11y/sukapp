@@ -33,9 +33,9 @@ const DEMO_NOTES = [
 ];
 
 const DEMO_TERMIJNEN = [
-    { id: 1, omschrijving: 'Aanbetaling bij opdracht', bedrag: 4000, betaald: true, datum: '2026-03-01' },
-    { id: 2, omschrijving: 'Termijn 1 - helft werk', bedrag: 6000, betaald: false, datum: '2026-03-28' },
-    { id: 3, omschrijving: 'Eindafrekening oplevering', bedrag: 6600, betaald: false, datum: '2026-04-18' },
+    { id: 1, omschrijving: 'Aanbetaling bij opdracht', bedrag: 4000, betaald: true,  datum: '2026-03-01', vervaldatum: '2026-03-15', betaaldatum: '2026-03-10', percentage: 25, factuurNr: 'F-2026-001' },
+    { id: 2, omschrijving: 'Termijn 1 — helft werk gereed', bedrag: 6000, betaald: false, datum: '2026-03-28', vervaldatum: '2026-04-11', betaaldatum: '', percentage: 37, factuurNr: 'F-2026-002' },
+    { id: 3, omschrijving: 'Eindafrekening na oplevering', bedrag: 6600, betaald: false, datum: '2026-04-18', vervaldatum: '2026-05-02', betaaldatum: '', percentage: 38, factuurNr: 'F-2026-003' },
 ];
 
 const TAAK_TEMPLATES = [
@@ -219,6 +219,9 @@ export default function ProjectDossierPage() {
     const [expandedTemplates, setExpandedTemplates] = useState({});
     const toggleTemplate = (idx) => setExpandedTemplates(prev => ({ ...prev, [idx]: !prev[idx] }));
     const [openAttachTask, setOpenAttachTask] = useState(null);
+    const [showAddTermijn, setShowAddTermijn] = useState(false);
+    const [newTermijn, setNewTermijn] = useState({ omschrijving: '', bedrag: '', percentage: '', datum: '', vervaldatum: '', factuurNr: '' });
+    const [editTermijnId, setEditTermijnId] = useState(null);
     const handleFileUpload = (taskId, files) => {
         const fileArr = Array.from(files);
         let loaded = 0;
@@ -387,9 +390,44 @@ export default function ProjectDossierPage() {
     };
 
     const toggleTermijn = (termijnId) => {
-        const updated = termijnen.map(t => t.id === termijnId ? { ...t, betaald: !t.betaald } : t);
+        const updated = termijnen.map(t => t.id === termijnId
+            ? { ...t, betaald: !t.betaald, betaaldatum: !t.betaald ? new Date().toISOString().split('T')[0] : '' }
+            : t);
         setTermijnen(updated);
         localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+    };
+
+    const addTermijn = () => {
+        if (!newTermijn.omschrijving || !newTermijn.bedrag) return;
+        const termijn = {
+            id: Date.now(),
+            omschrijving: newTermijn.omschrijving,
+            bedrag: parseFloat(newTermijn.bedrag) || 0,
+            percentage: parseFloat(newTermijn.percentage) || 0,
+            datum: newTermijn.datum || new Date().toISOString().split('T')[0],
+            vervaldatum: newTermijn.vervaldatum || '',
+            betaaldatum: '',
+            factuurNr: newTermijn.factuurNr || `F-${new Date().getFullYear()}-${String(termijnen.length + 1).padStart(3, '0')}`,
+            betaald: false,
+        };
+        const updated = [...termijnen, termijn];
+        setTermijnen(updated);
+        localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        setNewTermijn({ omschrijving: '', bedrag: '', percentage: '', datum: '', vervaldatum: '', factuurNr: '' });
+        setShowAddTermijn(false);
+    };
+
+    const deleteTermijn = (termijnId) => {
+        const updated = termijnen.filter(t => t.id !== termijnId);
+        setTermijnen(updated);
+        localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+    };
+
+    const saveTermijnEdit = (termijnId, changes) => {
+        const updated = termijnen.map(t => t.id === termijnId ? { ...t, ...changes } : t);
+        setTermijnen(updated);
+        localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        setEditTermijnId(null);
     };
 
     const handlePhotoUpload = (e) => {
@@ -1024,14 +1062,21 @@ export default function ProjectDossierPage() {
             )}
 
             {/* ===== FINANCIËN ===== */}
-            {activeTab === 'financien' && (
-                <div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
+            {activeTab === 'financien' && (() => {
+                const pctBetaald = gefactureerd > 0 ? Math.round((betaald / gefactureerd) * 100) : 0;
+                const pctOfferte = offerte > 0 ? Math.round((gefactureerd / offerte) * 100) : 0;
+                const today = new Date().toISOString().split('T')[0];
+
+                return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                    {/* ── Samenvattingskaarten ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                         {[
-                            { label: 'Offerte', value: offerte, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-file-invoice' },
+                            { label: 'Offerte totaal', value: offerte, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-file-invoice' },
                             { label: 'Gefactureerd', value: gefactureerd, color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', icon: 'fa-receipt' },
-                            { label: 'Betaald', value: betaald, color: '#10b981', bg: '#f0fdf4', icon: 'fa-check-circle' },
-                            { label: 'Openstaand', value: openstaand, color: openstaand > 0 ? '#ef4444' : '#16a34a', bg: openstaand > 0 ? '#fef2f2' : '#f0fdf4', icon: 'fa-clock' },
+                            { label: 'Betaald', value: betaald, color: '#10b981', bg: '#f0fdf4', icon: 'fa-circle-check' },
+                            { label: 'Openstaand', value: openstaand, color: openstaand > 0 ? '#ef4444' : '#16a34a', bg: openstaand > 0 ? '#fef2f2' : '#f0fdf4', icon: openstaand > 0 ? 'fa-clock' : 'fa-check' },
                         ].map((c, i) => (
                             <div key={i} style={{ background: '#fff', borderRadius: '14px', padding: '18px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
@@ -1045,36 +1090,183 @@ export default function ProjectDossierPage() {
                         ))}
                     </div>
 
-                    <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
-                        <h3 style={{ margin: '0 0 16px', fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fa-solid fa-list-ol" style={{ color: '#F5850A' }} /> Termijnen
-                        </h3>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
-                                    {['Omschrijving', 'Datum', 'Bedrag', 'Status'].map(h => (
-                                        <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
+                    {/* ── Voortgangsbalken ── */}
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '18px 22px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                                <span><i className="fa-solid fa-receipt" style={{ marginRight: '5px', color: '#8b5cf6' }} />Gefactureerd van offerte</span>
+                                <span style={{ color: '#8b5cf6' }}>{pctOfferte}% — €{gefactureerd.toLocaleString('nl-NL')} / €{offerte.toLocaleString('nl-NL')}</span>
+                            </div>
+                            <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(pctOfferte, 100)}%`, background: 'linear-gradient(90deg, #8b5cf6, #a78bfa)', borderRadius: '999px', transition: 'width 0.6s ease' }} />
+                            </div>
+                        </div>
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                                <span><i className="fa-solid fa-circle-check" style={{ marginRight: '5px', color: '#10b981' }} />Betaald van gefactureerd</span>
+                                <span style={{ color: '#10b981' }}>{pctBetaald}% — €{betaald.toLocaleString('nl-NL')} / €{gefactureerd.toLocaleString('nl-NL')}</span>
+                            </div>
+                            <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(pctBetaald, 100)}%`, background: 'linear-gradient(90deg, #10b981, #34d399)', borderRadius: '999px', transition: 'width 0.6s ease' }} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── Termijnenstaat tabel ── */}
+                    <div style={{ background: '#fff', borderRadius: '14px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9', overflow: 'hidden' }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fa-solid fa-list-ol" style={{ color: '#F5850A', fontSize: '1rem' }} />
+                                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>Termijnenstaat</span>
+                                <span style={{ background: '#fff7ed', color: '#F5850A', fontWeight: 700, fontSize: '0.72rem', padding: '2px 8px', borderRadius: '20px' }}>{termijnen.length} termijnen</span>
+                            </div>
+                            <button onClick={() => setShowAddTermijn(v => !v)}
+                                style={{ padding: '7px 14px', borderRadius: '9px', border: 'none', background: showAddTermijn ? '#f1f5f9' : '#F5850A', color: showAddTermijn ? '#64748b' : '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className={`fa-solid ${showAddTermijn ? 'fa-xmark' : 'fa-plus'}`} />
+                                {showAddTermijn ? 'Annuleren' : 'Termijn toevoegen'}
+                            </button>
+                        </div>
+
+                        {/* Toevoeg-formulier */}
+                        {showAddTermijn && (
+                            <div style={{ padding: '16px 20px', background: '#fffbf5', borderBottom: '1px solid #fed7aa' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Omschrijving *</label>
+                                        <input value={newTermijn.omschrijving} onChange={e => setNewTermijn(p => ({ ...p, omschrijving: e.target.value }))}
+                                            placeholder="bijv. Aanbetaling, Termijn 2..."
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Bedrag (€) *</label>
+                                        <input type="number" value={newTermijn.bedrag} onChange={e => setNewTermijn(p => ({ ...p, bedrag: e.target.value }))}
+                                            placeholder="0.00"
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>% van offerte</label>
+                                        <input type="number" value={newTermijn.percentage} onChange={e => setNewTermijn(p => ({ ...p, percentage: e.target.value }))}
+                                            placeholder="bijv. 30"
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }} />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Factuurdatum</label>
+                                        <input type="date" value={newTermijn.datum} onChange={e => setNewTermijn(p => ({ ...p, datum: e.target.value }))}
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Vervaldatum</label>
+                                        <input type="date" value={newTermijn.vervaldatum} onChange={e => setNewTermijn(p => ({ ...p, vervaldatum: e.target.value }))}
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Factuurnummer</label>
+                                        <input value={newTermijn.factuurNr} onChange={e => setNewTermijn(p => ({ ...p, factuurNr: e.target.value }))}
+                                            placeholder={`F-${new Date().getFullYear()}-00${termijnen.length + 1}`}
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none' }} />
+                                    </div>
+                                </div>
+                                <button onClick={addTermijn}
+                                    style={{ padding: '9px 20px', borderRadius: '9px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                    <i className="fa-solid fa-plus" style={{ marginRight: '6px' }} />Termijn opslaan
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Termijnen rijen */}
+                        {termijnen.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                                <i className="fa-solid fa-file-invoice" style={{ fontSize: '2rem', marginBottom: '10px', display: 'block' }} />
+                                <p style={{ margin: 0, fontSize: '0.88rem' }}>Nog geen termijnen toegevoegd</p>
+                            </div>
+                        ) : (
+                            <div>
+                                {/* Tabel-header */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1.2fr 80px', gap: 0, padding: '8px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                                    {['Omschrijving', 'Factuurdatum', 'Vervaldatum', 'Bedrag', 'Status', ''].map(h => (
+                                        <div key={h} style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</div>
                                     ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {termijnen.map(t => (
-                                    <tr key={t.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                        <td style={{ padding: '12px', fontSize: '0.88rem', color: '#1e293b', fontWeight: 500 }}>{t.omschrijving}</td>
-                                        <td style={{ padding: '12px', fontSize: '0.85rem', color: '#64748b' }}>{formatDate(t.datum)}</td>
-                                        <td style={{ padding: '12px', fontSize: '0.92rem', fontWeight: 700, color: '#1e293b' }}>€{t.bedrag.toLocaleString('nl-NL')}</td>
-                                        <td style={{ padding: '12px' }}>
-                                            <button onClick={() => toggleTermijn(t.id)} style={{ padding: '5px 12px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.75rem', background: t.betaald ? '#dcfce7' : '#fef9c3', color: t.betaald ? '#16a34a' : '#ca8a04', display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s' }}>
-                                                <i className={`fa-solid ${t.betaald ? 'fa-check' : 'fa-clock'}`} /> {t.betaald ? 'Betaald' : 'Openstaand'}
+                                </div>
+
+                                {termijnen.map((t, idx) => {
+                                    const isOverdue = !t.betaald && t.vervaldatum && t.vervaldatum < today;
+                                    const statusColor = t.betaald ? '#10b981' : isOverdue ? '#ef4444' : '#f59e0b';
+                                    const statusBg = t.betaald ? '#f0fdf4' : isOverdue ? '#fef2f2' : '#fffbeb';
+                                    const statusLabel = t.betaald ? 'Betaald' : isOverdue ? 'Verlopen' : 'Openstaand';
+                                    const statusIcon = t.betaald ? 'fa-circle-check' : isOverdue ? 'fa-circle-exclamation' : 'fa-clock';
+
+                                    return (
+                                        <div key={t.id} style={{
+                                            display: 'grid', gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1.2fr 80px',
+                                            alignItems: 'center', padding: '14px 20px',
+                                            borderBottom: idx < termijnen.length - 1 ? '1px solid #f8fafc' : 'none',
+                                            background: t.betaald ? '#fafffe' : isOverdue ? '#fffafa' : '#fff',
+                                            transition: 'background 0.15s',
+                                        }}>
+                                            {/* Omschrijving */}
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                                    <span style={{ fontSize: '0.5rem', width: '18px', height: '18px', borderRadius: '50%', background: '#fff7ed', color: '#F5850A', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid #fed7aa' }}>{idx + 1}</span>
+                                                    <span style={{ fontWeight: 600, fontSize: '0.88rem', color: '#1e293b' }}>{t.omschrijving}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '26px' }}>
+                                                    {t.factuurNr && <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'monospace' }}>{t.factuurNr}</span>}
+                                                    {t.percentage > 0 && <span style={{ fontSize: '0.68rem', color: '#F5850A', fontWeight: 700, background: '#fff7ed', padding: '1px 6px', borderRadius: '10px' }}>{t.percentage}%</span>}
+                                                    {t.betaald && t.betaaldatum && <span style={{ fontSize: '0.68rem', color: '#10b981' }}>✓ betaald {formatDate(t.betaaldatum)}</span>}
+                                                </div>
+                                            </div>
+
+                                            {/* Factuurdatum */}
+                                            <div style={{ fontSize: '0.82rem', color: '#475569' }}>{formatDate(t.datum)}</div>
+
+                                            {/* Vervaldatum */}
+                                            <div style={{ fontSize: '0.82rem', color: isOverdue ? '#ef4444' : '#475569', fontWeight: isOverdue ? 700 : 400 }}>
+                                                {formatDate(t.vervaldatum)}
+                                                {isOverdue && <div style={{ fontSize: '0.65rem', color: '#ef4444' }}>⚠ verlopen</div>}
+                                            </div>
+
+                                            {/* Bedrag */}
+                                            <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>€{t.bedrag.toLocaleString('nl-NL')}</div>
+
+                                            {/* Status toggle knop */}
+                                            <button onClick={() => toggleTermijn(t.id)} style={{
+                                                padding: '6px 12px', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                                                fontWeight: 700, fontSize: '0.75rem', background: statusBg, color: statusColor,
+                                                display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s', width: 'fit-content'
+                                            }}>
+                                                <i className={`fa-solid ${statusIcon}`} />
+                                                {statusLabel}
                                             </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+
+                                            {/* Verwijder */}
+                                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px' }}>
+                                                <button onClick={() => deleteTermijn(t.id)}
+                                                    style={{ width: '30px', height: '30px', borderRadius: '8px', border: 'none', background: '#fee2e2', color: '#ef4444', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                    title="Verwijderen">
+                                                    <i className="fa-solid fa-trash" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Totaalrij */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1.2fr 80px', alignItems: 'center', padding: '12px 20px', borderTop: '2px solid #f1f5f9', background: '#f8fafc' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#475569', gridColumn: 'span 3' }}>Totaal ({termijnen.length} termijnen)</div>
+                                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>€{gefactureerd.toLocaleString('nl-NL')}</div>
+                                    <div style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: 700 }}>€{betaald.toLocaleString('nl-NL')} betaald</div>
+                                    <div />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
-            )}
+                );
+            })()}
+
 
             {/* ===== FOTO'S ===== */}
             {activeTab === 'fotos' && (
