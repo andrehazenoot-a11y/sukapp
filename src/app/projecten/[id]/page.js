@@ -433,6 +433,31 @@ export default function ProjectDossierPage() {
     const [previewAtt, setPreviewAtt] = useState(null); // { data, name, type }
     const [deleteConfirmTask, setDeleteConfirmTask] = useState(null); // task.id
     const [dragOverTask, setDragOverTask] = useState(null); // task.id being dragged over
+    const KWALITEIT_DEFAULTS = [
+        { id: 'k1', label: 'Ondergrond beoordeeld & gereinigd', done: false },
+        { id: 'k2', label: 'Houtrot gecontroleerd & gerepareerd', done: false },
+        { id: 'k3', label: 'Grondverf aangebracht', done: false },
+        { id: 'k4', label: 'Tussenlaag aangebracht', done: false },
+        { id: 'k5', label: 'Eindlaag / aflak aangebracht', done: false },
+        { id: 'k6', label: 'Afplakmateriaal verwijderd', done: false },
+        { id: 'k7', label: 'Eindcontrole met klant doorlopen', done: false },
+        { id: 'k8', label: 'Correcties na oplevering verwerkt', done: false },
+    ];
+    const [kwaliteitsChecks, setKwaliteitsChecks] = useState(() => {
+        try { const s = localStorage.getItem(`schildersapp_bewaking_k_${id}`); return s ? JSON.parse(s) : KWALITEIT_DEFAULTS; } catch { return KWALITEIT_DEFAULTS; }
+    });
+    const [werkelijkeUren, setWerkelijkeUren] = useState(() => {
+        try { const s = localStorage.getItem(`schildersapp_bewaking_u_${id}`); return s ? Number(s) : 0; } catch { return 0; }
+    });
+    const toggleKwaliteit = (kId) => {
+        const upd = kwaliteitsChecks.map(k => k.id === kId ? { ...k, done: !k.done } : k);
+        setKwaliteitsChecks(upd);
+        localStorage.setItem(`schildersapp_bewaking_k_${id}`, JSON.stringify(upd));
+    };
+    const saveWerkelijkeUren = (val) => {
+        setWerkelijkeUren(val);
+        localStorage.setItem(`schildersapp_bewaking_u_${id}`, String(val));
+    };
 
     useEffect(() => {
         const stored = localStorage.getItem('schildersapp_projecten');
@@ -598,6 +623,7 @@ export default function ProjectDossierPage() {
         { id: 'financien', label: 'Financiën', icon: 'fa-euro-sign' },
         { id: 'fotos', label: `Foto's (${photos.length})`, icon: 'fa-camera' },
         { id: 'documenten', label: 'Documenten', icon: 'fa-file-lines' },
+        { id: 'bewaking', label: 'Bewaking', icon: 'fa-shield-halved' },
     ];
 
     const mainContent = (
@@ -1509,6 +1535,230 @@ export default function ProjectDossierPage() {
                     </div>
                 </div>
             )}
+
+            {/* ===== BEWAKING ===== */}
+            {activeTab === 'bewaking' && (() => {
+                const today = new Date();
+                const startD = new Date(project.startDate + 'T00:00:00');
+                const endD   = new Date(project.endDate   + 'T00:00:00');
+                const totalDays  = Math.max(1, Math.ceil((endD - startD) / 86400000));
+                const elapsedDays = Math.min(totalDays, Math.max(0, Math.ceil((today - startD) / 86400000)));
+                const planPct    = Math.round((elapsedDays / totalDays) * 100);
+                const taskPct    = progress; // % taken afgerond
+                const planDelay  = taskPct < planPct - 10; // >10% achter op planning
+                const planAhead  = taskPct > planPct + 10;
+
+                const budgetPct  = offerte > 0 ? Math.round((gefactureerd / offerte) * 100) : 0;
+                const overBudget = gefactureerd > offerte * 1.05; // >5% over offerte
+                const nearBudget = !overBudget && gefactureerd > offerte * 0.9;
+
+                const urenPct    = project.estimatedHours > 0 ? Math.round((werkelijkeUren / project.estimatedHours) * 100) : 0;
+                const overUren   = werkelijkeUren > project.estimatedHours * 1.1;
+                const nearUren   = !overUren && werkelijkeUren > project.estimatedHours * 0.85;
+
+                const kwalPct    = kwaliteitsChecks.length > 0 ? Math.round((kwaliteitsChecks.filter(k => k.done).length / kwaliteitsChecks.length) * 100) : 0;
+                const kwalOk     = kwalPct === 100;
+
+                const rag = (bad, warn) => bad ? '🔴' : warn ? '🟡' : '🟢';
+                const ragColor = (bad, warn) => bad ? '#ef4444' : warn ? '#f59e0b' : '#10b981';
+                const ragBg = (bad, warn) => bad ? '#fef2f2' : warn ? '#fffbeb' : '#f0fdf4';
+                const ragLabel = (bad, warn) => bad ? 'Aandacht vereist' : warn ? 'Let op' : 'Op koers';
+
+                // Automatische afwijkingsmeldingen
+                const alerts = [];
+                if (planDelay) alerts.push({ icon: 'fa-calendar-xmark', color: '#ef4444', bg: '#fef2f2', msg: `Planning loopt ${planPct - taskPct}% achter op schema. ${completedTasks}/${totalTasks} taken gereed.` });
+                if (overBudget) alerts.push({ icon: 'fa-circle-exclamation', color: '#ef4444', bg: '#fef2f2', msg: `Gefactureerd (€${gefactureerd.toLocaleString('nl-NL')}) overschrijdt de offerte (€${offerte.toLocaleString('nl-NL')}) met ${Math.round((gefactureerd/offerte - 1)*100)}%.` });
+                if (overUren) alerts.push({ icon: 'fa-clock', color: '#ef4444', bg: '#fef2f2', msg: `Werkelijke uren (${werkelijkeUren}u) overschrijden de schatting (${project.estimatedHours}u) met ${Math.round((werkelijkeUren/project.estimatedHours - 1)*100)}%.` });
+                if (daysLeft < 0 && project.status !== 'completed') alerts.push({ icon: 'fa-flag', color: '#ef4444', bg: '#fef2f2', msg: `Project is ${Math.abs(daysLeft)} dagen over de geplande einddatum.` });
+                if (nearBudget) alerts.push({ icon: 'fa-triangle-exclamation', color: '#f59e0b', bg: '#fffbeb', msg: `Budget bijna bereikt: ${budgetPct}% gefactureerd van offerte.` });
+                if (nearUren)   alerts.push({ icon: 'fa-hourglass-half', color: '#f59e0b', bg: '#fffbeb', msg: `Uren bijna opgebruikt: ${urenPct}% van geschatte uren.` });
+                if (planAhead)  alerts.push({ icon: 'fa-rocket', color: '#10b981', bg: '#f0fdf4', msg: `Project loopt voor op schema! Taken ${taskPct - planPct}% verder dan gepland.` });
+
+                return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                    {/* ── Afwijkingsmeldingen ── */}
+                    {alerts.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {alerts.map((a, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '12px', background: a.bg, border: `1px solid ${a.color}22` }}>
+                                    <i className={`fa-solid ${a.icon}`} style={{ color: a.color, fontSize: '1rem', flexShrink: 0 }} />
+                                    <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 500 }}>{a.msg}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {alerts.length === 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                            <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '1.1rem' }} />
+                            <span style={{ fontSize: '0.88rem', color: '#166534', fontWeight: 600 }}>Alles op koers — geen afwijkingen gedetecteerd</span>
+                        </div>
+                    )}
+
+                    {/* ── RAG Statusoverzicht ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                        {[
+                            { icon: 'fa-calendar-days', label: 'Planning', pct: taskPct, bad: planDelay, warn: !planDelay && taskPct < planPct - 5, sub: `${completedTasks}/${totalTasks} taken · dag ${elapsedDays}/${totalDays}` },
+                            { icon: 'fa-euro-sign', label: 'Budget', pct: budgetPct, bad: overBudget, warn: nearBudget, sub: `€${gefactureerd.toLocaleString('nl-NL')} / €${offerte.toLocaleString('nl-NL')}` },
+                            { icon: 'fa-clock', label: 'Uren', pct: urenPct, bad: overUren, warn: nearUren, sub: `${werkelijkeUren}u / ${project.estimatedHours}u geschat` },
+                            { icon: 'fa-star-half-stroke', label: 'Kwaliteit', pct: kwalPct, bad: false, warn: kwalPct < 50, sub: `${kwaliteitsChecks.filter(k=>k.done).length}/${kwaliteitsChecks.length} checkpunten` },
+                        ].map((card, i) => {
+                            const c = ragColor(card.bad, card.warn);
+                            const bg = ragBg(card.bad, card.warn);
+                            return (
+                                <div key={i} style={{ background: '#fff', borderRadius: '14px', padding: '18px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: `1px solid ${card.bad ? '#fecaca' : card.warn ? '#fde68a' : '#f1f5f9'}` }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: bg, color: c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem' }}>
+                                                <i className={`fa-solid ${card.icon}`} />
+                                            </div>
+                                            <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#475569' }}>{card.label}</span>
+                                        </div>
+                                        <span style={{ fontSize: '1rem' }}>{rag(card.bad, card.warn)}</span>
+                                    </div>
+                                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: c, marginBottom: '4px' }}>{card.pct}%</div>
+                                    <div style={{ height: '6px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden', marginBottom: '6px' }}>
+                                        <div style={{ height: '100%', width: `${Math.min(card.pct, 100)}%`, background: c, borderRadius: '999px', transition: 'width 0.6s ease' }} />
+                                    </div>
+                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 500 }}>{card.sub}</div>
+                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: c, marginTop: '4px' }}>{ragLabel(card.bad, card.warn)}</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* ── Planning & Budget detail naast elkaar ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        {/* Planning bewaking */}
+                        <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                            <h3 style={{ margin: '0 0 16px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fa-solid fa-calendar-days" style={{ color: '#F5850A' }} /> Planningsbewaking
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {[
+                                    { label: 'Tijdverloop', pct: planPct, color: '#3b82f6', sub: `Dag ${elapsedDays} van ${totalDays} (${planPct}%)` },
+                                    { label: 'Taken gereed', pct: taskPct, color: taskPct < planPct - 10 ? '#ef4444' : '#10b981', sub: `${completedTasks} van ${totalTasks} taken (${taskPct}%)` },
+                                ].map((row, i) => (
+                                    <div key={i}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
+                                            <span>{row.label}</span><span style={{ color: row.color }}>{row.sub}</span>
+                                        </div>
+                                        <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                            <div style={{ height: '100%', width: `${Math.min(row.pct, 100)}%`, background: row.color, borderRadius: '999px', transition: 'width 0.6s' }} />
+                                        </div>
+                                    </div>
+                                ))}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                                    {[
+                                        { label: 'Startdatum', value: formatDate(project.startDate), icon: 'fa-play' },
+                                        { label: 'Einddatum', value: formatDate(project.endDate), icon: 'fa-flag-checkered' },
+                                    ].map((item, i) => (
+                                        <div key={i} style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px 12px' }}>
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '3px' }}>
+                                                <i className={`fa-solid ${item.icon}`} style={{ marginRight: '4px' }} />{item.label}
+                                            </div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item.value}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={{ background: daysLeft < 0 ? '#fef2f2' : daysLeft < 7 ? '#fffbeb' : '#f0fdf4', borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className={`fa-solid ${daysLeft < 0 ? 'fa-circle-exclamation' : daysLeft < 7 ? 'fa-hourglass-half' : 'fa-calendar-check'}`}
+                                        style={{ color: daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#f59e0b' : '#10b981' }} />
+                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#92400e' : '#166534' }}>
+                                        {daysLeft < 0 ? `${Math.abs(daysLeft)} dagen over deadline` : daysLeft === 0 ? 'Oplevering vandaag!' : `${daysLeft} dagen resterend`}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Uren bewaking */}
+                        <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                            <h3 style={{ margin: '0 0 16px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fa-solid fa-clock" style={{ color: '#F5850A' }} /> Urenbewaking
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                    {[
+                                        { label: 'Geschatte uren', value: `${project.estimatedHours}u`, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-hourglass' },
+                                        { label: 'Werkelijke uren', value: `${werkelijkeUren}u`, color: overUren ? '#ef4444' : '#10b981', bg: overUren ? '#fef2f2' : '#f0fdf4', icon: 'fa-stopwatch' },
+                                    ].map((item, i) => (
+                                        <div key={i} style={{ background: item.bg, borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                                            <i className={`fa-solid ${item.icon}`} style={{ color: item.color, marginBottom: '4px', display: 'block' }} />
+                                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: item.color }}>{item.value}</div>
+                                            <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{item.label}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
+                                        <span>Urenverbruik</span>
+                                        <span style={{ color: overUren ? '#ef4444' : nearUren ? '#f59e0b' : '#10b981' }}>{urenPct}% van schatting</span>
+                                    </div>
+                                    <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', width: `${Math.min(urenPct, 100)}%`, background: overUren ? '#ef4444' : nearUren ? '#f59e0b' : '#10b981', borderRadius: '999px', transition: 'width 0.6s' }} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '5px' }}>Werkelijke uren invoeren</label>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input type="number" min="0" defaultValue={werkelijkeUren} key={werkelijkeUren}
+                                            onBlur={e => saveWerkelijkeUren(parseFloat(e.target.value) || 0)}
+                                            style={{ flex: 1, padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.88rem', outline: 'none' }} />
+                                        <span style={{ display: 'flex', alignItems: 'center', fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>uren</span>
+                                    </div>
+                                </div>
+                                {project.estimatedHours > 0 && (
+                                    <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px 12px', fontSize: '0.78rem', color: '#475569' }}>
+                                        Uurtarief offerte: <strong>€{(offerte / project.estimatedHours).toFixed(2)}/u</strong>
+                                        {werkelijkeUren > 0 && <span> · Effectief: <strong style={{ color: overUren ? '#ef4444' : '#10b981' }}>€{(offerte / werkelijkeUren).toFixed(2)}/u</strong></span>}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── Kwaliteitschecklist ── */}
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fa-solid fa-clipboard-check" style={{ color: '#F5850A' }} /> Kwaliteitschecklist
+                                <span style={{ background: kwalOk ? '#dcfce7' : '#fff7ed', color: kwalOk ? '#16a34a' : '#F5850A', fontWeight: 700, fontSize: '0.7rem', padding: '2px 8px', borderRadius: '20px' }}>
+                                    {kwaliteitsChecks.filter(k => k.done).length}/{kwaliteitsChecks.length}
+                                </span>
+                            </h3>
+                            <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
+                                {kwalPct}% afgerond
+                            </div>
+                        </div>
+                        <div style={{ height: '6px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden', marginBottom: '14px' }}>
+                            <div style={{ height: '100%', width: `${kwalPct}%`, background: kwalOk ? '#10b981' : '#F5850A', borderRadius: '999px', transition: 'width 0.4s' }} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            {kwaliteitsChecks.map(k => (
+                                <button key={k.id} onClick={() => toggleKwaliteit(k.id)} style={{
+                                    display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px',
+                                    borderRadius: '10px', border: `1px solid ${k.done ? '#bbf7d0' : '#e2e8f0'}`,
+                                    background: k.done ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', textAlign: 'left',
+                                    transition: 'all 0.15s',
+                                }}>
+                                    <div style={{
+                                        width: '20px', height: '20px', borderRadius: '50%', flexShrink: 0,
+                                        background: k.done ? '#10b981' : '#fff', border: `2px solid ${k.done ? '#10b981' : '#cbd5e1'}`,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        transition: 'all 0.15s',
+                                    }}>
+                                        {k.done && <i className="fa-solid fa-check" style={{ fontSize: '0.55rem', color: '#fff' }} />}
+                                    </div>
+                                    <span style={{ fontSize: '0.82rem', fontWeight: k.done ? 600 : 500, color: k.done ? '#166534' : '#475569', textDecoration: k.done ? 'line-through' : 'none' }}>
+                                        {k.label}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+                );
+            })()}
 
             {/* ===== FOTO'S ===== */}
             {activeTab === 'fotos' && (
