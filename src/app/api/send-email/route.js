@@ -3,27 +3,84 @@ import nodemailer from 'nodemailer';
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml } = body;
+        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml, isMeerwerk, meerwerkItem } = body;
 
         if (!to || !contractNummer) {
             return Response.json({ error: 'Ontbrekende velden: to, contractNummer' }, { status: 400 });
         }
 
-        // SMTP via Gmail
+        // ── SMTP transporter ──
         const transporter = nodemailer.createTransport({
-            host: 'smtp.gmail.com',
-            port: 587,
-            secure: false, // STARTTLS
-            auth: {
-                user: process.env.SMTP_USER,   // jouw Gmail-adres
-                pass: process.env.SMTP_PASS,   // jouw Gmail App-wachtwoord
-            },
-            tls: {
-                rejectUnauthorized: false, // nodig bij lokale antivirus/proxy die SSL onderschept
-            },
+            host: 'smtp.gmail.com', port: 587, secure: false,
+            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+            tls: { rejectUnauthorized: false },
         });
-
         const voornaam = toName?.split(' ')[0] || 'beste';
+
+        // ── Meerwerk akkoord email ──
+        if (isMeerwerk && meerwerkItem) {
+            const mwHtml = `
+<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8">
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;margin:0;padding:24px;color:#1e293b}
+  .wrapper{max-width:620px;margin:0 auto}
+  .header{background:linear-gradient(135deg,#F5850A,#e06b00);border-radius:12px 12px 0 0;padding:28px 32px}
+  .header h1{margin:0;color:#fff;font-size:1.3rem;font-weight:800}
+  .header p{margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:0.88rem}
+  .body{background:#fff;padding:32px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0}
+  .body p{margin:0 0 14px;line-height:1.6;font-size:0.93rem}
+  .mw-box{background:#fff7ed;border:2px solid #fed7aa;border-radius:12px;padding:20px 24px;margin:20px 0}
+  .mw-box h3{margin:0 0 12px;color:#c2410c;font-size:1rem;display:flex;align-items:center;gap:8px}
+  .mw-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #fed7aa;font-size:0.88rem}
+  .mw-row:last-child{border:none;font-weight:700;font-size:1rem;color:#c2410c}
+  .mw-label{color:#78350f;font-weight:600}
+  .note{background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:14px 18px;margin:16px 0;font-size:0.85rem;color:#713f12}
+  .footer{background:#1e293b;border-radius:0 0 12px 12px;padding:18px 32px;color:rgba(255,255,255,0.6);font-size:0.78rem}
+  .footer strong{color:#F5850A}
+</style></head><body>
+<div class="wrapper">
+  <div class="header">
+    <h1>📋 Meerwerk akkoordverzoek</h1>
+    <p>Project: ${projectNaam} — Ref: ${contractNummer}</p>
+  </div>
+  <div class="body">
+    <p>Beste ${voornaam},</p>
+    <p>Tijdens de uitvoering van project <strong>${projectNaam}</strong> is er aanvullend werk naar voren gekomen waarvoor wij graag uw akkoord ontvangen voordat wij dit uitvoeren.</p>
+
+    <div class="mw-box">
+      <h3>📄 Meerwerk specificatie</h3>
+      <div class="mw-row"><span class="mw-label">Omschrijving</span><span>${meerwerkItem.omschrijving}</span></div>
+      ${meerwerkItem.toelichting ? `<div class="mw-row"><span class="mw-label">Toelichting</span><span>${meerwerkItem.toelichting}</span></div>` : ''}
+      ${meerwerkItem.uren > 0 ? `<div class="mw-row"><span class="mw-label">Extra uren</span><span>${meerwerkItem.uren} uur</span></div>` : ''}
+      <div class="mw-row"><span class="mw-label">Datum aanvraag</span><span>${meerwerkItem.datum}</span></div>
+      <div class="mw-row"><span class="mw-label">Meerwerknummer</span><span>${contractNummer}</span></div>
+      <div class="mw-row"><span class="mw-label">Totaalbedrag meerwerk</span><span>€ ${meerwerkItem.bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span></div>
+    </div>
+
+    <div class="note">
+      ⚠️ <strong>Let op:</strong> Dit meerwerk wordt alleen uitgevoerd na uw akkoord. Geef dit aan ons door via e-mail, WhatsApp of telefoon.
+    </div>
+
+    <p>U kunt uw akkoord geven door te reageren op deze e-mail, of neem direct contact met ons op:</p>
+    <p>📱 WhatsApp / telefoon: <strong>06-10298766</strong><br>📧 E-mail: <strong>info@deschildersuitkatwijk.nl</strong></p>
+    <p style="margin-top:24px">Met vriendelijke groet,<br><strong>De Schilders uit Katwijk</strong></p>
+  </div>
+  <div class="footer">
+    <strong>De Schilders uit Katwijk</strong> &middot; Ambachtsweg 12, 2223 AM Katwijk &middot; info@deschildersuitkatwijk.nl<br>
+    Dit bericht is automatisch gegenereerd via SchildersApp.
+  </div>
+</div></body></html>`;
+
+            await transporter.sendMail({
+                from: `"De Schilders Katwijk" <${process.env.SMTP_USER}>`,
+                to: `"${toName}" <${to}>`,
+                subject: `📋 Meerwerk akkoord nodig – ${projectNaam} (${contractNummer})`,
+                html: mwHtml,
+            });
+            return Response.json({ success: true });
+        }
+
+        // Contract email (fallthrough van meerwerk-blok hierboven)
 
         // Maak mooie HTML-email met het contract erin
         const emailHtml = `

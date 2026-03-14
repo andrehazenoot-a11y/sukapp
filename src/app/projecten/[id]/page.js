@@ -433,6 +433,70 @@ export default function ProjectDossierPage() {
     const [previewAtt, setPreviewAtt] = useState(null); // { data, name, type }
     const [deleteConfirmTask, setDeleteConfirmTask] = useState(null); // task.id
     const [dragOverTask, setDragOverTask] = useState(null); // task.id being dragged over
+
+    // ── Meerwerk state ──
+    const [meerwerk, setMeerwerk] = useState(() => {
+        try { const s = localStorage.getItem(`schildersapp_meerwerk_${id}`); return s ? JSON.parse(s) : []; } catch { return []; }
+    });
+    const [showAddMeerwerk, setShowAddMeerwerk] = useState(false);
+    const [newMeerwerk, setNewMeerwerk] = useState({ omschrijving: '', uren: '', bedrag: '', toelichting: '', datum: new Date().toISOString().split('T')[0] });
+    const [meerwerkEmailStatus, setMeerwerkEmailStatus] = useState({}); // { [id]: 'sending'|'sent'|'error' }
+
+    const saveMeerwerk = (updated) => {
+        setMeerwerk(updated);
+        localStorage.setItem(`schildersapp_meerwerk_${id}`, JSON.stringify(updated));
+    };
+    const addMeerwerkItem = () => {
+        if (!newMeerwerk.omschrijving || !newMeerwerk.bedrag) return;
+        const item = {
+            id: Date.now(),
+            omschrijving: newMeerwerk.omschrijving,
+            uren: parseFloat(newMeerwerk.uren) || 0,
+            bedrag: parseFloat(newMeerwerk.bedrag) || 0,
+            toelichting: newMeerwerk.toelichting || '',
+            datum: newMeerwerk.datum || new Date().toISOString().split('T')[0],
+            status: 'aanvraag', // aanvraag | goedgekeurd | afgewezen
+            akkoordDatum: '',
+        };
+        saveMeerwerk([...meerwerk, item]);
+        setNewMeerwerk({ omschrijving: '', uren: '', bedrag: '', toelichting: '', datum: new Date().toISOString().split('T')[0] });
+        setShowAddMeerwerk(false);
+    };
+    const updateMeerwerkStatus = (mwId, status) => {
+        saveMeerwerk(meerwerk.map(m => m.id === mwId
+            ? { ...m, status, akkoordDatum: status === 'goedgekeurd' ? new Date().toISOString().split('T')[0] : m.akkoordDatum }
+            : m));
+    };
+    const deleteMeerwerkItem = (mwId) => saveMeerwerk(meerwerk.filter(m => m.id !== mwId));
+
+    const sendMeerwerkEmail = async (item) => {
+        if (!project?.email) { alert('Vul eerst een e-mailadres van de klant in bij Klantgegevens.'); return; }
+        setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'sending' }));
+        try {
+            const res = await fetch('/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: project.email,
+                    toName: project.client,
+                    contractNummer: `MW-${item.id}`,
+                    projectNaam: project.name,
+                    contractUrl: '',
+                    meerwerkItem: item,
+                    isMeerwerk: true,
+                }),
+            });
+            const data = await res.json();
+            setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: data.success ? 'sent' : 'error' }));
+            if (data.success) {
+                saveMeerwerk(meerwerk.map(m => m.id === item.id ? { ...m, emailVerzonden: new Date().toISOString().split('T')[0] } : m));
+            }
+        } catch {
+            setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'error' }));
+        }
+    };
+
+
     const KWALITEIT_DEFAULTS = [
         { id: 'k1', label: 'Ondergrond beoordeeld & gereinigd', done: false },
         { id: 'k2', label: 'Houtrot gecontroleerd & gerepareerd', done: false },
@@ -1484,7 +1548,176 @@ export default function ProjectDossierPage() {
             })()}
 
 
-            {/* ===== SCAN BEVESTIGINGSMODAL ===== */}
+            {/* ===== MEERWERK SECTIE ===== */}
+            {activeTab === 'financien' && (() => {
+                const mwGoedgekeurd = meerwerk.filter(m => m.status === 'goedgekeurd').reduce((s, m) => s + m.bedrag, 0);
+                const mwAanvraag   = meerwerk.filter(m => m.status === 'aanvraag').reduce((s, m) => s + m.bedrag, 0);
+                const STATUS_MW = {
+                    aanvraag:    { label: 'In aanvraag',  color: '#f59e0b', bg: '#fffbeb', icon: 'fa-hourglass-half' },
+                    goedgekeurd: { label: 'Goedgekeurd',  color: '#10b981', bg: '#f0fdf4', icon: 'fa-circle-check' },
+                    afgewezen:   { label: 'Afgewezen',    color: '#ef4444', bg: '#fef2f2', icon: 'fa-circle-xmark' },
+                };
+                return (
+                    <div style={{ background: '#fff', borderRadius: '16px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', border: '1px solid #f1f5f9', overflow: 'hidden', marginTop: '16px' }}>
+                        {/* Header */}
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fffbf5' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fa-solid fa-circle-plus" style={{ color: '#F5850A', fontSize: '1rem' }} />
+                                </div>
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>Meerwerk</div>
+                                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                        {meerwerk.length === 0 ? 'Nog geen meerwerk geregistreerd' : `${meerwerk.length} item${meerwerk.length !== 1 ? 's' : ''} · €${mwGoedgekeurd.toLocaleString('nl-NL')} goedgekeurd${mwAanvraag > 0 ? ` · €${mwAanvraag.toLocaleString('nl-NL')} in aanvraag` : ''}`}
+                                    </div>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowAddMeerwerk(v => !v)}
+                                style={{ padding: '7px 14px', borderRadius: '9px', border: 'none', background: showAddMeerwerk ? '#f1f5f9' : '#F5850A', color: showAddMeerwerk ? '#64748b' : '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className={`fa-solid ${showAddMeerwerk ? 'fa-xmark' : 'fa-plus'}`} />
+                                {showAddMeerwerk ? 'Annuleren' : 'Meerwerk toevoegen'}
+                            </button>
+                        </div>
+
+                        {/* Toevoeg-formulier */}
+                        {showAddMeerwerk && (
+                            <div style={{ padding: '16px 20px', background: '#fffbf5', borderBottom: '1px solid #fed7aa' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Omschrijving meerwerk *</label>
+                                        <input value={newMeerwerk.omschrijving} onChange={e => setNewMeerwerk(p => ({ ...p, omschrijving: e.target.value }))}
+                                            placeholder="bijv. Extra schilderwerk badkamer..."
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Extra uren</label>
+                                        <input type="number" min="0" step="0.5" value={newMeerwerk.uren} onChange={e => setNewMeerwerk(p => ({ ...p, uren: e.target.value }))}
+                                            placeholder="0.0"
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Bedrag (€) *</label>
+                                        <input type="number" min="0" step="0.01" value={newMeerwerk.bedrag} onChange={e => setNewMeerwerk(p => ({ ...p, bedrag: e.target.value }))}
+                                            placeholder="0.00"
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }} />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Toelichting / reden</label>
+                                        <input value={newMeerwerk.toelichting} onChange={e => setNewMeerwerk(p => ({ ...p, toelichting: e.target.value }))}
+                                            placeholder="Beschrijf waarom dit meerwerk nodig is..."
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Datum</label>
+                                        <input type="date" value={newMeerwerk.datum} onChange={e => setNewMeerwerk(p => ({ ...p, datum: e.target.value }))}
+                                            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }} />
+                                    </div>
+                                </div>
+                                <button onClick={addMeerwerkItem}
+                                    style={{ padding: '9px 20px', borderRadius: '9px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                    <i className="fa-solid fa-plus" style={{ marginRight: '6px' }} />Meerwerk opslaan
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Lijst */}
+                        {meerwerk.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '32px 20px', color: '#94a3b8' }}>
+                                <i className="fa-solid fa-circle-plus" style={{ fontSize: '2rem', marginBottom: '10px', display: 'block', opacity: 0.4 }} />
+                                <p style={{ margin: 0, fontSize: '0.88rem' }}>Nog geen meerwerk geregistreerd</p>
+                            </div>
+                        ) : (
+                            <div>
+                                {/* Tabel header */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.8fr 1.1fr 220px', gap: 0, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                                    {['Omschrijving', 'Uren', 'Bedrag', 'Status', ''].map(h => (
+                                        <div key={h} style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</div>
+                                    ))}
+                                </div>
+
+                                {meerwerk.map((m, idx) => {
+                                    const sc = STATUS_MW[m.status] || STATUS_MW.aanvraag;
+                                    const emailSt = meerwerkEmailStatus[m.id];
+                                    return (
+                                        <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.8fr 1.1fr 220px', alignItems: 'center', padding: '14px 20px', borderTop: idx === 0 ? 'none' : '1px solid #f8fafc', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                            <div>
+                                                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{m.omschrijving}</div>
+                                                {m.toelichting && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>{m.toelichting}</div>}
+                                                <div style={{ fontSize: '0.68rem', color: '#cbd5e1', marginTop: '2px' }}>
+                                                    {m.datum} {m.emailVerzonden && <span style={{ color: '#3b82f6' }}>· email verzonden {m.emailVerzonden}</span>}
+                                                    {m.akkoordDatum && <span style={{ color: '#10b981' }}> · akkoord {m.akkoordDatum}</span>}
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>
+                                                {m.uren > 0 ? `${m.uren}u` : '—'}
+                                            </div>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>
+                                                €{m.bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}
+                                            </div>
+                                            <div>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '20px', background: sc.bg, color: sc.color, fontSize: '0.72rem', fontWeight: 700 }}>
+                                                    <i className={`fa-solid ${sc.icon}`} />{sc.label}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                                {/* Status-knoppen */}
+                                                {m.status === 'aanvraag' && (
+                                                    <>
+                                                        <button onClick={() => updateMeerwerkStatus(m.id, 'goedgekeurd')}
+                                                            title="Markeer als goedgekeurd"
+                                                            style={{ padding: '5px 10px', borderRadius: '7px', border: 'none', background: '#dcfce7', color: '#16a34a', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>
+                                                            <i className="fa-solid fa-check" />
+                                                        </button>
+                                                        <button onClick={() => updateMeerwerkStatus(m.id, 'afgewezen')}
+                                                            title="Markeer als afgewezen"
+                                                            style={{ padding: '5px 10px', borderRadius: '7px', border: 'none', background: '#fee2e2', color: '#dc2626', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>
+                                                            <i className="fa-solid fa-xmark" />
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {m.status !== 'aanvraag' && (
+                                                    <button onClick={() => updateMeerwerkStatus(m.id, 'aanvraag')}
+                                                        title="Terugzetten naar In aanvraag"
+                                                        style={{ padding: '5px 10px', borderRadius: '7px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>
+                                                        <i className="fa-solid fa-rotate-left" />
+                                                    </button>
+                                                )}
+                                                {/* Email akkoord knop */}
+                                                <button onClick={() => sendMeerwerkEmail(m)}
+                                                    disabled={emailSt === 'sending'}
+                                                    title={project?.email ? `Akkoordverzoek sturen naar ${project.email}` : 'Geen e-mail van klant bekend'}
+                                                    style={{ padding: '5px 10px', borderRadius: '7px', border: 'none', background: emailSt === 'sent' ? '#dcfce7' : emailSt === 'error' ? '#fee2e2' : '#dbeafe', color: emailSt === 'sent' ? '#16a34a' : emailSt === 'error' ? '#dc2626' : '#2563eb', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className={`fa-solid ${emailSt === 'sending' ? 'fa-spinner fa-spin' : emailSt === 'sent' ? 'fa-check' : emailSt === 'error' ? 'fa-triangle-exclamation' : 'fa-envelope'}`} />
+                                                    {emailSt === 'sending' ? 'Sturen...' : emailSt === 'sent' ? 'Verzonden' : emailSt === 'error' ? 'Fout' : 'Akkoord'}
+                                                </button>
+                                                {/* Verwijderen */}
+                                                <button onClick={() => deleteMeerwerkItem(m.id)}
+                                                    title="Verwijderen"
+                                                    style={{ padding: '5px 8px', borderRadius: '7px', border: 'none', background: '#fef2f2', color: '#ef4444', fontSize: '0.72rem', cursor: 'pointer' }}>
+                                                    <i className="fa-solid fa-trash" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Totaalrij */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.8fr 1.1fr 220px', alignItems: 'center', padding: '12px 20px', borderTop: '2px solid #f1f5f9', background: '#f8fafc' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#475569', gridColumn: 'span 2' }}>Totaal meerwerk ({meerwerk.length})</div>
+                                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>€{meerwerk.reduce((s, m) => s + m.bedrag, 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</div>
+                                    <div style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: 700 }}>€{mwGoedgekeurd.toLocaleString('nl-NL')} goedgekeurd</div>
+                                    <div />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
+
+
+
             {(scanStatus === 'confirm' || scanStatus === 'error') && (
                 <div onClick={() => setScanStatus(null)}
                     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
