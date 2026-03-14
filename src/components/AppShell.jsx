@@ -1,20 +1,27 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-
+import { usePathname } from 'next/navigation';
 import { AuthProvider, useAuth } from './AuthContext';
 import { LanguageProvider, useLanguage } from './LanguageContext';
 import LoginPage from './LoginPage';
 import Sidebar from './Sidebar';
 import ChatBot from './ChatBot';
 
+const PUBLIC_ROUTES = ['/meerwerk-akkoord'];
+
 // Wrapper die login/dashboard logica afhandelt
 function AppContent({ children }) {
+    const pathname = usePathname();
     const { user, logout, loading, isAuthenticated } = useAuth();
     const { t, language, setLanguage, languages } = useLanguage();
     const [topLangOpen, setTopLangOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const currentLang = languages.find(l => l.code === language);
+
+    // Public routes werken zonder login en zonder sidebar
+    const isPublic = PUBLIC_ROUTES.some(r => pathname?.startsWith(r));
+    if (isPublic) return <>{children}</>;
 
     useEffect(() => {
         const check = () => setIsMobile(window.innerWidth <= 768);

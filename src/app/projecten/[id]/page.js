@@ -527,6 +527,25 @@ export default function ProjectDossierPage() {
         setMeerwerkEmailPicker(null);
         setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'sending' }));
         try {
+            // 1. Maak een uniek akkoord-token aan
+            const baseUrl = window.location.origin;
+            const tokenRes = await fetch('/api/meerwerk-akkoord', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    projectId: id,
+                    projectNaam: project.name,
+                    meerwerkItem: item,
+                    toName: contact.naam,
+                    toEmail: contact.email,
+                }),
+            });
+            const tokenData = await tokenRes.json();
+            const akkoordUrl = tokenData.token
+                ? `${baseUrl}/meerwerk-akkoord/${tokenData.token}`
+                : null;
+
+            // 2. Stuur de email met de akkoord-link
             const res = await fetch('/api/send-email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -538,13 +557,14 @@ export default function ProjectDossierPage() {
                     contractUrl: '',
                     meerwerkItem: item,
                     isMeerwerk: true,
+                    akkoordUrl,
                 }),
             });
             const data = await res.json();
             setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: data.success ? 'sent' : 'error' }));
             if (data.success) {
                 saveMeerwerk(meerwerk.map(m => m.id === item.id
-                    ? { ...m, emailVerzonden: new Date().toISOString().split('T')[0], emailNaar: contact.email }
+                    ? { ...m, emailVerzonden: new Date().toISOString().split('T')[0], emailNaar: contact.email, akkoordToken: tokenData.token }
                     : m));
             }
         } catch {

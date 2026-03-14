@@ -8,7 +8,7 @@ const BEDRIJF_ADRES = 'Ambachtsweg 12, 2223 AM Katwijk';
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml, isMeerwerk, meerwerkItem } = body;
+        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml, isMeerwerk, meerwerkItem, akkoordUrl } = body;
 
         if (!to || !contractNummer) {
             return Response.json({ error: 'Ontbrekende velden: to, contractNummer' }, { status: 400 });
@@ -102,7 +102,17 @@ ${BEDRIJF_TELEFOON}`;
       <strong>Belangrijk:</strong> Dit meerwerk wordt uitsluitend uitgevoerd na uw akkoord.
     </div>
 
-    <p>U kunt uw akkoord geven door te reageren op dit bericht, of neem direct contact met ons op:</p>
+    ${akkoordUrl ? `
+    <p>Geef uw digitale akkoord via de knop hieronder. U wordt gevraagd uw naam in te vullen en een handtekening te plaatsen.</p>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${akkoordUrl}"
+         style="display:inline-block;padding:14px 32px;background:#16a34a;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;font-family:Arial,sans-serif;letter-spacing:0.3px;">
+        Akkoord geven en ondertekenen
+      </a>
+      <p style="font-size:11px;color:#888888;margin:10px 0 0;">Werkt de knop niet? Kopieer dan deze link:<br><span style="color:#E07000;word-break:break-all;">${akkoordUrl}</span></p>
+    </div>
+    <p>Of neem contact met ons op:</p>` : `<p>U kunt uw akkoord geven door te reageren op dit bericht, of neem direct contact met ons op:</p>`}
+
     <div class="contact-block">
       Telefoon: <strong>${BEDRIJF_TELEFOON}</strong><br>
       E-mail: <strong><a href="mailto:${BEDRIJF_EMAIL}">${BEDRIJF_EMAIL}</a></strong>
