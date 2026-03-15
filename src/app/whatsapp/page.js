@@ -125,7 +125,29 @@ export default function WhatsAppPage() {
     // Save
     useEffect(() => { localStorage.setItem('wa_medewerkers', JSON.stringify(medewerkers)); }, [medewerkers]);
     useEffect(() => { localStorage.setItem('wa_projecten', JSON.stringify(projecten)); }, [projecten]);
-    useEffect(() => { localStorage.setItem('wa_uren_log', JSON.stringify(urenLog)); }, [urenLog]);
+    useEffect(() => {
+        // Veilig opslaan met auto-pruning als quota vol raakt
+        const MAX_ENTRIES = 500;
+        const saveUrenLog = (entries) => {
+            const pruned = entries.slice(0, MAX_ENTRIES); // bewaar altijd de nieuwste
+            try {
+                localStorage.setItem('wa_uren_log', JSON.stringify(pruned));
+            } catch (e) {
+                if (e.name === 'QuotaExceededError') {
+                    // Noodmaatregel: bewaar alleen de laatste 100 entries
+                    try {
+                        const minimal = pruned.slice(0, 100);
+                        localStorage.setItem('wa_uren_log', JSON.stringify(minimal));
+                        console.warn(`[wa_uren_log] Quota overschreden — ingekort naar ${minimal.length} entries.`);
+                    } catch {
+                        // Echt vol: sla helemaal niets op (data blijft in state)
+                        console.error('[wa_uren_log] localStorage volledig vol, kon niet opslaan.');
+                    }
+                }
+            }
+        };
+        saveUrenLog(urenLog);
+    }, [urenLog]);
     useEffect(() => { localStorage.setItem('wa_contracten', JSON.stringify(contracten)); }, [contracten]);
 
     // ─── Module 1: Uren Helpers ───
