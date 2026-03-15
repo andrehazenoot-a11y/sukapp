@@ -250,13 +250,7 @@ export default function ProjectDossierPage() {
         try { return localStorage.getItem('schildersapp_default_bcc') || ''; } catch { return ''; }
     });
 
-    const toggleMeerwerkSelectie = (id) => setMeerwerkSelectie(prev =>
-        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
-    const selectAllMeerwerk = () => setMeerwerkSelectie(
-        meerwerkSelectie.length === meerwerk.length ? [] : meerwerk.map(m => m.id)
-    );
-    const geselecteerdeItems = meerwerk.filter(m => meerwerkSelectie.includes(m.id));
+
 
     const saveEmailContacten = (updated) => {
         setEmailContacten(updated);
@@ -496,6 +490,15 @@ export default function ProjectDossierPage() {
         try { const s = localStorage.getItem(`schildersapp_meerwerk_${id}`); return s ? JSON.parse(s) : []; } catch { return []; }
     });
     const [showAddMeerwerk, setShowAddMeerwerk] = useState(false);
+
+    // Selectie helpers (na meerwerk state, zodat meerwerk beschikbaar is)
+    const toggleMeerwerkSelectie = (id) => setMeerwerkSelectie(prev =>
+        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+    const selectAllMeerwerk = () => setMeerwerkSelectie(
+        meerwerkSelectie.length === meerwerk.length ? [] : meerwerk.map(m => m.id)
+    );
+    const geselecteerdeItems = meerwerk.filter(m => meerwerkSelectie.includes(m.id));
     const [newMeerwerk, setNewMeerwerk] = useState({ omschrijving: '', uren: '', bedrag: '', toelichting: '', datum: new Date().toISOString().split('T')[0] });
     const [meerwerkEmailStatus, setMeerwerkEmailStatus] = useState({}); // { [id]: 'sending'|'sent'|'error' }
 
