@@ -8,7 +8,7 @@ const BEDRIJF_ADRES = 'Ambachtsweg 12, 2223 AM Katwijk';
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml, isMeerwerk, meerwerkItem, akkoordUrl, persoonlijkBericht, onderwerp } = body;
+        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml, isMeerwerk, meerwerkItem, akkoordUrl, persoonlijkBericht, onderwerp, vanNaam, cc, bcc } = body;
 
         if (!to || !contractNummer) {
             return Response.json({ error: 'Ontbrekende velden: to, contractNummer' }, { status: 400 });
@@ -131,10 +131,13 @@ ${BEDRIJF_TELEFOON}`;
 </body>
 </html>`;
 
+            const fromNaam = vanNaam?.trim() || BEDRIJF;
             await transporter.sendMail({
-                from: `"${BEDRIJF}" <${process.env.SMTP_USER}>`,
+                from: `"${fromNaam}" <${process.env.SMTP_USER}>`,
                 replyTo: `"${BEDRIJF}" <${BEDRIJF_EMAIL}>`,
                 to: `"${toName}" <${to}>`,
+                ...(cc?.trim() ? { cc: cc.trim() } : {}),
+                ...(bcc?.trim() ? { bcc: bcc.trim() } : {}),
                 subject,
                 text: textBody,
                 html: htmlBody,

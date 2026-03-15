@@ -243,6 +243,11 @@ export default function ProjectDossierPage() {
     const [meerwerkCompose, setMeerwerkCompose] = useState(null); // { item, contact } → opstelmodal
     const [composeOntwerp, setComposeOntwerp] = useState('');
     const [composeBericht, setComposeBericht] = useState('');
+    const [composeVanNaam, setComposeVanNaam] = useState('De Schilders uit Katwijk');
+    const [composeCC, setComposeCC] = useState('');
+    const [composeBCC, setComposeBCC] = useState(() => {
+        try { return localStorage.getItem('schildersapp_default_bcc') || ''; } catch { return ''; }
+    });
 
     const saveEmailContacten = (updated) => {
         setEmailContacten(updated);
@@ -516,6 +521,7 @@ export default function ProjectDossierPage() {
         setMeerwerkEmailPicker(null);
         setComposeOntwerp(`Verzoek om akkoord meerwerk - ${project?.name || ''} (ref. MW-${item.id})`);
         setComposeBericht('');
+        setComposeCC('');
         setMeerwerkCompose({ item, contact });
     };
 
@@ -531,8 +537,12 @@ export default function ProjectDossierPage() {
         }
     };
 
-    const sendMeerwerkEmailTo = async (item, contact, persoonlijkBericht, onderwerp) => {
+    const sendMeerwerkEmailTo = async (item, contact, persoonlijkBericht, onderwerp, vanNaam, cc, bcc) => {
         setMeerwerkCompose(null);
+        // Sla standaard BCC op
+        if (bcc?.trim()) {
+            try { localStorage.setItem('schildersapp_default_bcc', bcc.trim()); } catch {}
+        }
         setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'sending' }));
         try {
             // 1. Maak een uniek akkoord-token aan
@@ -568,6 +578,9 @@ export default function ProjectDossierPage() {
                     akkoordUrl,
                     persoonlijkBericht: persoonlijkBericht?.trim() || '',
                     onderwerp: onderwerp?.trim() || '',
+                    vanNaam: vanNaam?.trim() || '',
+                    cc: cc?.trim() || '',
+                    bcc: bcc?.trim() || '',
                 }),
             });
             const data = await res.json();
@@ -2602,7 +2615,7 @@ export default function ProjectDossierPage() {
                             <div>
                                 <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>E-mail opstellen</div>
                                 <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)', marginTop: '2px' }}>
-                                    Aan: {meerwerkCompose.contact.naam} &lt;{meerwerkCompose.contact.email}&gt;
+                                    Aan: <strong>{meerwerkCompose.contact.naam}</strong> &lt;{meerwerkCompose.contact.email}&gt;
                                 </div>
                             </div>
                             <button onClick={() => setMeerwerkCompose(null)}
@@ -2613,6 +2626,50 @@ export default function ProjectDossierPage() {
 
                         {/* Body */}
                         <div style={{ padding: '20px 22px', overflowY: 'auto', flex: 1 }}>
+
+                            {/* Van / CC / BCC tabel stijl */}
+                            <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px', fontSize: '13px' }}>
+                                {/* Van */}
+                                <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                    <span style={{ width: '52px', flexShrink: 0, padding: '9px 12px', fontWeight: 700, color: '#64748b', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.3px', borderRight: '1px solid #f1f5f9' }}>Van</span>
+                                    <input
+                                        type="text"
+                                        value={composeVanNaam}
+                                        onChange={e => setComposeVanNaam(e.target.value)}
+                                        placeholder="Naam afzender"
+                                        style={{ flex: 1, padding: '9px 12px', border: 'none', outline: 'none', fontSize: '13px', fontFamily: 'inherit', background: 'transparent' }}
+                                    />
+                                </div>
+                                {/* Aan (readonly) */}
+                                <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
+                                    <span style={{ width: '52px', flexShrink: 0, padding: '9px 12px', fontWeight: 700, color: '#64748b', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.3px', borderRight: '1px solid #f1f5f9' }}>Aan</span>
+                                    <span style={{ padding: '9px 12px', color: '#1e293b', fontWeight: 500 }}>
+                                        {meerwerkCompose.contact.naam} &lt;{meerwerkCompose.contact.email}&gt;
+                                    </span>
+                                </div>
+                                {/* CC */}
+                                <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                    <span style={{ width: '52px', flexShrink: 0, padding: '9px 12px', fontWeight: 700, color: '#64748b', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.3px', borderRight: '1px solid #f1f5f9' }}>CC</span>
+                                    <input
+                                        type="email"
+                                        value={composeCC}
+                                        onChange={e => setComposeCC(e.target.value)}
+                                        placeholder="cc@email.nl (optioneel, meerdere gescheiden door komma)"
+                                        style={{ flex: 1, padding: '9px 12px', border: 'none', outline: 'none', fontSize: '13px', fontFamily: 'inherit', background: 'transparent' }}
+                                    />
+                                </div>
+                                {/* BCC */}
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                    <span style={{ width: '52px', flexShrink: 0, padding: '9px 12px', fontWeight: 700, color: '#64748b', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.3px', borderRight: '1px solid #f1f5f9' }}>BCC</span>
+                                    <input
+                                        type="email"
+                                        value={composeBCC}
+                                        onChange={e => setComposeBCC(e.target.value)}
+                                        placeholder="bcc@email.nl (wordt onthouden voor volgende keer)"
+                                        style={{ flex: 1, padding: '9px 12px', border: 'none', outline: 'none', fontSize: '13px', fontFamily: 'inherit', background: 'transparent' }}
+                                    />
+                                </div>
+                            </div>
 
                             {/* Onderwerp */}
                             <div style={{ marginBottom: '16px' }}>
@@ -2684,7 +2741,7 @@ export default function ProjectDossierPage() {
                                 style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
                                 Annuleren
                             </button>
-                            <button onClick={() => sendMeerwerkEmailTo(meerwerkCompose.item, meerwerkCompose.contact, composeBericht, composeOntwerp)}
+                            <button onClick={() => sendMeerwerkEmailTo(meerwerkCompose.item, meerwerkCompose.contact, composeBericht, composeOntwerp, composeVanNaam, composeCC, composeBCC)}
                                 style={{ padding: '9px 20px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#e06b00)', color: '#fff', fontWeight: 700, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fa-solid fa-paper-plane" />
                                 Versturen
