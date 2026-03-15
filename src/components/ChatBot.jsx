@@ -67,10 +67,20 @@ function getGreeting() {
     return 'Goedenavond';
 }
 
+// Urentypen — zelfde als urenregistratie page
+const UREN_TYPES = [
+    { id: 'normaal',           label: 'Project uren',       color: '#F5850A', icon: 'fa-paint-roller' },
+    { id: 'meerwerk',          label: 'Meerwerk',           color: '#f59e0b', icon: 'fa-plus-minus' },
+    { id: 'oplevering',        label: 'Oplevering',         color: '#06b6d4', icon: 'fa-flag-checkered' },
+    { id: 'werkvoorbereiding', label: 'Werkvoorbereiding',  color: '#6366f1', icon: 'fa-clipboard-list' },
+    { id: 'ziek',              label: 'Ziek (hele dag)',     color: '#ef4444', icon: 'fa-briefcase-medical', noHours: true },
+    { id: 'vrij',              label: 'Vrij (hele dag)',     color: '#8b5cf6', icon: 'fa-umbrella-beach', noHours: true },
+];
+
 // Inline urenstaat mini-form
 function InlineUrenstaat({ onSave, onCancel }) {
     const [rows, setRows] = useState([
-        { projectId: '1', hours: ['8', '8', '8', '8', '8'] }
+        { projectId: '1', hours: ['8', '8', '8', '8', '8'], typeId: 'normaal' }
     ]);
 
     const updateHour = (ri, di, val) => {
@@ -86,8 +96,15 @@ function InlineUrenstaat({ onSave, onCancel }) {
         setRows(u);
     };
 
+    const updateType = (ri, typeId) => {
+        const u = [...rows];
+        const isNoHours = UREN_TYPES.find(t => t.id === typeId)?.noHours;
+        u[ri] = { ...u[ri], typeId, hours: isNoHours ? ['✓', '✓', '✓', '✓', '✓'] : ['8', '8', '8', '8', '8'] };
+        setRows(u);
+    };
+
     const addRow = () => {
-        setRows([...rows, { projectId: '', hours: ['', '', '', '', ''] }]);
+        setRows([...rows, { projectId: '', hours: ['', '', '', '', ''], typeId: 'normaal' }]);
     };
 
     const removeRow = (ri) => {
@@ -95,7 +112,11 @@ function InlineUrenstaat({ onSave, onCancel }) {
     };
 
     const getTotal = () => {
-        return rows.reduce((sum, r) => sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0), 0);
+        return rows.reduce((sum, r) => {
+            const typeInfo = UREN_TYPES.find(t => t.id === r.typeId);
+            if (typeInfo?.noHours) return sum;
+            return sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
+        }, 0);
     };
 
     return (
@@ -111,60 +132,99 @@ function InlineUrenstaat({ onSave, onCancel }) {
                 </span>
             </div>
 
-            {rows.map((row, ri) => (
-                <div key={ri} style={{ marginBottom: '8px' }}>
-                    {/* Project select */}
-                    <div style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
-                        <select
-                            value={row.projectId}
-                            onChange={(e) => updateProject(ri, e.target.value)}
-                            style={{
-                                flex: 1, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600,
-                                border: '1px solid #e2e8f0', borderRadius: '6px', color: '#1e293b',
-                                background: '#f8fafc', cursor: 'pointer', outline: 'none'
-                            }}
-                        >
-                            <option value="">Selecteer project...</option>
-                            {PROJECTS.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
-                        {rows.length > 1 && (
-                            <button onClick={() => removeRow(ri)} style={{
-                                width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.2)',
-                                background: 'rgba(239,68,68,0.04)', color: '#ef4444', cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0
-                            }}>
-                                <i className="fa-solid fa-xmark"></i>
-                            </button>
+            {rows.map((row, ri) => {
+                const typeInfo = UREN_TYPES.find(t => t.id === row.typeId) || UREN_TYPES[0];
+                const isNoHours = typeInfo.noHours;
+                return (
+                    <div key={ri} style={{ marginBottom: '10px', padding: '8px', borderRadius: '8px', background: `${typeInfo.color}08`, border: `1px solid ${typeInfo.color}22` }}>
+                        {/* Project + type select */}
+                        <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                            <select
+                                value={row.projectId}
+                                onChange={(e) => updateProject(ri, e.target.value)}
+                                style={{
+                                    flex: 1, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600,
+                                    border: '1px solid #e2e8f0', borderRadius: '6px', color: '#1e293b',
+                                    background: '#f8fafc', cursor: 'pointer', outline: 'none'
+                                }}
+                            >
+                                <option value="">Selecteer project...</option>
+                                {PROJECTS.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+                            {rows.length > 1 && (
+                                <button onClick={() => removeRow(ri)} style={{
+                                    width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.2)',
+                                    background: 'rgba(239,68,68,0.04)', color: '#ef4444', cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0
+                                }}>
+                                    <i className="fa-solid fa-xmark"></i>
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Urentype select */}
+                        <div style={{ marginBottom: '6px' }}>
+                            <select
+                                value={row.typeId}
+                                onChange={(e) => updateType(ri, e.target.value)}
+                                style={{
+                                    width: '100%', padding: '4px 8px', fontSize: '0.7rem', fontWeight: 700,
+                                    border: `1px solid ${typeInfo.color}55`, borderRadius: '6px',
+                                    color: typeInfo.color, background: `${typeInfo.color}0d`,
+                                    cursor: 'pointer', outline: 'none', WebkitAppearance: 'none'
+                                }}
+                            >
+                                {UREN_TYPES.map(t => (
+                                    <option key={t.id} value={t.id}>{t.label}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Day inputs of ziek/vrij balken */}
+                        {isNoHours ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
+                                {DAY_LABELS.map((day, di) => (
+                                    <div key={di} style={{ textAlign: 'center' }}>
+                                        <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
+                                        <div style={{
+                                            height: '30px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            background: `${typeInfo.color}15`, border: `1.5px solid ${typeInfo.color}44`
+                                        }}>
+                                            <i className={`fa-solid ${typeInfo.icon}`} style={{ fontSize: '0.7rem', color: typeInfo.color }} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
+                                {DAY_LABELS.map((day, di) => (
+                                    <div key={di} style={{ textAlign: 'center' }}>
+                                        <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
+                                        <input
+                                            type="text"
+                                            value={row.hours[di]}
+                                            onChange={(e) => updateHour(ri, di, e.target.value)}
+                                            placeholder="0"
+                                            style={{
+                                                width: '100%', height: '30px', textAlign: 'center',
+                                                border: `1.5px solid ${parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#e2e8f0'}`,
+                                                borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700,
+                                                color: parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#94a3b8',
+                                                background: parseFloat(row.hours[di]) > 0 ? `${typeInfo.color}0d` : '#fff',
+                                                outline: 'none', boxSizing: 'border-box'
+                                            }}
+                                            onFocus={(e) => { e.currentTarget.style.borderColor = typeInfo.color; e.currentTarget.select(); }}
+                                            onBlur={(e) => { if (!parseFloat(e.currentTarget.value)) e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
                         )}
                     </div>
-                    {/* Day inputs */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
-                        {DAY_LABELS.map((day, di) => (
-                            <div key={di} style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
-                                <input
-                                    type="text"
-                                    value={row.hours[di]}
-                                    onChange={(e) => updateHour(ri, di, e.target.value)}
-                                    placeholder="0"
-                                    style={{
-                                        width: '100%', height: '30px', textAlign: 'center',
-                                        border: `1.5px solid ${parseFloat(row.hours[di]) > 0 ? '#FA9F52' : '#e2e8f0'}`,
-                                        borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700,
-                                        color: parseFloat(row.hours[di]) > 0 ? '#F5850A' : '#94a3b8',
-                                        background: parseFloat(row.hours[di]) > 0 ? 'rgba(250,160,82,0.06)' : '#fff',
-                                        outline: 'none', boxSizing: 'border-box'
-                                    }}
-                                    onFocus={(e) => { e.currentTarget.style.borderColor = '#FA9F52'; e.currentTarget.select(); }}
-                                    onBlur={(e) => { if (!parseFloat(e.currentTarget.value)) e.currentTarget.style.borderColor = '#e2e8f0'; }}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            ))}
+                );
+            })}
 
             {/* Add project button */}
             <button onClick={addRow} style={{
@@ -175,7 +235,7 @@ function InlineUrenstaat({ onSave, onCancel }) {
                 onMouseEnter={(e) => { e.currentTarget.style.color = '#FA9F52'; e.currentTarget.style.borderColor = '#FA9F52'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderColor = '#d0d5dd'; }}
             >
-                <i className="fa-solid fa-plus"></i> Project toevoegen
+                <i className="fa-solid fa-plus"></i> Rij toevoegen
             </button>
 
             {/* Totaal + buttons */}
@@ -320,21 +380,43 @@ export default function ChatBot() {
     const handleSaveTemplate = (rows) => {
         const weekNum = getWeekNumber();
         const year = new Date().getFullYear();
-        const total = rows.reduce((sum, r) => sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0), 0);
+        const total = rows.reduce((sum, r) => {
+            const typeInfo = UREN_TYPES.find(t => t.id === r.typeId);
+            if (typeInfo?.noHours) return sum;
+            return sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
+        }, 0);
         const projectNames = rows.filter(r => r.projectId).map(r => PROJECTS.find(p => p.id === r.projectId)?.name || 'Onbekend');
 
         // Sla op in NIEUWE format (zelfde als MijnUren component)
-        const existing = uren2LoadData(user?.id, weekNum, year) || [];
-        const newProjects = rows.map((r, i) => ({
-            id: 'p' + Date.now() + i,
-            projectId: r.projectId || '1',
-            types: { normaal: r.hours.map(h => String(h)) },
-            notes: { normaal: ['','','','',''] }
-        }));
+        // Meerdere rijen met hetzelfde project worden samengevoegd
+        const projectMap = {};
+        rows.forEach((r, i) => {
+            const pid = r.projectId || '1';
+            const typeId = r.typeId || 'normaal';
+            if (!projectMap[pid]) {
+                projectMap[pid] = {
+                    id: 'p' + Date.now() + i,
+                    projectId: pid,
+                    types: {},
+                    notes: {}
+                };
+            }
+            const typeInfo = UREN_TYPES.find(t => t.id === typeId);
+            if (typeInfo?.noHours) {
+                // Ziek/vrij: icontype — sla lege array op als markering
+                projectMap[pid].types[typeId] = ['1','1','1','1','1'];
+                projectMap[pid].notes[typeId] = ['','','','',''];
+            } else {
+                projectMap[pid].types[typeId] = r.hours.map(h => String(h));
+                projectMap[pid].notes[typeId] = ['','','','',''];
+            }
+        });
+        const newProjects = Object.values(projectMap);
         uren2SaveData(user?.id, weekNum, year, newProjects);
 
         setShowTemplate(false);
-        addBotMessage(`✅ Opgeslagen! ${total} uur verdeeld over ${projectNames.join(', ')}.\n\nJe weekstaat voor week ${weekNum} is bijgewerkt. Je ziet ze direct in de Urenregistratie!`, [
+        const typeSummary = [...new Set(rows.map(r => UREN_TYPES.find(t => t.id === r.typeId)?.label || r.typeId))].join(', ');
+        addBotMessage(`✅ Opgeslagen! ${total} uur verdeeld over ${projectNames.join(', ')}.\nType(n): ${typeSummary}\n\nJe weekstaat voor week ${weekNum} is bijgewerkt. Je ziet ze direct in de Urenregistratie!`, [
             { label: '📋 Naar Urenregistratie', action: 'goto_uren' }
         ]);
     };
