@@ -8,7 +8,7 @@ const BEDRIJF_ADRES = 'Ambachtsweg 12, 2223 AM Katwijk';
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml, isMeerwerk, meerwerkItem, akkoordUrl } = body;
+        const { to, toName, contractNummer, projectNaam, contractUrl, contractHtml, isMeerwerk, meerwerkItem, akkoordUrl, persoonlijkBericht, onderwerp } = body;
 
         if (!to || !contractNummer) {
             return Response.json({ error: 'Ontbrekende velden: to, contractNummer' }, { status: 400 });
@@ -28,12 +28,13 @@ export async function POST(request) {
 
         // ── MEERWERK AKKOORD EMAIL ──────────────────────────────────────
         if (isMeerwerk && meerwerkItem) {
-            const subject = `Verzoek om akkoord meerwerk - ${projectNaam} (ref. ${contractNummer})`;
+            const subject = onderwerp?.trim() || `Verzoek om akkoord meerwerk - ${projectNaam} (ref. ${contractNummer})`;
+            const extraTekst = persoonlijkBericht?.trim() || '';
 
             const textBody =
 `${aanhef},
 
-Tijdens de uitvoering van project "${projectNaam}" is aanvullend werk naar voren gekomen. Wij verzoeken u hiervoor akkoord te verlenen voordat wij met de uitvoering starten.
+${extraTekst ? extraTekst + '\n\n' : ''}Tijdens de uitvoering van project "${projectNaam}" is aanvullend werk naar voren gekomen. Wij verzoeken u hiervoor akkoord te verlenen voordat wij met de uitvoering starten.
 
 MEERWERK SPECIFICATIE
 ---------------------
@@ -86,6 +87,7 @@ ${BEDRIJF_TELEFOON}`;
   </div>
   <div class="body">
     <p>${aanhef},</p>
+    ${extraTekst ? `<p style="background:#f8fafc;border-left:3px solid #E07000;padding:10px 14px;margin:0 0 14px;font-size:14px;color:#1a1a1a;line-height:1.6;white-space:pre-line;">${extraTekst}</p>` : ''}
     <p>Tijdens de uitvoering van project <strong>${projectNaam}</strong> is aanvullend werk naar voren gekomen. Wij verzoeken u hiervoor akkoord te verlenen voordat wij met de uitvoering starten.</p>
 
     <table class="spec">

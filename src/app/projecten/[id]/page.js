@@ -240,6 +240,9 @@ export default function ProjectDossierPage() {
     const [showAddEmailContact, setShowAddEmailContact] = useState(false);
     // E-mail picker voor meerwerk
     const [meerwerkEmailPicker, setMeerwerkEmailPicker] = useState(null); // meerwerk-item waarvoor picker open is
+    const [meerwerkCompose, setMeerwerkCompose] = useState(null); // { item, contact } → opstelmodal
+    const [composeOntwerp, setComposeOntwerp] = useState('');
+    const [composeBericht, setComposeBericht] = useState('');
 
     const saveEmailContacten = (updated) => {
         setEmailContacten(updated);
@@ -509,22 +512,27 @@ export default function ProjectDossierPage() {
     };
     const deleteMeerwerkItem = (mwId) => saveMeerwerk(meerwerk.filter(m => m.id !== mwId));
 
+    const openCompose = (item, contact) => {
+        setMeerwerkEmailPicker(null);
+        setComposeOntwerp(`Verzoek om akkoord meerwerk - ${project?.name || ''} (ref. MW-${item.id})`);
+        setComposeBericht('');
+        setMeerwerkCompose({ item, contact });
+    };
+
     const sendMeerwerkEmail = (item) => {
         if (allEmailTargets.length === 0) {
             alert('Nog geen e-mailcontacten. Voeg er een toe via Overzicht → E-mailcontacten.');
             return;
         }
         if (allEmailTargets.length === 1) {
-            // direct sturen naar enige contact
-            sendMeerwerkEmailTo(item, allEmailTargets[0]);
+            openCompose(item, allEmailTargets[0]);
         } else {
-            // picker tonen
             setMeerwerkEmailPicker(item);
         }
     };
 
-    const sendMeerwerkEmailTo = async (item, contact) => {
-        setMeerwerkEmailPicker(null);
+    const sendMeerwerkEmailTo = async (item, contact, persoonlijkBericht, onderwerp) => {
+        setMeerwerkCompose(null);
         setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'sending' }));
         try {
             // 1. Maak een uniek akkoord-token aan
@@ -558,6 +566,8 @@ export default function ProjectDossierPage() {
                     meerwerkItem: item,
                     isMeerwerk: true,
                     akkoordUrl,
+                    persoonlijkBericht: persoonlijkBericht?.trim() || '',
+                    onderwerp: onderwerp?.trim() || '',
                 }),
             });
             const data = await res.json();
@@ -2536,7 +2546,7 @@ export default function ProjectDossierPage() {
                             </div>
                             {allEmailTargets.map(contact => (
                                 <button key={contact.id}
-                                    onClick={() => sendMeerwerkEmailTo(meerwerkEmailPicker, contact)}
+                                    onClick={() => openCompose(meerwerkEmailPicker, contact)}
                                     style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', border: '2px solid #e2e8f0', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', textAlign: 'left', transition: 'all 0.15s' }}
                                     onMouseEnter={e => { e.currentTarget.style.borderColor = '#F5850A'; e.currentTarget.style.background = '#fffbf5'; }}
                                     onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fff'; }}>
@@ -2577,7 +2587,114 @@ export default function ProjectDossierPage() {
             )}
 
 
-            {previewAtt && (
+            {/* ===== EMAIL OPSTELLEN MODAL ===== */}
+            {meerwerkCompose && (
+                <div onClick={() => setMeerwerkCompose(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    <div onClick={e => e.stopPropagation()}
+                        style={{ background: '#fff', borderRadius: '18px', width: '520px', maxWidth: '95vw', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', overflow: 'hidden', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+
+                        {/* Header */}
+                        <div style={{ padding: '18px 22px', background: 'linear-gradient(135deg,#F5850A,#e06b00)', display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-pen-to-square" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>E-mail opstellen</div>
+                                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)', marginTop: '2px' }}>
+                                    Aan: {meerwerkCompose.contact.naam} &lt;{meerwerkCompose.contact.email}&gt;
+                                </div>
+                            </div>
+                            <button onClick={() => setMeerwerkCompose(null)}
+                                style={{ marginLeft: 'auto', width: '30px', height: '30px', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div style={{ padding: '20px 22px', overflowY: 'auto', flex: 1 }}>
+
+                            {/* Onderwerp */}
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                                    Onderwerp
+                                </label>
+                                <input
+                                    type="text"
+                                    value={composeOntwerp}
+                                    onChange={e => setComposeOntwerp(e.target.value)}
+                                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                                    onFocus={e => e.target.style.borderColor = '#F5850A'}
+                                    onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                />
+                            </div>
+
+                            {/* Persoonlijk bericht */}
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                                    Persoonlijk bericht <span style={{ fontWeight: 400, textTransform: 'none', fontSize: '11px', color: '#94a3b8' }}>(optioneel — wordt boven de meerwerk details geplaatst)</span>
+                                </label>
+                                <textarea
+                                    value={composeBericht}
+                                    onChange={e => setComposeBericht(e.target.value)}
+                                    rows={4}
+                                    placeholder={`Geachte ${meerwerkCompose.contact.naam?.split(' ')[0] || 'heer/mevrouw'},\n\nHierbij sturen wij u een overzicht van het aanvullende werk...`}
+                                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.6 }}
+                                    onFocus={e => e.target.style.borderColor = '#F5850A'}
+                                    onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                />
+                            </div>
+
+                            {/* Meerwerk preview */}
+                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', fontSize: '13px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
+                                    Meerwerk details (vast, niet bewerkbaar hier)
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <span style={{ color: '#64748b' }}>Omschrijving</span>
+                                    <span style={{ fontWeight: 600 }}>{meerwerkCompose.item.omschrijving}</span>
+                                </div>
+                                {meerwerkCompose.item.toelichting && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                        <span style={{ color: '#64748b' }}>Toelichting</span>
+                                        <span style={{ maxWidth: '60%', textAlign: 'right', color: '#475569' }}>{meerwerkCompose.item.toelichting}</span>
+                                    </div>
+                                )}
+                                {meerwerkCompose.item.uren > 0 && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                        <span style={{ color: '#64748b' }}>Extra uren</span>
+                                        <span style={{ fontWeight: 600 }}>{meerwerkCompose.item.uren} uur</span>
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid #e2e8f0', marginTop: '6px' }}>
+                                    <span style={{ fontWeight: 700, color: '#92400e' }}>Totaalbedrag</span>
+                                    <span style={{ fontWeight: 800, color: '#92400e' }}>€ {Number(meerwerkCompose.item.bedrag).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: '12px', fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fa-solid fa-link" style={{ fontSize: '10px' }} />
+                                De e-mail bevat automatisch een persoonlijke akkoord-link met handtekeningveld.
+                            </div>
+                        </div>
+
+                        {/* Footer knoppen */}
+                        <div style={{ padding: '14px 22px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '10px', justifyContent: 'flex-end', flexShrink: 0 }}>
+                            <button onClick={() => setMeerwerkCompose(null)}
+                                style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                                Annuleren
+                            </button>
+                            <button onClick={() => sendMeerwerkEmailTo(meerwerkCompose.item, meerwerkCompose.contact, composeBericht, composeOntwerp)}
+                                style={{ padding: '9px 20px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#e06b00)', color: '#fff', fontWeight: 700, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fa-solid fa-paper-plane" />
+                                Versturen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
                 <div
                     onClick={() => setPreviewAtt(null)}
                     onKeyDown={e => e.key === 'Escape' && setPreviewAtt(null)}
