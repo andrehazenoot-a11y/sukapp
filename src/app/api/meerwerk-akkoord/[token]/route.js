@@ -18,7 +18,7 @@ function writeTokens(data) {
 
 // GET: haal token data op (voor de handtekenpagina)
 export async function GET(request, { params }) {
-    const { token } = params;
+    const { token } = await params;   // Next.js 15/16: params is a Promise
     const tokens = readTokens();
     const data = tokens[token];
     if (!data) return Response.json({ error: 'Link ongeldig of verlopen' }, { status: 404 });
@@ -29,7 +29,7 @@ export async function GET(request, { params }) {
 
 // POST: sla handtekening op
 export async function POST(request, { params }) {
-    const { token } = params;
+    const { token } = await params;   // Next.js 15/16: params is a Promise
     const body = await request.json();
     const { signatureData, signerName, signerEmail } = body;
 
