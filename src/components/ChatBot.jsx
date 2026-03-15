@@ -92,7 +92,93 @@ function getUserUrenTypes(userId) {
     return UREN_TYPES.filter(t => ['normaal', 'meerwerk', 'ziek', 'vrij'].includes(t.id));
 }
 
-// Inline urenstaat mini-form
+// ── Zoekbaar project-combobox ─────────────────────────────────────
+function ProjectSearch({ items, value, onChange, placeholder = 'Zoek...', accentColor = '#F5850A' }) {
+    // items: [{ id, label }]
+    const [query, setQuery] = useState('');
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    const selectedItem = items.find(p => p.id === value);
+    const displayText = query !== '' ? query : (selectedItem?.label || '');
+
+    const filtered = query.length > 0
+        ? items.filter(p => p.label.toLowerCase().includes(query.toLowerCase()))
+        : items;
+
+    useEffect(() => {
+        const handleClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    const select = (item) => {
+        onChange(item.id);
+        setQuery('');
+        setOpen(false);
+    };
+
+    return (
+        <div ref={ref} style={{ position: 'relative', flex: 1 }}>
+            <div style={{ position: 'relative' }}>
+                <input
+                    type="text"
+                    value={open ? query : (selectedItem?.label || '')}
+                    onClick={() => { setQuery(''); setOpen(true); }}
+                    onFocus={() => { setQuery(''); setOpen(true); }}
+                    onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+                    placeholder={placeholder}
+                    style={{
+                        width: '100%', padding: '5px 26px 5px 8px', fontSize: '0.72rem', fontWeight: 600,
+                        border: `1.5px solid ${value ? accentColor + '55' : '#e2e8f0'}`,
+                        borderRadius: '6px', color: value ? '#1e293b' : '#94a3b8',
+                        background: value ? accentColor + '06' : '#f8fafc',
+                        outline: 'none', boxSizing: 'border-box', cursor: 'text',
+                        transition: 'border-color 0.15s'
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') { setOpen(false); setQuery(''); }
+                        if (e.key === 'Enter' && filtered.length > 0) { select(filtered[0]); }
+                    }}
+                />
+                <i className={`fa-solid ${open ? 'fa-chevron-up' : 'fa-chevron-down'}`}
+                    style={{ position: 'absolute', right: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.55rem', color: '#94a3b8', pointerEvents: 'none' }}
+                />
+            </div>
+            {open && (
+                <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999,
+                    background: '#fff', border: '1.5px solid ' + accentColor + '44',
+                    borderRadius: '8px', boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+                    maxHeight: '160px', overflowY: 'auto', marginTop: '3px'
+                }}>
+                    {filtered.length === 0 ? (
+                        <div style={{ padding: '8px 10px', fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>Geen resultaten</div>
+                    ) : filtered.map(item => (
+                        <div
+                            key={item.id}
+                            onMouseDown={(e) => { e.preventDefault(); select(item); }}
+                            style={{
+                                padding: '7px 10px', fontSize: '0.72rem', fontWeight: item.id === value ? 700 : 400,
+                                color: item.id === value ? accentColor : '#1e293b',
+                                background: item.id === value ? accentColor + '0d' : 'transparent',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                                transition: 'background 0.1s'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = accentColor + '15'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = item.id === value ? accentColor + '0d' : 'transparent'; }}
+                        >
+                            {item.id === value && <i className="fa-solid fa-check" style={{ fontSize: '0.6rem', color: accentColor }} />}
+                            {item.label}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Inline urenstaat mini-form (werknemer)
 function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
     const types = allowedTypes && allowedTypes.length > 0 ? allowedTypes : UREN_TYPES.filter(t => ['normaal', 'meerwerk', 'ziek', 'vrij'].includes(t.id));
     const [rows, setRows] = useState([
@@ -153,22 +239,15 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
                 const isNoHours = typeInfo.noHours;
                 return (
                     <div key={ri} style={{ marginBottom: '10px', padding: '8px', borderRadius: '8px', background: `${typeInfo.color}08`, border: `1px solid ${typeInfo.color}22` }}>
-                        {/* Project + type select */}
+                    {/* Project zoeker + verwijder knop */}
                         <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                            <select
+                            <ProjectSearch
+                                items={PROJECTS.map(p => ({ id: p.id, label: p.name }))}
                                 value={row.projectId}
-                                onChange={(e) => updateProject(ri, e.target.value)}
-                                style={{
-                                    flex: 1, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600,
-                                    border: '1px solid #e2e8f0', borderRadius: '6px', color: '#1e293b',
-                                    background: '#f8fafc', cursor: 'pointer', outline: 'none'
-                                }}
-                            >
-                                <option value="">Selecteer project...</option>
-                                {PROJECTS.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                            </select>
+                                onChange={(id) => updateProject(ri, id)}
+                                placeholder="Zoek project..."
+                                accentColor="#F5850A"
+                            />
                             {rows.length > 1 && (
                                 <button onClick={() => removeRow(ri)} style={{
                                     width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.2)',
@@ -342,20 +421,18 @@ function InlineUrenstaatZZP({ onSave, onCancel, allowedTypes }) {
                 const contract = contracten.find(c => c.id === row.contractId);
                 return (
                     <div key={ri} style={{ marginBottom: '10px', padding: '8px', borderRadius: '8px', background: `${typeInfo.color}08`, border: `1px solid ${typeInfo.color}22` }}>
-                        {/* Contract select */}
+                        {/* Contract zoeker */}
                         <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                            <select
+                            <ProjectSearch
+                                items={contracten.map(c => ({
+                                    id: c.id,
+                                    label: `${c.contractnummer || c.id}${c.klant ? ' — ' + c.klant : ''}`
+                                }))}
                                 value={row.contractId}
-                                onChange={(e) => updateContract(ri, e.target.value)}
-                                style={{ flex: 1, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, border: '1.5px solid #6366f133', borderRadius: '6px', color: '#1e293b', background: 'rgba(99,102,241,0.04)', cursor: 'pointer', outline: 'none' }}
-                            >
-                                <option value="">Selecteer contract...</option>
-                                {contracten.map(c => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.contractnummer || c.id} {c.klant ? `— ${c.klant}` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={(id) => updateContract(ri, id)}
+                                placeholder="Zoek contractnummer..."
+                                accentColor="#6366f1"
+                            />
                             {rows.length > 1 && (
                                 <button onClick={() => removeRow(ri)} style={{ width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.04)', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0 }}>
                                     <i className="fa-solid fa-xmark" />

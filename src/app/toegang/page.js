@@ -182,6 +182,7 @@ export default function ToegangPage() {
                                         style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.82rem', outline: 'none', width: '100%', boxSizing: 'border-box' }}>
                                         <option value="Medewerker">Medewerker</option>
                                         <option value="Voorman">Voorman</option>
+                                        <option value="ZZP'er">ZZP'er</option>
                                         <option value="Beheerder">Beheerder</option>
                                     </select>
                                 </div>
@@ -374,6 +375,7 @@ export default function ToegangPage() {
                                                 style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', width: '100%', boxSizing: 'border-box' }}>
                                                 <option value="Medewerker">Medewerker</option>
                                                 <option value="Voorman">Voorman</option>
+                                                <option value="ZZP'er">ZZP'er</option>
                                                 <option value="Beheerder">Beheerder</option>
                                             </select>
                                         </div>
