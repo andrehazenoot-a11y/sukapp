@@ -1,9 +1,22 @@
-'use client';
-import React, { useState, useEffect, useRef } from 'react';
+﻿'use client';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../../components/AuthContext';
 import dynamic from 'next/dynamic';
+import ProjectGantt from '../../../components/ProjectGantt';
+
+
+// ===== PLANNING HELPERS =====
+function pFormatDate(d) { if (!d) return ''; const dd = new Date(d + 'T00:00:00'); return `${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,'0')}-${String(dd.getDate()).padStart(2,'0')}`; }
+function pParseDate(s) { return new Date(s + 'T00:00:00'); }
+function pAddDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function pDiffDays(a, b) { return Math.round((b - a) / 86400000); }
+function pIsWeekend(d) { const day = d.getDay(); return day === 0 || day === 6; }
+function pIsToday(d, today) { return d.getFullYear()===today.getFullYear()&&d.getMonth()===today.getMonth()&&d.getDate()===today.getDate(); }
+const P_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Aug','Sep','Okt','Nov','Dec'];
+const P_HOLIDAYS = {'2026-01-01':1,'2026-04-03':1,'2026-04-05':1,'2026-04-06':1,'2026-04-27':1,'2026-05-05':1,'2026-05-14':1,'2026-05-24':1,'2026-05-25':1,'2026-12-25':1,'2026-12-26':1};
+const CELL_W = 28;
 
 const INITIAL_PROJECTS = [
     { id: 1, name: 'Nieuwbouw Villa Wassenaar', client: 'Fam. Jansen', phone: '0612345678', address: 'Duinweg 42, Wassenaar', startDate: '2026-03-02', endDate: '2026-04-17', estimatedHours: 320, hourlyRate: 55, color: '#3b82f6', status: 'active', tasks: [{ id: 't1', name: 'Buitenschilderwerk kozijnen', startDate: '2026-03-02', endDate: '2026-03-13', assignedTo: [2, 4], completed: true }, { id: 't2', name: 'Binnenschilderwerk begane grond', startDate: '2026-03-16', endDate: '2026-03-27', assignedTo: [2], completed: false }, { id: 't3', name: 'Binnenschilderwerk verdieping', startDate: '2026-03-30', endDate: '2026-04-10', assignedTo: [3, 4], completed: false }, { id: 't4', name: 'Oplevering & correcties', startDate: '2026-04-13', endDate: '2026-04-17', assignedTo: [2, 3, 4], completed: false }] },
@@ -24,6 +37,7 @@ const NOTE_TYPES = {
     actie:    { label: 'Actie',    color: '#f59e0b', bg: '#fffbeb', icon: 'fa-bolt' },
     probleem: { label: 'Probleem', color: '#ef4444', bg: '#fef2f2', icon: 'fa-triangle-exclamation' },
     klant:    { label: 'Klant',    color: '#10b981', bg: '#f0fdf4', icon: 'fa-user' },
+    planning: { label: 'Planning', color: '#8b5cf6', bg: '#f5f3ff', icon: 'fa-calendar-days' },
 };
 
 const DEMO_NOTES = [
@@ -203,6 +217,12 @@ export default function ProjectDossierPage() {
     const [offerteBedrag, setOfferteBedrag] = useState('');
     const [showAddTask, setShowAddTask] = useState(false);
     const [newTask, setNewTask] = useState({ name: '', startDate: '', endDate: '' });
+    const [ganttCurrentDate, setGanttCurrentDate] = useState(() => new Date());
+    const [savedFeedback, setSavedFeedback] = useState(false);
+    const [editingPlanId, setEditingPlanId] = useState(null);
+    const [editingPlanName, setEditingPlanName] = useState('');
+    const dblClickRef = useRef({ t: 0, id: null }); // voor dubbelklik detectie op balken
+
     const [showTemplateMenu, setShowTemplateMenu] = useState(false);
     const [photos, setPhotos] = useState([]);
     const [photoFilter, setPhotoFilter] = useState('alle');
@@ -725,14 +745,38 @@ export default function ProjectDossierPage() {
 
     useEffect(() => {
         const stored = localStorage.getItem('schildersapp_projecten');
-        const allProjects = stored ? JSON.parse(stored) : INITIAL_PROJECTS;
+        let allProjects = stored ? JSON.parse(stored) : INITIAL_PROJECTS;
+        // Saneer project datums: herstel ongeldige datums van INITIAL_PROJECTS
+        const isValidDate = (s) => s && !isNaN(new Date(s + 'T00:00:00').getTime());
+        allProjects = allProjects.map(p => {
+            const init = INITIAL_PROJECTS.find(ip => ip.id === p.id);
+            const startDate = isValidDate(p.startDate) ? p.startDate : (init?.startDate || new Date().toISOString().split('T')[0]);
+            const endDate = isValidDate(p.endDate) ? p.endDate : (init?.endDate || new Date(Date.now() + 30*86400000).toISOString().split('T')[0]);
+            const tasks = (p.tasks || []).map(t => ({
+                ...t,
+                startDate: isValidDate(t.startDate) ? t.startDate : startDate,
+                endDate: isValidDate(t.endDate) ? t.endDate : endDate,
+            }));
+            return { ...p, startDate, endDate, tasks };
+        });
         setProjects(allProjects);
         const found = allProjects.find(p => String(p.id) === String(id));
         setProject(found || null);
         if (found) setOfferteBedrag(String(found.estimatedHours * (found.hourlyRate || 55)));
 
-        const storedNotes = localStorage.getItem(`schildersapp_notes_${id}`);
-        setNotes(storedNotes ? JSON.parse(storedNotes) : DEMO_NOTES);
+        // Notities Ophalen vanuit NAS Database (The Cloud)
+        const loadNotes = async () => {
+            try {
+                const res = await fetch(`/api/notes?projectId=${id}`);
+                const data = await res.json();
+                if (data.success) {
+                    setNotes(data.notes.length > 0 ? data.notes : DEMO_NOTES);
+                }
+            } catch (err) {
+                console.error("Kon notities niet van NAS halen:", err);
+            }
+        };
+        loadNotes();
 
         const storedPhotos = localStorage.getItem(`schildersapp_photos_${id}`);
         setPhotos(storedPhotos ? JSON.parse(storedPhotos) : []);
@@ -755,6 +799,53 @@ export default function ProjectDossierPage() {
                 { id: 3, omschrijving: 'Materialen en verfbenodigdheden', eenheid: 'ls', aantal: 1, prijs: 850 },
             ]);
         }
+
+        const handleNotesUpdate = (e) => {
+            if (e.detail && String(e.detail.projectId) !== String(id)) return;
+            loadNotes(); // Ophalen uit de LIVE database!
+        };
+        const handlePhotosUpdate = (e) => {
+            if (e.detail && String(e.detail.projectId) !== String(id)) return;
+            const updatedPhotos = localStorage.getItem(`schildersapp_photos_${id}`);
+            setPhotos(updatedPhotos ? JSON.parse(updatedPhotos) : []);
+        };
+        const handleStorage = (e) => {
+            if (e.key === `schildersapp_photos_${id}`) {
+                setPhotos(e.newValue ? JSON.parse(e.newValue) : []);
+            }
+            // Sync project data when another tab makes changes
+            if (e.key === 'schildersapp_projecten' && e.newValue) {
+                try {
+                    const allProjs = JSON.parse(e.newValue);
+                    const found = allProjs.find(p => String(p.id) === String(id));
+                    if (found) { setProject(found); setProjects(allProjs); }
+                } catch {}
+            }
+        };
+        const handleVisible = () => {
+            if (document.visibilityState === 'visible') {
+                try {
+                    const s = localStorage.getItem('schildersapp_projecten');
+                    if (s) {
+                        const allProjs = JSON.parse(s);
+                        const found = allProjs.find(p => String(p.id) === String(id));
+                        if (found) { setProject(found); setProjects(allProjs); }
+                    }
+                } catch {}
+            }
+        };
+
+        window.addEventListener('notes-updated', handleNotesUpdate);
+        window.addEventListener('photos-updated', handlePhotosUpdate);
+        window.addEventListener('storage', handleStorage);
+        document.addEventListener('visibilitychange', handleVisible);
+        return () => {
+            window.removeEventListener('notes-updated', handleNotesUpdate);
+            window.removeEventListener('photos-updated', handlePhotosUpdate);
+            window.removeEventListener('storage', handleStorage);
+            document.removeEventListener('visibilitychange', handleVisible);
+        };
+
     }, [id]);
 
     const saveProject = (updated) => {
@@ -762,6 +853,18 @@ export default function ProjectDossierPage() {
         const newProjects = projects.map(p => p.id === updated.id ? updated : p);
         setProjects(newProjects);
         localStorage.setItem('schildersapp_projecten', JSON.stringify(newProjects));
+    };
+
+    // Expliciete opslaan met feedback + cross-tab sync event
+    const forceSave = () => {
+        const stored = localStorage.getItem('schildersapp_projecten');
+        const allProjs = stored ? JSON.parse(stored) : [];
+        const merged = allProjs.map(p => p.id === project.id ? project : p);
+        localStorage.setItem('schildersapp_projecten', JSON.stringify(merged));
+        // Stuur een custom event zodat globale planning direct herlaadt
+        try { window.dispatchEvent(new CustomEvent('schilders-sync', { detail: { projecten: merged } })); } catch {}
+        setSavedFeedback(true);
+        setTimeout(() => setSavedFeedback(false), 2500);
     };
 
     const toggleTask = (taskId) => {
@@ -882,6 +985,7 @@ export default function ProjectDossierPage() {
 
     const TABS = [
         { id: 'overzicht', label: 'Overzicht', icon: 'fa-house' },
+        { id: 'planning', label: 'Planning', icon: 'fa-chart-gantt' },
         { id: 'taken', label: `Taken (${totalTasks})`, icon: 'fa-list-check' },
         { id: 'notities', label: `Notities (${notes.length})`, icon: 'fa-note-sticky' },
         { id: 'financien', label: 'Financiën', icon: 'fa-euro-sign' },
@@ -891,7 +995,7 @@ export default function ProjectDossierPage() {
     ];
 
     const mainContent = (
-        <div className="content-area" style={{ maxWidth: '1100px' }}>
+        <div className="content-area" style={{ maxWidth: '100%' }}>
             {/* Breadcrumb */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', fontSize: '0.82rem', color: '#64748b' }}>
                 <Link href="/projecten" style={{ color: '#F5850A', textDecoration: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -973,7 +1077,26 @@ export default function ProjectDossierPage() {
                 ))}
             </div>
 
-            {/* ===== OVERZICHT ===== */}
+
+
+                        {/* ===== PLANNING TAB ===== */}
+            {activeTab === 'planning' && (
+                <ProjectGantt
+                    project={project}
+                    onSave={(updatedProject) => {
+                        setProject(updatedProject);
+                        try {
+                            const stored = localStorage.getItem('schildersapp_projecten');
+                            const all = stored ? JSON.parse(stored) : [];
+                            const merged = all.map(x => String(x.id) === String(updatedProject.id) ? updatedProject : x);
+                            localStorage.setItem('schildersapp_projecten', JSON.stringify(merged));
+                            window.dispatchEvent(new CustomEvent('schilders-sync', { detail: { projecten: merged } }));
+                        } catch {}
+                    }}
+                />
+            )}
+
+{/* ===== OVERZICHT ===== */}
             {activeTab === 'overzicht' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     {/* Klantgegevens */}
@@ -1543,7 +1666,15 @@ export default function ProjectDossierPage() {
                                             <span style={{ fontSize: '0.72rem', fontWeight: 700, color: cfg.color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cfg.label}</span>
                                             <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{note.author} · {formatDate(note.date)}</span>
                                         </div>
-                                        <p style={{ margin: 0, fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.5 }}>{note.text}</p>
+                                        <p style={{ margin: 0, fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.5 }}>{note.text || note.content}</p>
+                                        {note.photo && (
+                                            <div style={{ marginTop: '10px' }}>
+                                                <button onClick={() => setPreviewAtt({ data: note.photo, name: 'Notitie bewijs', type: 'image/jpeg' })} 
+                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: `${cfg.color}15`, color: cfg.color, border: `1px solid ${cfg.color}40`, borderRadius: '6px', padding: '4px 8px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
+                                                    <i className="fa-solid fa-image" /> Foto openen
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                     <button onClick={() => deleteNote(note.id)} style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '4px', fontSize: '0.85rem', alignSelf: 'flex-start', borderRadius: '6px', transition: 'color 0.15s' }}
                                         onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
@@ -1795,16 +1926,16 @@ export default function ProjectDossierPage() {
                                     <i className="fa-solid fa-circle-plus" style={{ color: '#F5850A', fontSize: '1rem' }} />
                                 </div>
                                 <div>
-                                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>Meerwerk</div>
+                                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>Extra werk</div>
                                     <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                                        {meerwerk.length === 0 ? 'Nog geen meerwerk geregistreerd' : `${meerwerk.length} item${meerwerk.length !== 1 ? 's' : ''} · €${mwGoedgekeurd.toLocaleString('nl-NL')} goedgekeurd${mwAanvraag > 0 ? ` · €${mwAanvraag.toLocaleString('nl-NL')} in aanvraag` : ''}`}
+                                        {meerwerk.length === 0 ? 'Nog geen extra werk geregistreerd' : `${meerwerk.length} item${meerwerk.length !== 1 ? 's' : ''} · €${mwGoedgekeurd.toLocaleString('nl-NL')} goedgekeurd${mwAanvraag > 0 ? ` · €${mwAanvraag.toLocaleString('nl-NL')} in aanvraag` : ''}`}
                                     </div>
                                 </div>
                             </div>
                             <button onClick={() => setShowAddMeerwerk(v => !v)}
                                 style={{ padding: '7px 14px', borderRadius: '9px', border: 'none', background: showAddMeerwerk ? '#f1f5f9' : '#F5850A', color: showAddMeerwerk ? '#64748b' : '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className={`fa-solid ${showAddMeerwerk ? 'fa-xmark' : 'fa-plus'}`} />
-                                {showAddMeerwerk ? 'Annuleren' : 'Meerwerk toevoegen'}
+                                {showAddMeerwerk ? 'Annuleren' : 'Extra werk toevoegen'}
                             </button>
                         </div>
 
@@ -1813,7 +1944,7 @@ export default function ProjectDossierPage() {
                             <div style={{ padding: '16px 20px', background: '#fffbf5', borderBottom: '1px solid #fed7aa' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                                     <div>
-                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Omschrijving meerwerk *</label>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '4px' }}>Omschrijving extra werk *</label>
                                         <input value={newMeerwerk.omschrijving} onChange={e => setNewMeerwerk(p => ({ ...p, omschrijving: e.target.value }))}
                                             placeholder="bijv. Extra schilderwerk badkamer..."
                                             style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }} />
@@ -1846,7 +1977,7 @@ export default function ProjectDossierPage() {
                                 </div>
                                 <button onClick={addMeerwerkItem}
                                     style={{ padding: '9px 20px', borderRadius: '9px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
-                                    <i className="fa-solid fa-plus" style={{ marginRight: '6px' }} />Meerwerk opslaan
+                                    <i className="fa-solid fa-plus" style={{ marginRight: '6px' }} />Extra werk opslaan
                                 </button>
                             </div>
                         )}
@@ -1855,7 +1986,7 @@ export default function ProjectDossierPage() {
                         {meerwerk.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '32px 20px', color: '#94a3b8' }}>
                                 <i className="fa-solid fa-circle-plus" style={{ fontSize: '2rem', marginBottom: '10px', display: 'block', opacity: 0.4 }} />
-                                <p style={{ margin: 0, fontSize: '0.88rem' }}>Nog geen meerwerk geregistreerd</p>
+                                <p style={{ margin: 0, fontSize: '0.88rem' }}>Nog geen extra werk geregistreerd</p>
                             </div>
                         ) : (
                             <div>
@@ -1891,9 +2022,16 @@ export default function ProjectDossierPage() {
                                             <div>
                                                 <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{m.omschrijving}</div>
                                                 {m.toelichting && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>{m.toelichting}</div>}
-                                                <div style={{ fontSize: '0.68rem', color: '#cbd5e1', marginTop: '2px' }}>
-                                                    {m.datum} {m.emailVerzonden && <span style={{ color: '#3b82f6' }}>· email verzonden {m.emailVerzonden}</span>}
-                                                    {m.akkoordDatum && <span style={{ color: '#10b981' }}> · akkoord {m.akkoordDatum}</span>}
+                                                <div style={{ fontSize: '0.68rem', color: '#cbd5e1', marginTop: '2px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                                                    <span>{m.datum}</span>
+                                                    {m.emailVerzonden && <span style={{ color: '#3b82f6' }}>· email verzonden {m.emailVerzonden}</span>}
+                                                    {m.akkoordDatum && <span style={{ color: '#10b981' }}>· akkoord {m.akkoordDatum}</span>}
+                                                    {m.foto && (
+                                                        <button onClick={() => setPreviewAtt({ data: m.foto, name: 'Meerwerk bewijs', type: 'image/jpeg' })} 
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '1px 6px', fontSize: '0.65rem', cursor: 'pointer', transition: 'all 0.15s' }}>
+                                                            <i className="fa-solid fa-image" /> Foto openen
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>
@@ -1973,7 +2111,7 @@ export default function ProjectDossierPage() {
                                 {/* Totaalrij */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '32px 2fr 0.7fr 0.8fr 1.1fr 220px', alignItems: 'center', padding: '12px 20px', borderTop: '2px solid #f1f5f9', background: '#f8fafc' }}>
                                     <div />
-                                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#475569', gridColumn: 'span 2' }}>Totaal meerwerk ({meerwerk.length})</div>
+                                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#475569', gridColumn: 'span 2' }}>Totaal extra werk ({meerwerk.length})</div>
                                     <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>€{meerwerk.reduce((s, m) => s + m.bedrag, 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</div>
                                     <div style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: 700 }}>€{mwGoedgekeurd.toLocaleString('nl-NL')} goedgekeurd</div>
                                     <div />
@@ -2631,7 +2769,7 @@ export default function ProjectDossierPage() {
                                 <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
                                     {meerwerkEmailPicker === '_bulk_'
                                         ? `${geselecteerdeItems.length} meerwerk items geselecteerd`
-                                        : `Meerwerk: ${meerwerkEmailPicker?.omschrijving || ''}`
+                                        : `Extra werk: ${meerwerkEmailPicker?.omschrijving || ''}`
                                     }
                                 </div>
                             </div>

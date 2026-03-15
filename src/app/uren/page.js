@@ -33,7 +33,7 @@ function getDaysForWeek(week, year) {
 
 const UREN_TYPES = [
     { id: 'normaal', label: 'Gewerkte uren', icon: 'fa-paint-roller', color: '#334155' },
-    { id: 'meerwerk', label: 'Meerwerk', icon: 'fa-plus-minus', color: '#f59e0b' },
+    { id: 'meerwerk', label: 'Extra werk', icon: 'fa-plus-minus', color: '#f59e0b' },
     { id: 'oplevering', label: 'Oplevering', icon: 'fa-check-double', color: '#10b981' },
     { id: 'klusuren', label: 'Klusuren', icon: 'fa-clipboard-list', color: '#3b82f6' },
     { id: 'ziek', label: 'Ziek', icon: 'fa-briefcase-medical', color: '#ef4444' },

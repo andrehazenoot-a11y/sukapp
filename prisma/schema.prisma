@@ -1,0 +1,47 @@
+// This is your Prisma schema file.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// 1. Contracten
+model Contract {
+  id              String   @id @default(uuid())
+  projectNaam     String
+  medewerkerId    String
+  medewerkerNaam  String
+  totaalBedrag    Float?
+  status          String?
+  kanbanStatus    String?
+  getekend        Boolean  @default(false)
+  aangemaakt      DateTime @default(now())
+  payloadJson     String   // De rest van de contract parameters
+
+  @@index([medewerkerId])
+}
+
+// 2. Urenregistraties (wa_uren_log / wa_uren)
+model UrenRegistratie {
+  id              String   @id @default(uuid())
+  medewerkerId    String
+  projectId       String?
+  datum           DateTime
+  uren            Float
+  notitie         String?
+  payloadJson     String   // Alle resterende info
+
+  @@index([medewerkerId])
+}
+
+// 3. Generieke opslag voor snelle transitie (zoals Foto's / Base64 Documenten)
+model DocumentStore {
+  id        String   @id
+  type      String   // bijv. "BRIEFPAPIER", "ATTACHMENT"
+  data      String   // Enorme Base64 strings passen hier makkelijk in!
+  createdAt DateTime @default(now())
+
+  @@index([type])
+}

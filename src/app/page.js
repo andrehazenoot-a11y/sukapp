@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { useLanguage } from '../components/LanguageContext';
 import Link from 'next/link';
+import TestDataGenerator from '../components/TestDataGenerator';
 
 export default function Home() {
   const { user } = useAuth();
@@ -98,6 +99,8 @@ export default function Home() {
         </h1>
         <p>{t('dashboard.overview')}</p>
       </div>
+
+      <TestDataGenerator />
 
       {/* === STAT KAARTEN === */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>

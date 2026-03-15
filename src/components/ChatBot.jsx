@@ -70,7 +70,7 @@ function getGreeting() {
 // Urentypen — zelfde als urenregistratie page
 const UREN_TYPES = [
     { id: 'normaal',           label: 'Project uren',       color: '#F5850A', icon: 'fa-paint-roller' },
-    { id: 'meerwerk',          label: 'Meerwerk',           color: '#f59e0b', icon: 'fa-plus-minus' },
+    { id: 'meerwerk',          label: 'Extra werk',           color: '#f59e0b', icon: 'fa-plus-minus' },
     { id: 'oplevering',        label: 'Oplevering',         color: '#06b6d4', icon: 'fa-flag-checkered' },
     { id: 'werkvoorbereiding', label: 'Werkvoorbereiding',  color: '#6366f1', icon: 'fa-clipboard-list' },
     { id: 'ziek',              label: 'Ziek (hele dag)',     color: '#ef4444', icon: 'fa-briefcase-medical', noHours: true },
@@ -181,14 +181,20 @@ function ProjectSearch({ items, value, onChange, placeholder = 'Zoek...', accent
 // Inline urenstaat mini-form (werknemer)
 function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
     const types = allowedTypes && allowedTypes.length > 0 ? allowedTypes : UREN_TYPES.filter(t => ['normaal', 'meerwerk', 'ziek', 'vrij'].includes(t.id));
+    const initialTypeId = types[0]?.id || 'normaal';
     const [rows, setRows] = useState([
-        { projectId: '1', hours: ['8', '8', '8', '8', '8'], typeId: 'normaal' }
+        { projectId: '1', hours: initialTypeId === 'meerwerk' ? ['','','','',''] : ['8', '8', '8', '8', '8'], typeId: initialTypeId, note: '', photo: null, datum: new Date().toISOString().split('T')[0], materiaal: '', showMateriaal: false, isRecordingNote: false, isRecordingMateriaal: false, meerwerkSoort: 'uren', postBedrag: '' }
     ]);
+    const recognitionRef = useRef(null);
 
     const updateHour = (ri, di, val) => {
+        let parsedVal = val;
+        if (parsedVal && parseFloat(parsedVal) < 0) {
+            parsedVal = "0";
+        }
         const u = [...rows];
         u[ri] = { ...u[ri], hours: [...u[ri].hours] };
-        u[ri].hours[di] = val;
+        u[ri].hours[di] = parsedVal;
         setRows(u);
     };
 
@@ -205,8 +211,105 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
         setRows(u);
     };
 
+    const updateNote = (ri, note) => {
+        setRows(prev => prev.map((r, i) => i === ri ? { ...r, note } : r));
+    };
+
+    const updateDatum = (ri, datum) => {
+        setRows(prev => prev.map((r, i) => i === ri ? { ...r, datum } : r));
+    };
+
+    const updateMateriaal = (ri, materiaal) => {
+        setRows(prev => prev.map((r, i) => i === ri ? { ...r, materiaal } : r));
+    };
+
+    const toggleDictation = (ri, isMateriaal = false) => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            const isHttp = window.location.protocol === 'http:' && window.location.hostname !== 'localhost';
+            if (isHttp) {
+                alert('Spraakherkenning vereist een beveiligde verbinding.\n\nGebruik op je telefoon:\nhttps://' + window.location.hostname + ':' + window.location.port + window.location.pathname);
+            } else {
+                alert('Spraakherkenning wordt niet ondersteund in deze browser. Gebruik Chrome of Safari.');
+            }
+            return;
+        }
+
+        const isRecording = isMateriaal ? rows[ri].isRecordingMateriaal : rows[ri].isRecordingNote;
+
+        if (isRecording) {
+            if (recognitionRef.current) {
+                recognitionRef.current.stop();
+                recognitionRef.current = null;
+            }
+            setRows(prev => prev.map((r, i) => i === ri ? { 
+                ...r, 
+                isRecordingNote: false, 
+                isRecordingMateriaal: false,
+                ...(isMateriaal ? { showMateriaal: true } : {}) 
+            } : r));
+            return;
+        }
+
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+
+        setRows(prev => prev.map((r, i) => i === ri ? { 
+            ...r, 
+            isRecordingNote: !isMateriaal, 
+            isRecordingMateriaal: isMateriaal,
+            ...(isMateriaal ? { showMateriaal: false } : {})
+        } : { 
+            ...r, 
+            isRecordingNote: false, 
+            isRecordingMateriaal: false 
+        }));
+
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.lang = 'nl-NL';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        
+        recognition.onresult = (event) => {
+            const transcript = event.results[event.results.length - 1][0].transcript;
+            setRows(prev => prev.map((r, i) => {
+                if (i !== ri) return r;
+                if (isMateriaal) {
+                    return { ...r, materiaal: (r.materiaal ? r.materiaal + ' ' : '') + transcript };
+                } else {
+                    return { ...r, note: (r.note ? r.note + ' ' : '') + transcript };
+                }
+            }));
+        };
+
+        recognition.onend = () => {
+            setRows(prev => prev.map((r, i) => {
+                if (i !== ri) return r;
+                if (isMateriaal && r.isRecordingMateriaal) {
+                    return { ...r, isRecordingNote: false, isRecordingMateriaal: false, showMateriaal: true };
+                }
+                return { ...r, isRecordingNote: false, isRecordingMateriaal: false };
+            }));
+        };
+
+        recognition.start();
+    };
+
+    const handleFileChange = (ri, e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                setRows(prev => prev.map((r, i) => i === ri ? { ...r, photo: ev.target.result } : r));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     const addRow = () => {
-        setRows([...rows, { projectId: '', hours: ['', '', '', '', ''], typeId: 'normaal' }]);
+        setRows([...rows, { projectId: '', hours: ['', '', '', '', ''], typeId: types[0]?.id || 'normaal', note: '', photo: null, datum: new Date().toISOString().split('T')[0], materiaal: '', showMateriaal: false, isRecordingNote: false, isRecordingMateriaal: false, meerwerkSoort: 'uren', postBedrag: '' }]);
     };
 
     const removeRow = (ri) => {
@@ -230,7 +333,7 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                 <i className="fa-regular fa-calendar" style={{ color: '#FA9F52' }}></i>
                 <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b' }}>
-                    Week {getWeekNumber()} — Snelle invoer
+                    Week {getWeekNumber()} — {types.length === 1 && types[0].id === 'meerwerk' ? 'Extra werk invoeren' : 'Uren invoeren'}
                 </span>
             </div>
 
@@ -259,62 +362,200 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
                             )}
                         </div>
 
-                        {/* Urentype select — alleen toegestane types */}
-                        <div style={{ marginBottom: '6px' }}>
-                            <select
-                                value={row.typeId}
-                                onChange={(e) => updateType(ri, e.target.value)}
-                                style={{
-                                    width: '100%', padding: '4px 8px', fontSize: '0.7rem', fontWeight: 700,
-                                    border: `1px solid ${typeInfo.color}55`, borderRadius: '6px',
-                                    color: typeInfo.color, background: `${typeInfo.color}0d`,
-                                    cursor: 'pointer', outline: 'none', WebkitAppearance: 'none'
-                                }}
-                            >
-                                {types.map(t => (
-                                    <option key={t.id} value={t.id}>{t.label}</option>
-                                ))}
-                            </select>
-                        </div>
+                        {/* Urentype select — alleen tonen als er meer dan 1 optie is */}
+                        {types.length > 1 && (
+                            <div style={{ marginBottom: '6px' }}>
+                                <select
+                                    value={row.typeId}
+                                    onChange={(e) => updateType(ri, e.target.value)}
+                                    style={{
+                                        width: '100%', padding: '4px 8px', fontSize: '0.7rem', fontWeight: 700,
+                                        border: `1px solid ${typeInfo.color}55`, borderRadius: '6px',
+                                        color: typeInfo.color, background: `${typeInfo.color}0d`,
+                                        cursor: 'pointer', outline: 'none', WebkitAppearance: 'none'
+                                    }}
+                                >
+                                    {types.map(t => (
+                                        <option key={t.id} value={t.id}>{t.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
 
-                        {/* Day inputs of ziek/vrij balken */}
-                        {isNoHours ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
-                                {DAY_LABELS.map((day, di) => (
-                                    <div key={di} style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
-                                        <div style={{
-                                            height: '30px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            background: `${typeInfo.color}15`, border: `1.5px solid ${typeInfo.color}44`
-                                        }}>
-                                            <i className={`fa-solid ${typeInfo.icon}`} style={{ fontSize: '0.7rem', color: typeInfo.color }} />
+                        {/* Day inputs of ziek/vrij balken (VERBORGEN BIJ MEERWERK) */}
+                        {row.typeId !== 'meerwerk' && (
+                            isNoHours ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
+                                    {DAY_LABELS.map((day, di) => (
+                                        <div key={di} style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
+                                            <div style={{
+                                                height: '30px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                background: `${typeInfo.color}15`, border: `1.5px solid ${typeInfo.color}44`
+                                            }}>
+                                                <i className={`fa-solid ${typeInfo.icon}`} style={{ fontSize: '0.7rem', color: typeInfo.color }} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
+                                    {DAY_LABELS.map((day, di) => (
+                                        <div key={di} style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
+                                            <input
+                                                type="text"
+                                                value={row.hours[di]}
+                                                onChange={(e) => updateHour(ri, di, e.target.value)}
+                                                placeholder="0"
+                                                style={{
+                                                    width: '100%', height: '30px', textAlign: 'center',
+                                                    border: `1.5px solid ${parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#e2e8f0'}`,
+                                                    borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700,
+                                                    color: parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#94a3b8',
+                                                    background: parseFloat(row.hours[di]) > 0 ? `${typeInfo.color}0d` : '#fff',
+                                                    outline: 'none', boxSizing: 'border-box'
+                                                }}
+                                                onFocus={(e) => { e.currentTarget.style.borderColor = typeInfo.color; e.currentTarget.select(); }}
+                                                onBlur={(e) => { if (!parseFloat(e.currentTarget.value)) e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            )
+                        )}
+
+                        {/* MEERWERK EXTRA VELDEN */}
+                        {row.typeId === 'meerwerk' && (
+                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${typeInfo.color}33` }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>🗓️ Datum extra werk</label>
+                                <input
+                                    type="date"
+                                    value={row.datum || ''}
+                                    onChange={(e) => updateDatum(ri, e.target.value)}
+                                    style={{ width: '100%', padding: '6px 8px', fontSize: '0.75rem', borderRadius: '4px', border: `1px solid ${typeInfo.color}66`, color: '#1e293b', outline: 'none', marginBottom: '8px', boxSizing: 'border-box' }}
+                                />
+
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, margin: 0 }}>
+                                        {row.meerwerkSoort === 'post' ? '💰 Aangenomen Post' : '⏱️ Totaal uren'}
+                                    </label>
+                                    <button 
+                                        onClick={() => setRows(prev => prev.map((r, i) => i === ri ? { ...r, meerwerkSoort: row.meerwerkSoort === 'post' ? 'uren' : 'post', postBedrag: '', hours: ['','','','',''] } : r))}
+                                        style={{ background: 'none', border: 'none', color: typeInfo.color, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                                    >
+                                        {row.meerwerkSoort === 'post' ? 'Vul uren in' : 'Vaste prijs opgeven'}
+                                    </button>
+                                </div>
+
+                                {row.meerwerkSoort !== 'post' ? (
+                                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                                        <input 
+                                            type="number" 
+                                            min="0"
+                                            placeholder="0" 
+                                            value={row.hours[0] === '0' ? '' : row.hours[0]} 
+                                            onChange={(e) => updateHour(ri, 0, e.target.value)}
+                                            style={{ width: '56px', padding: '6px 8px', fontSize: '0.85rem', fontWeight: 700, textAlign: 'center', borderRadius: '4px', border: `1.5px solid ${typeInfo.color}`, color: typeInfo.color, outline: 'none', boxSizing: 'border-box' }}
+                                        />
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2 }}>
+                                            <span>Uren voor deze notitie</span>
+                                            {parseFloat(row.hours[0]) > 7.5 && (
+                                                <span style={{ color: '#ef4444', fontWeight: 600, marginTop: '2px' }}>{(parseFloat(row.hours[0]) - 7.5).toFixed(1).replace('.0','')}u overwerk (boven 7.5u).</span>
+                                            )}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
-                                {DAY_LABELS.map((day, di) => (
-                                    <div key={di} style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
-                                        <input
-                                            type="text"
-                                            value={row.hours[di]}
-                                            onChange={(e) => updateHour(ri, di, e.target.value)}
-                                            placeholder="0"
-                                            style={{
-                                                width: '100%', height: '30px', textAlign: 'center',
-                                                border: `1.5px solid ${parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#e2e8f0'}`,
-                                                borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700,
-                                                color: parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#94a3b8',
-                                                background: parseFloat(row.hours[di]) > 0 ? `${typeInfo.color}0d` : '#fff',
-                                                outline: 'none', boxSizing: 'border-box'
-                                            }}
-                                            onFocus={(e) => { e.currentTarget.style.borderColor = typeInfo.color; e.currentTarget.select(); }}
-                                            onBlur={(e) => { if (!parseFloat(e.currentTarget.value)) e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                ) : (
+                                    <div style={{ display: 'flex', gap: '0', marginBottom: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', padding: '0 8px', border: `1.5px solid ${typeInfo.color}`, borderRight: 'none', borderRadius: '4px 0 0 4px', color: '#64748b', fontWeight: 700 }}>€</div>
+                                        <input 
+                                            type="number" 
+                                            placeholder="Bedrag (optioneel)..." 
+                                            value={row.postBedrag} 
+                                            onChange={(e) => setRows(prev => prev.map((r, idx) => idx === ri ? { ...r, postBedrag: e.target.value } : r))}
+                                            style={{ flex: 1, padding: '6px 8px', fontSize: '0.85rem', fontWeight: 700, borderRadius: '0 4px 4px 0', border: `1.5px solid ${typeInfo.color}`, outline: 'none', boxSizing: 'border-box' }}
                                         />
                                     </div>
-                                ))}
+                                )}
+
+                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>📝 Notities Extra Werk</label>
+                                <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                                    <textarea
+                                        placeholder="Typ of dicteer hier wat er gedaan is..."
+                                        value={row.note || ''}
+                                        onChange={(e) => updateNote(ri, e.target.value)}
+                                        rows="3"
+                                        style={{ flex: 1, padding: '6px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+                                    />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <button
+                                            onClick={() => toggleDictation(ri)}
+                                            title={row.isRecordingNote ? "Stop dicteren" : "Dicteren"}
+                                            style={{ width: '36px', height: '36px', background: row.isRecordingNote ? '#ef4444' : typeInfo.color, color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                                        >
+                                            <i className={`fa-solid ${row.isRecordingNote ? 'fa-stop fa-fade' : 'fa-microphone'}`}></i>
+                                        </button>
+                                        {row.note && (
+                                            <button
+                                                onClick={() => updateNote(ri, '')}
+                                                title="Wis notitie"
+                                                style={{ width: '36px', height: '36px', background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                            >
+                                                <i className="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>📸 Foto/video bewijs</label>
+                                <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                                    <label style={{ flex: 1, padding: '6px', background: `${typeInfo.color}10`, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', color: typeInfo.color, fontSize: '0.65rem', fontWeight: 600, textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                                        <i className="fa-solid fa-camera"></i> Camera
+                                        <input type="file" accept="image/*,video/*" capture="environment" onChange={(e) => handleFileChange(ri, e)} style={{ display: 'none' }} />
+                                    </label>
+                                    <label style={{ flex: 1, padding: '6px', background: `${typeInfo.color}10`, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', color: typeInfo.color, fontSize: '0.65rem', fontWeight: 600, textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                                        <i className="fa-regular fa-image"></i> Galerij
+                                        <input type="file" accept="image/*,video/*" onChange={(e) => handleFileChange(ri, e)} style={{ display: 'none' }} />
+                                    </label>
+                                </div>
+                                {row.photo && (
+                                    <div style={{ marginTop: '-4px', marginBottom: '8px', fontSize: '0.6rem', color: '#16a34a', fontWeight: 600 }}>
+                                        <i className="fa-solid fa-check-circle" style={{ marginRight: '4px' }}></i> Bestand gekoppeld
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>
+                                        <i className="fa-solid fa-boxes-stacked" style={{ marginRight: '4px' }}></i> Gebruikt Materiaal
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <textarea
+                                            placeholder="Controleer/pas aan of typ hier (bijv. 2 blikken)..."
+                                            value={row.materiaal || ''}
+                                            onChange={(e) => updateMateriaal(ri, e.target.value)}
+                                            rows="3"
+                                            style={{ flex: 1, padding: '6px 8px', fontSize: '0.75rem', borderRadius: '4px', border: `1px solid ${typeInfo.color}44`, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <button
+                                                onClick={() => toggleDictation(ri, true)}
+                                                title={row.isRecordingMateriaal ? "Stop inspreken" : "Extra Materiaal Inspreken"}
+                                                style={{ width: '36px', height: '36px', background: row.isRecordingMateriaal ? '#ef4444' : typeInfo.color, color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                                            >
+                                                <i className={`fa-solid ${row.isRecordingMateriaal ? 'fa-stop fa-fade' : 'fa-microphone'}`}></i>
+                                            </button>
+                                            {row.materiaal && (
+                                                <button
+                                                    onClick={() => updateMateriaal(ri, '')}
+                                                    title="Wis materiaal"
+                                                    style={{ width: '36px', height: '36px', background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                                >
+                                                    <i className="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -362,6 +603,208 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
     );
 }
 
+// Inline notitie / planning mini-form
+function InlineNotitie({ onSave, onCancel }) {
+    const NOTE_TYPES = [
+        { id: 'info',     label: 'Info',     color: '#3b82f6', icon: 'fa-circle-info' },
+        { id: 'actie',    label: 'Actie',    color: '#f59e0b', icon: 'fa-bolt' },
+        { id: 'probleem', label: 'Probleem', color: '#ef4444', icon: 'fa-triangle-exclamation' },
+        { id: 'klant',    label: 'Klant',    color: '#10b981', icon: 'fa-user' },
+        { id: 'planning', label: 'Planning', color: '#8b5cf6', icon: 'fa-calendar-days' },
+    ];
+
+    const [projectId, setProjectId] = useState('1');
+    const [noteType, setNoteType] = useState('info');
+    const [note, setNote] = useState('');
+    const [photo, setPhoto] = useState(null);
+    const [isRecording, setIsRecording] = useState(false);
+    const recognitionRef = useRef(null);
+
+    const toggleDictation = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            const isHttp = window.location.protocol === 'http:' && window.location.hostname !== 'localhost';
+            if (isHttp) {
+                alert('Spraakherkenning vereist een beveiligde verbinding.\n\nGebruik op je telefoon:\nhttps://' + window.location.hostname + ':' + window.location.port + window.location.pathname);
+            } else {
+                alert('Spraakherkenning wordt niet ondersteund in deze browser. Gebruik Chrome of Safari.');
+            }
+            return;
+        }
+        if (isRecording) {
+            if (recognitionRef.current) {
+                recognitionRef.current.stop();
+                recognitionRef.current = null;
+            }
+            setIsRecording(false);
+            return;
+        }
+        if (recognitionRef.current) recognitionRef.current.stop();
+        setIsRecording(true);
+
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.lang = 'nl-NL';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        
+        recognition.onresult = (event) => {
+            const transcript = event.results[event.results.length - 1][0].transcript;
+            setNote(prev => (prev ? prev + ' ' : '') + transcript);
+        };
+        recognition.onend = () => {
+            setIsRecording(false);
+        };
+        recognition.start();
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_WIDTH = 800;
+                        const MAX_HEIGHT = 800;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                        } else {
+                            if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+                        }
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        setPhoto(canvas.toDataURL('image/jpeg', 0.6));
+                    };
+                    img.src = ev.target.result;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    setPhoto(ev.target.result);
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+    };
+
+    const currentType = NOTE_TYPES.find(t => t.id === noteType) || NOTE_TYPES[0];
+
+    return (
+        <div style={{
+            background: '#fff', borderRadius: '12px', padding: '14px',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
+            maxWidth: '100%'
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <i className="fa-regular fa-comment-dots" style={{ color: '#FA9F52' }}></i>
+                <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b' }}>
+                    Project Notitie / Planning
+                </span>
+            </div>
+
+            <div style={{ marginBottom: '10px' }}>
+                <ProjectSearch
+                    items={PROJECTS.map(p => ({ id: p.id, label: p.name }))}
+                    value={projectId}
+                    onChange={setProjectId}
+                    placeholder="Kies project..."
+                    accentColor="#F5850A"
+                />
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', overflowX: 'auto', paddingBottom: '4px', scrollbarWidth: 'none' }}>
+                {NOTE_TYPES.map(t => (
+                    <button
+                        key={t.id}
+                        onClick={() => setNoteType(t.id)}
+                        style={{
+                            padding: '6px 12px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 600, flexShrink: 0,
+                            border: `1px solid ${noteType === t.id ? t.color : '#e2e8f0'}`,
+                            background: noteType === t.id ? `${t.color}15` : '#f8fafc',
+                            color: noteType === t.id ? t.color : '#64748b',
+                            cursor: 'pointer', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: '4px'
+                        }}
+                    >
+                        <i className={`fa-solid ${t.icon}`}></i> {t.label}
+                    </button>
+                ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+                <textarea
+                    placeholder="Typ of dicteer hier de notitie, vraag of planning..."
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows="4"
+                    style={{ flex: 1, padding: '8px 10px', fontSize: '0.75rem', borderRadius: '6px', border: `1px solid ${currentType.color}55`, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <button
+                        onClick={toggleDictation}
+                        title={isRecording ? "Stop dicteren" : "Dicteren"}
+                        style={{ width: '38px', height: '38px', background: isRecording ? '#ef4444' : currentType.color, color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                    >
+                        <i className={`fa-solid ${isRecording ? 'fa-stop fa-fade' : 'fa-microphone'}`}></i>
+                    </button>
+                    {note && (
+                        <button
+                            onClick={() => setNote('')}
+                            title="Wis notitie"
+                            style={{ width: '38px', height: '38px', background: `${currentType.color}15`, color: currentType.color, border: `1px solid ${currentType.color}44`, borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                        >
+                            <i className="fa-solid fa-trash-can"></i>
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            <label style={{ fontSize: '0.65rem', fontWeight: 700, color: currentType.color, marginBottom: '4px', display: 'block' }}>📸 Voeg foto/video toe (optioneel)</label>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                <label style={{ flex: 1, padding: '6px', background: `${currentType.color}10`, border: `1px solid ${currentType.color}44`, borderRadius: '4px', color: currentType.color, fontSize: '0.65rem', fontWeight: 600, textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                    <i className="fa-solid fa-camera"></i> Camera
+                    <input type="file" accept="image/*,video/*" capture="environment" onChange={handleFileChange} style={{ display: 'none' }} />
+                </label>
+                <label style={{ flex: 1, padding: '6px', background: `${currentType.color}10`, border: `1px solid ${currentType.color}44`, borderRadius: '4px', color: currentType.color, fontSize: '0.65rem', fontWeight: 600, textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                    <i className="fa-regular fa-image"></i> Galerij
+                    <input type="file" accept="image/*,video/*" onChange={handleFileChange} style={{ display: 'none' }} />
+                </label>
+            </div>
+            {photo && (
+                <div style={{ marginTop: '2px', marginBottom: '10px', fontSize: '0.6rem', color: '#16a34a', fontWeight: 600 }}>
+                    <i className="fa-solid fa-check-circle" style={{ marginRight: '4px' }}></i> Bestand gekoppeld
+                </div>
+            )}
+
+            <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 0 0', borderTop: '1px solid #e2e8f0', marginTop: '6px'
+            }}>
+                <button onClick={onCancel} style={{
+                    padding: '6px 14px', fontSize: '0.72rem', borderRadius: '16px',
+                    border: '1px solid #e2e8f0', background: '#fff', color: '#64748b',
+                    cursor: 'pointer', fontWeight: 600
+                }}>Annuleren</button>
+                <button onClick={() => onSave({ projectId, type: noteType, text: note, photo })} disabled={!note && !photo} style={{
+                    padding: '6px 16px', fontSize: '0.72rem', borderRadius: '16px', border: 'none',
+                    background: (!note && !photo) ? '#94a3b8' : `linear-gradient(135deg, ${currentType.color}dd, ${currentType.color})`, color: '#fff',
+                    cursor: (!note && !photo) ? 'not-allowed' : 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s'
+                }}>
+                    <i className="fa-solid fa-check"></i> Opslaan
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ─── ZZP Uren invoer (koppelt aan contractnummer) ───────────────────────────
 function InlineUrenstaatZZP({ onSave, onCancel, allowedTypes }) {
     const types = allowedTypes && allowedTypes.length > 0 ? allowedTypes : UREN_TYPES.filter(t => ['normaal', 'meerwerk'].includes(t.id));
@@ -371,14 +814,29 @@ function InlineUrenstaatZZP({ onSave, onCancel, allowedTypes }) {
         try { return JSON.parse(localStorage.getItem('wa_contracten') || '[]'); } catch { return []; }
     })();
 
+    const initialTypeId = types[0]?.id || 'normaal';
     const [rows, setRows] = useState([{
         contractId: contracten[0]?.id || '',
-        hours: ['8', '8', '8', '8', '8'],
-        typeId: 'normaal'
+        hours: initialTypeId === 'meerwerk' ? ['','','','',''] : ['8', '8', '8', '8', '8'],
+        typeId: initialTypeId,
+        note: '',
+        photo: null,
+        datum: new Date().toISOString().split('T')[0],
+        materiaal: '',
+        showMateriaal: false,
+        isRecordingNote: false,
+        isRecordingMateriaal: false,
+        meerwerkSoort: 'uren',
+        postBedrag: ''
     }]);
+    const recognitionRef = useRef(null);
 
     const updateHour = (ri, di, val) => {
-        setRows(prev => prev.map((r, i) => i !== ri ? r : { ...r, hours: r.hours.map((h, j) => j === di ? val : h) }));
+        let parsedVal = val;
+        if (parsedVal && parseFloat(parsedVal) < 0) {
+            parsedVal = "0";
+        }
+        setRows(prev => prev.map((r, i) => i !== ri ? r : { ...r, hours: r.hours.map((h, j) => j === di ? parsedVal : h) }));
     };
     const updateContract = (ri, cid) => {
         setRows(prev => prev.map((r, i) => i !== ri ? r : { ...r, contractId: cid }));
@@ -387,7 +845,91 @@ function InlineUrenstaatZZP({ onSave, onCancel, allowedTypes }) {
         const isNoHours = types.find(t => t.id === typeId)?.noHours;
         setRows(prev => prev.map((r, i) => i !== ri ? r : { ...r, typeId, hours: isNoHours ? ['✓','✓','✓','✓','✓'] : ['8','8','8','8','8'] }));
     };
-    const addRow = () => setRows(prev => [...prev, { contractId: contracten[0]?.id || '', hours: ['','','','',''], typeId: 'normaal' }]);
+    const updateNote = (ri, note) => {
+        setRows(prev => prev.map((r, i) => i === ri ? { ...r, note } : r));
+    };
+
+    const updateDatum = (ri, datum) => {
+        setRows(prev => prev.map((r, i) => i === ri ? { ...r, datum } : r));
+    };
+    const updateMateriaal = (ri, materiaal) => {
+        setRows(prev => prev.map((r, i) => i === ri ? { ...r, materiaal } : r));
+    };
+
+    const toggleDictation = (ri, isMateriaal = false) => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert('Spraakherkenning wordt niet ondersteund in deze browser.');
+            return;
+        }
+
+        const isRecording = isMateriaal ? rows[ri].isRecordingMateriaal : rows[ri].isRecordingNote;
+
+        if (isRecording) {
+            if (recognitionRef.current) {
+                recognitionRef.current.stop();
+                recognitionRef.current = null;
+            }
+            setRows(prev => prev.map((r, i) => i === ri ? { 
+                ...r, 
+                isRecordingNote: false, 
+                isRecordingMateriaal: false
+            } : r));
+            return;
+        }
+
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+
+        setRows(prev => prev.map((r, i) => i === ri ? { 
+            ...r, 
+            isRecordingNote: !isMateriaal, 
+            isRecordingMateriaal: isMateriaal
+        } : { 
+            ...r, 
+            isRecordingNote: false, 
+            isRecordingMateriaal: false 
+        }));
+
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.lang = 'nl-NL';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        
+        recognition.onresult = (event) => {
+            const transcript = event.results[event.results.length - 1][0].transcript;
+            setRows(prev => prev.map((r, i) => {
+                if (i !== ri) return r;
+                if (isMateriaal) {
+                    return { ...r, materiaal: (r.materiaal ? r.materiaal + ' ' : '') + transcript };
+                } else {
+                    return { ...r, note: (r.note ? r.note + ' ' : '') + transcript };
+                }
+            }));
+        };
+
+        recognition.onend = () => {
+            setRows(prev => prev.map((r, i) => {
+                if (i !== ri) return r;
+                return { ...r, isRecordingNote: false, isRecordingMateriaal: false };
+            }));
+        };
+
+        recognition.start();
+    };
+    const handleFileChange = (ri, e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                setRows(prev => prev.map((r, i) => i === ri ? { ...r, photo: ev.target.result } : r));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+    const addRow = () => setRows(prev => [...prev, { contractId: contracten[0]?.id || '', hours: ['','','','',''], typeId: types[0]?.id || 'normaal', note: '', photo: null, datum: new Date().toISOString().split('T')[0], materiaal: '', showMateriaal: false, isRecordingNote: false, isRecordingMateriaal: false, meerwerkSoort: 'uren', postBedrag: '' }]);
     const removeRow = (ri) => { if (rows.length > 1) setRows(prev => prev.filter((_, i) => i !== ri)); };
     const getTotal = () => rows.reduce((sum, r) => {
         const typeInfo = types.find(t => t.id === r.typeId);
@@ -403,8 +945,8 @@ function InlineUrenstaatZZP({ onSave, onCancel, allowedTypes }) {
                     <i className="fa-solid fa-file-contract" style={{ color: '#6366f1', fontSize: '0.75rem' }} />
                 </div>
                 <div>
-                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b' }}>Week {getWeekNumber()} — ZZP Uren</span>
-                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Koppel je uren aan een contractnummer</div>
+                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b' }}>Week {getWeekNumber()} — {types.length === 1 && types[0].id === 'meerwerk' ? 'Extra werk invoeren' : 'Uren invoeren'}</span>
+                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{types.length === 1 && types[0].id === 'meerwerk' ? 'Koppel je notities aan een contractnummer' : 'Koppel je uren aan een contractnummer'}</div>
                 </div>
             </div>
 
@@ -458,27 +1000,163 @@ function InlineUrenstaatZZP({ onSave, onCancel, allowedTypes }) {
                                 </select>
                             </div>
                         )}
-                        {/* Day inputs */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
-                            {DAY_LABELS.map((day, di) => (
-                                <div key={di} style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
-                                    {isNoHours ? (
-                                        <div style={{ height: '30px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${typeInfo.color}15`, border: `1.5px solid ${typeInfo.color}44` }}>
-                                            <i className={`fa-solid ${typeInfo.icon}`} style={{ fontSize: '0.7rem', color: typeInfo.color }} />
-                                        </div>
-                                    ) : (
-                                        <input
-                                            type="text" value={row.hours[di]} placeholder="0"
-                                            onChange={(e) => updateHour(ri, di, e.target.value)}
-                                            style={{ width: '100%', height: '30px', textAlign: 'center', border: `1.5px solid ${parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#e2e8f0'}`, borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, color: parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#94a3b8', background: parseFloat(row.hours[di]) > 0 ? `${typeInfo.color}0d` : '#fff', outline: 'none', boxSizing: 'border-box' }}
-                                            onFocus={(e) => { e.currentTarget.style.borderColor = typeInfo.color; e.currentTarget.select(); }}
-                                            onBlur={(e) => { if (!parseFloat(e.currentTarget.value)) e.currentTarget.style.borderColor = '#e2e8f0'; }}
-                                        />
-                                    )}
+                        {/* Day inputs of ziek/vrij balken (VERBORGEN BIJ MEERWERK) */}
+                        {row.typeId !== 'meerwerk' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
+                                {DAY_LABELS.map((day, di) => (
+                                    <div key={di} style={{ textAlign: 'center' }}>
+                                        <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
+                                        {isNoHours ? (
+                                            <div style={{ height: '30px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${typeInfo.color}15`, border: `1.5px solid ${typeInfo.color}44` }}>
+                                                <i className={`fa-solid ${typeInfo.icon}`} style={{ fontSize: '0.7rem', color: typeInfo.color }} />
+                                            </div>
+                                        ) : (
+                                            <input
+                                                type="text" value={row.hours[di]} placeholder="0"
+                                                onChange={(e) => updateHour(ri, di, e.target.value)}
+                                                style={{ width: '100%', height: '30px', textAlign: 'center', border: `1.5px solid ${parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#e2e8f0'}`, borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, color: parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#94a3b8', background: parseFloat(row.hours[di]) > 0 ? `${typeInfo.color}0d` : '#fff', outline: 'none', boxSizing: 'border-box' }}
+                                                onFocus={(e) => { e.currentTarget.style.borderColor = typeInfo.color; e.currentTarget.select(); }}
+                                                onBlur={(e) => { if (!parseFloat(e.currentTarget.value)) e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                            />
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* MEERWERK EXTRA VELDEN ZZP */}
+                        {row.typeId === 'meerwerk' && (
+                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${typeInfo.color}33` }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>🗓️ Datum extra werk</label>
+                                <input
+                                    type="date"
+                                    value={row.datum || ''}
+                                    onChange={(e) => updateDatum(ri, e.target.value)}
+                                    style={{ width: '100%', padding: '6px 8px', fontSize: '0.75rem', borderRadius: '4px', border: `1px solid ${typeInfo.color}66`, color: '#1e293b', outline: 'none', marginBottom: '8px', boxSizing: 'border-box' }}
+                                />
+
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, margin: 0 }}>
+                                        {row.meerwerkSoort === 'post' ? '💰 Aangenomen Post' : '⏱️ Totaal uren'}
+                                    </label>
+                                    <button 
+                                        onClick={() => setRows(prev => prev.map((r, i) => i === ri ? { ...r, meerwerkSoort: row.meerwerkSoort === 'post' ? 'uren' : 'post', postBedrag: '', hours: ['','','','',''] } : r))}
+                                        style={{ background: 'none', border: 'none', color: typeInfo.color, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                                    >
+                                        {row.meerwerkSoort === 'post' ? 'Vul uren in' : 'Vaste prijs opgeven'}
+                                    </button>
                                 </div>
-                            ))}
-                        </div>
+
+                                {row.meerwerkSoort !== 'post' ? (
+                                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                                        <input 
+                                            type="number" 
+                                            min="0"
+                                            placeholder="0" 
+                                            value={row.hours[0] === '0' ? '' : row.hours[0]} 
+                                            onChange={(e) => updateHour(ri, 0, e.target.value)}
+                                            style={{ width: '56px', padding: '6px 8px', fontSize: '0.85rem', fontWeight: 700, textAlign: 'center', borderRadius: '4px', border: `1.5px solid ${typeInfo.color}`, color: typeInfo.color, outline: 'none', boxSizing: 'border-box' }}
+                                        />
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2 }}>
+                                            <span>Uren voor deze notitie</span>
+                                            {parseFloat(row.hours[0]) > 7.5 && (
+                                                <span style={{ color: '#ef4444', fontWeight: 600, marginTop: '2px' }}>{(parseFloat(row.hours[0]) - 7.5).toFixed(1).replace('.0','')}u overwerk (boven 7.5u).</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', gap: '0', marginBottom: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', padding: '0 8px', border: `1.5px solid ${typeInfo.color}`, borderRight: 'none', borderRadius: '4px 0 0 4px', color: '#64748b', fontWeight: 700 }}>€</div>
+                                        <input 
+                                            type="number" 
+                                            placeholder="Bedrag (optioneel)..." 
+                                            value={row.postBedrag} 
+                                            onChange={(e) => setRows(prev => prev.map((r, idx) => idx === ri ? { ...r, postBedrag: e.target.value } : r))}
+                                            style={{ flex: 1, padding: '6px 8px', fontSize: '0.85rem', fontWeight: 700, borderRadius: '0 4px 4px 0', border: `1.5px solid ${typeInfo.color}`, outline: 'none', boxSizing: 'border-box' }}
+                                        />
+                                    </div>
+                                )}
+
+                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>📝 Notities Extra Werk</label>
+                                <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                                    <textarea
+                                        placeholder="Typ of dicteer hier wat er gedaan is..."
+                                        value={row.note || ''}
+                                        onChange={(e) => updateNote(ri, e.target.value)}
+                                        rows="3"
+                                        style={{ flex: 1, padding: '6px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+                                    />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <button
+                                            onClick={() => toggleDictation(ri)}
+                                            title={row.isRecordingNote ? "Stop dicteren" : "Dicteren"}
+                                            style={{ width: '36px', height: '36px', background: row.isRecordingNote ? '#ef4444' : typeInfo.color, color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                                        >
+                                            <i className={`fa-solid ${row.isRecordingNote ? 'fa-stop fa-fade' : 'fa-microphone'}`}></i>
+                                        </button>
+                                        {row.note && (
+                                            <button
+                                                onClick={() => updateNote(ri, '')}
+                                                title="Wis notitie"
+                                                style={{ width: '36px', height: '36px', background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                            >
+                                                <i className="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>📸 Foto/video bewijs</label>
+                                <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                                    <label style={{ flex: 1, padding: '6px', background: `${typeInfo.color}10`, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', color: typeInfo.color, fontSize: '0.65rem', fontWeight: 600, textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                                        <i className="fa-solid fa-camera"></i> Camera
+                                        <input type="file" accept="image/*,video/*" capture="environment" onChange={(e) => handleFileChange(ri, e)} style={{ display: 'none' }} />
+                                    </label>
+                                    <label style={{ flex: 1, padding: '6px', background: `${typeInfo.color}10`, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', color: typeInfo.color, fontSize: '0.65rem', fontWeight: 600, textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                                        <i className="fa-regular fa-image"></i> Galerij
+                                        <input type="file" accept="image/*,video/*" onChange={(e) => handleFileChange(ri, e)} style={{ display: 'none' }} />
+                                    </label>
+                                </div>
+                                {row.photo && (
+                                    <div style={{ marginTop: '-4px', marginBottom: '8px', fontSize: '0.6rem', color: '#16a34a', fontWeight: 600 }}>
+                                        <i className="fa-solid fa-check-circle" style={{ marginRight: '4px' }}></i> Bestand gekoppeld
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: typeInfo.color, marginBottom: '2px', display: 'block' }}>
+                                        <i className="fa-solid fa-boxes-stacked" style={{ marginRight: '4px' }}></i> Gebruikt Materiaal
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <textarea
+                                            placeholder="Controleer/pas aan of typ hier (bijv. 2 blikken)..."
+                                            value={row.materiaal || ''}
+                                            onChange={(e) => updateMateriaal(ri, e.target.value)}
+                                            rows="3"
+                                            style={{ flex: 1, padding: '6px 8px', fontSize: '0.75rem', borderRadius: '4px', border: `1px solid ${typeInfo.color}44`, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <button
+                                                onClick={() => toggleDictation(ri, true)}
+                                                title={row.isRecordingMateriaal ? "Stop inspreken" : "Extra Materiaal Inspreken"}
+                                                style={{ width: '36px', height: '36px', background: row.isRecordingMateriaal ? '#ef4444' : typeInfo.color, color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                                            >
+                                                <i className={`fa-solid ${row.isRecordingMateriaal ? 'fa-stop fa-fade' : 'fa-microphone'}`}></i>
+                                            </button>
+                                            {row.materiaal && (
+                                                <button
+                                                    onClick={() => updateMateriaal(ri, '')}
+                                                    title="Wis materiaal"
+                                                    style={{ width: '36px', height: '36px', background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}44`, borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                                >
+                                                    <i className="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 );
             })}
@@ -511,8 +1189,10 @@ export default function ChatBot() {
     const [hasNotified, setHasNotified] = useState(false);
     const [showPulse, setShowPulse] = useState(false);
     const [showTemplate, setShowTemplate] = useState(false);
+    const [templateOverride, setTemplateOverride] = useState(null);
     const [showZZPTemplate, setShowZZPTemplate] = useState(false);
     const [showEmployeePicker, setShowEmployeePicker] = useState(false);
+    const [showNotitieForm, setShowNotitieForm] = useState(false);
     const messagesEndRef = useRef(null);
     const userName = user?.name?.split(' ')[0] || 'daar';
     const userNameRef = useRef(userName);
@@ -521,10 +1201,20 @@ export default function ChatBot() {
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, showTemplate, showZZPTemplate, showEmployeePicker]);
+    }, [messages, showTemplate, showZZPTemplate, showEmployeePicker, showNotitieForm]);
 
     // Check urenstaat + contract tracker — runs ONCE only
     useEffect(() => {
+        // TEMP WIPE V0OR TESTEN: Wis alle zware foto's/video's bij laden chatbot om dataverlies wegens tests op te lossen.
+        try {
+            const keysToRemove = [];
+            for(let i=0; i<localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith('schildersapp_photos_')) keysToRemove.push(k);
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+        } catch(e) {}
+
         if (hasNotified) return;
 
         const timer = setTimeout(() => {
@@ -560,44 +1250,73 @@ export default function ChatBot() {
             ];
 
             // Urenstaat bericht
-            const isZZP = user?.role === "ZZP'er";
+            const isZZP = (() => {
+                try {
+                    const saved = localStorage.getItem(`schildersapp_urenrol_${user?.id}`);
+                    if (saved) return saved === 'zzp';
+                } catch {}
+                return user?.role === "ZZP'er";
+            })();
+            let baseActions = [];
+            if (isZZP) {
+                baseActions = [
+                    { label: '📋 Uren boeken (ZZP)', action: 'fill_zzp' },
+                    { label: '➕ Extra Werk Noteren', action: 'fill_meerwerk_zzp' },
+                    { label: '📄 Naar Contracten', action: 'goto_contracten' },
+                    { label: '⏰ Herinner mij later', action: 'later' }
+                ];
+            } else {
+                baseActions = [
+                    { label: '📝 Uren boeken', action: 'fill_template' },
+                    { label: '➕ Extra Werk Noteren', action: 'fill_meerwerk' },
+                    { label: '🗒️ Notitie / Planning', action: 'add_note' },
+                    { label: '🗂️ Naar Projecten', action: 'goto_projecten' },
+                    { label: '📉 Naar Materieel', action: 'goto_materieel' },
+                    { label: '⏰ Herinner mij later', action: 'later' }
+                ];
+            }
+
+            if (user?.role === 'Beheerder') {
+                baseActions.push({ label: '💬 Stuur uren-herinnering', action: 'whatsapp_reminder' });
+            }
+
             if (!hasHours) {
                 msgs.push({
                     id: 2, from: 'bot',
-                    text: `⏱️ Het is ${day} en je urenstaat deze week is nog niet ingevuld.`,
+                    text: `⏱️ Je bent momenteel in de *${isZZP ? "ZZP" : "Werknemer"}* modus.\n\nHet is ${day} en je urenstaat voor deze week is nog niet ingevuld.`,
                     time: new Date(),
-                    actions: [
-                        isZZP
-                            ? { label: '📋 Uren boeken als ZZP\'er', action: 'fill_zzp' }
-                            : { label: '📝 Uren boeken als werknemer', action: 'fill_template' },
-                        { label: '📋 Urenstaat', action: 'goto_uren' },
-                        { label: '💬 Stuur herinnering', action: 'whatsapp_reminder' },
-                        { label: '⏰ Later', action: 'later' },
-                    ]
+                    actions: baseActions
                 });
                 setShowPulse(true);
             } else {
-                msgs.push({ id: 2, from: 'bot', text: `✅ Urenstaat week ${getWeekNumber()} is ingevuld. Goed bezig! 💪`, time: new Date() });
+                msgs.push({ 
+                    id: 2, from: 'bot', 
+                    text: `✅ Je bent momenteel in de *${isZZP ? "ZZP" : "Werknemer"}* modus.\nUrenstaat week ${getWeekNumber()} is al ingevuld. Goed bezig! 💪\n\nWat wil je doen?`, 
+                    time: new Date(),
+                    actions: baseActions
+                });
             }
 
-            // Contract tracker bericht
-            if (verlopenTermijnen.length > 0) {
-                msgs.push({
-                    id: 3, from: 'bot',
-                    text: `🔴 *Openstaande termijnen (verlopen)*:\n${verlopenTermijnen.map(t => `• ${t}`).join('\n')}\n\nDeze termijnen zijn al over de verwachte betaaldatum.`,
-                    time: new Date(),
-                    actions: [{ label: '📄 Ga naar Contracten', action: 'goto_contracten' }]
-                });
-                setShowPulse(true);
-            } else if (openTermijnen.length > 0) {
-                msgs.push({
-                    id: 3, from: 'bot',
-                    text: `🟡 *Openstaande termijnen (${openTermijnen.length})*:\n${openTermijnen.slice(0, 4).map(t => `• ${t}`).join('\n')}${openTermijnen.length > 4 ? `\n• ...en ${openTermijnen.length - 4} meer` : ''}`,
-                    time: new Date(),
-                    actions: [{ label: '📄 Bekijk Contracten', action: 'goto_contracten' }]
-                });
-            } else if (contracten.length > 0) {
-                msgs.push({ id: 3, from: 'bot', text: `✅ Alle termijnen van ${contracten.length} contracten zijn voldaan!`, time: new Date() });
+            // Contract tracker bericht (alleen relevant voor ZZP modus / profielen)
+            if (isZZP) {
+                if (verlopenTermijnen.length > 0) {
+                    msgs.push({
+                        id: 3, from: 'bot',
+                        text: `🔴 *Openstaande termijnen (verlopen)*:\n${verlopenTermijnen.map(t => `• ${t}`).join('\n')}\n\nDeze termijnen zijn al over de verwachte betaaldatum.`,
+                        time: new Date(),
+                        actions: [{ label: '📄 Ga naar Contracten', action: 'goto_contracten' }]
+                    });
+                    setShowPulse(true);
+                } else if (openTermijnen.length > 0) {
+                    msgs.push({
+                        id: 3, from: 'bot',
+                        text: `🟡 *Openstaande termijnen (${openTermijnen.length})*:\n${openTermijnen.slice(0, 4).map(t => `• ${t}`).join('\n')}${openTermijnen.length > 4 ? `\n• ...en ${openTermijnen.length - 4} meer` : ''}`,
+                        time: new Date(),
+                        actions: [{ label: '📄 Bekijk Contracten', action: 'goto_contracten' }]
+                    });
+                } else if (contracten.length > 0) {
+                    msgs.push({ id: 3, from: 'bot', text: `✅ Alle termijnen van ${contracten.length} contracten zijn voldaan!`, time: new Date() });
+                }
             }
 
             setMessages(msgs);
@@ -619,6 +1338,64 @@ export default function ChatBot() {
         }]);
     };
 
+    const handleSaveNotitie = async ({ projectId, type, text, photo }) => {
+        try {
+            const authorName = user?.name || 'DS Assistent';
+            
+            // Verzend de notitie naar de NAS Database API
+            const res = await fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    projectId,
+                    author: authorName,
+                    type: type,
+                    content: text || (photo ? 'Foto/video bewijs toegevoegd' : ''),
+                    photo: photo || null,
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || 'Serverfout bij opslaan notitie');
+            }
+
+            // Oude functionaliteit: ook toevoegen in localStorage photo cache voor het algemene Foto-overzicht 
+            // of we kunnen een 'photos-updated' event afvuren. 
+            if (photo) {
+                try {
+                    const photoKey = `schildersapp_photos_${projectId}`;
+                    const photos = JSON.parse(localStorage.getItem(photoKey) || '[]');
+                    const ts = Date.now();
+                    photos.push({ 
+                        id: ts, 
+                        url: photo, 
+                        name: `Notitie/Planning Bijlage (${new Date().toLocaleString('nl-NL')})`, 
+                        category: type === 'probleem' ? 'problemen' : 'overig', 
+                        date: new Date().toISOString().split('T')[0] 
+                    });
+                    localStorage.setItem(photoKey, JSON.stringify(photos));
+                    window.dispatchEvent(new CustomEvent('photos-updated', { detail: { projectId } }));
+                } catch(pe) {
+                    console.warn('Foto pas niet in algemeen overzicht (quota)', pe);
+                }
+            }
+
+            // Stuur event, zodat het ProjectDossier (als dat openstaat in een ander venster) weet dat er iets gewijzigd is in the cloud
+            window.dispatchEvent(new CustomEvent('notes-updated', { detail: { projectId } }));
+
+            setShowNotitieForm(false);
+            const projectName = PROJECTS.find(p => p.id === projectId)?.name || 'het project';
+            addBotMessage(`✅ De notitie is succesvol opgeslagen in de The Cloud database van ${projectName}.`, [
+                { label: '🗂️ Ga naar Project', action: `goto_project_${projectId}` }
+            ]);
+
+        } catch (e) {
+            console.error('Fout bij opslaan notitie:', e);
+            alert('Kan de notitie niet opslaan in de Database. Controleer de verbinding.');
+        }
+    };
+
     const handleSaveTemplate = (rows) => {
         const weekNum = getWeekNumber();
         const year = new Date().getFullYear();
@@ -630,31 +1407,113 @@ export default function ChatBot() {
         const projectNames = rows.filter(r => r.projectId).map(r => PROJECTS.find(p => p.id === r.projectId)?.name || 'Onbekend');
 
         // Sla op in NIEUWE format (zelfde als MijnUren component)
-        // Meerdere rijen met hetzelfde project worden samengevoegd
-        const projectMap = {};
+        // Laad bestaande weekdata om niet alles te wissen!
+        const existingData = uren2LoadData(user?.id, weekNum, year) || [];
+
         rows.forEach((r, i) => {
             const pid = r.projectId || '1';
             const typeId = r.typeId || 'normaal';
-            if (!projectMap[pid]) {
-                projectMap[pid] = {
+            
+            let projObj = existingData.find(p => p.projectId === pid);
+            if (!projObj) {
+                projObj = {
                     id: 'p' + Date.now() + i,
                     projectId: pid,
                     types: {},
                     notes: {}
                 };
+                existingData.push(projObj);
             }
+            
+            if (!projObj.types[typeId]) projObj.types[typeId] = ['','','','','','',''];
+            if (!projObj.notes) projObj.notes = {};
+            if (!projObj.notes[typeId]) projObj.notes[typeId] = ['','','','','','',''];
+
             const typeInfo = UREN_TYPES.find(t => t.id === typeId);
+            
+            let displayNote = r.note || '';
+            if (r.materiaal) {
+                displayNote += (displayNote ? '\n' : '') + 'Materiaal: ' + r.materiaal;
+            }
+
             if (typeInfo?.noHours) {
-                // Ziek/vrij: icontype — sla lege array op als markering
-                projectMap[pid].types[typeId] = ['1','1','1','1','1'];
-                projectMap[pid].notes[typeId] = ['','','','',''];
+                // Ziek/vrij: overwrite met ziek/vrij marker
+                projObj.types[typeId] = ['1','1','1','1','1'];
+                if (displayNote) {
+                    projObj.notes[typeId][0] = projObj.notes[typeId][0] ? projObj.notes[typeId][0] + '\n' + displayNote : displayNote;
+                }
             } else {
-                projectMap[pid].types[typeId] = r.hours.map(h => String(h));
-                projectMap[pid].notes[typeId] = ['','','','',''];
+                const isPost = (r.typeId === 'meerwerk' && r.meerwerkSoort === 'post');
+                for (let di = 0; di < 5; di++) {
+                    if (isPost) continue;
+                    const addedHrs = parseFloat(r.hours[di]) || 0;
+                    if (addedHrs > 0) {
+                        const currentHrs = parseFloat(projObj.types[typeId][di]) || 0;
+                        projObj.types[typeId][di] = String(currentHrs + addedHrs);
+                        if (displayNote) {
+                            projObj.notes[typeId][di] = projObj.notes[typeId][di] ? projObj.notes[typeId][di] + '\n' + displayNote : displayNote;
+                        }
+                    }
+                }
+                if (isPost && displayNote) {
+                    let placed = false;
+                    for (let di = 0; di < 5; di++) {
+                        if (parseFloat(projObj.types[typeId][di]) > 0) {
+                            projObj.notes[typeId][di] = projObj.notes[typeId][di] ? projObj.notes[typeId][di] + '\n' + displayNote : displayNote;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        projObj.notes[typeId][0] = projObj.notes[typeId][0] ? projObj.notes[typeId][0] + '\n' + displayNote : displayNote;
+                    }
+                }
+            }
+
+            // --- MEERWERK KOPPELING NAAR PROJECTMAP ---
+            if (typeId === 'meerwerk') {
+                try {
+                    const mwStoreKey = `schildersapp_meerwerk_${pid}`;
+                    const existingMw = JSON.parse(localStorage.getItem(mwStoreKey) || '[]');
+                    const isPost = r.meerwerkSoort === 'post';
+                    const totalHours = isPost ? 0 : r.hours.reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
+                    const postBedrag = isPost ? (parseFloat(r.postBedrag) || 0) : 0;
+                    
+                    if (totalHours > 0 || isPost || r.note || r.photo) {
+                        existingMw.push({
+                            id: Date.now() + i,
+                            omschrijving: `Via Chatbot: ${r.note ? r.note : (isPost ? 'Vaste Post' : 'Extra werk')}`,
+                            uren: totalHours,
+                            bedrag: postBedrag,
+                            toelichting: r.note || (isPost ? 'Vaste aangenomen post ingevoerd via chatbot.' : 'Ingevoerd via de WhatsApp chatbot.'),
+                            materiaal: r.materiaal || '',
+                            datum: r.datum || new Date().toISOString().split('T')[0],
+                            status: 'aanvraag',
+                            akkoordDatum: '',
+                            foto: r.photo || null
+                        });
+                        try {
+                            localStorage.setItem(mwStoreKey, JSON.stringify(existingMw));
+                        } catch (err) {
+                            if (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+                                console.warn('Storage quota bereikt voor meerwerk. Foto wordt genegeerd om ruimte te besparen.');
+                                existingMw[existingMw.length - 1].foto = null; // Verwijder de zware foto
+                                try {
+                                    localStorage.setItem(mwStoreKey, JSON.stringify(existingMw));
+                                } catch(finalErr) {
+                                    console.error("Zelfs zonder foto past het niet meer.", finalErr);
+                                }
+                            } else {
+                                throw err;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('Fout bij opslaan meerwerk:', e);
+                }
             }
         });
-        const newProjects = Object.values(projectMap);
-        uren2SaveData(user?.id, weekNum, year, newProjects);
+        uren2SaveData(user?.id, weekNum, year, existingData);
 
         setShowTemplate(false);
         const typeSummary = [...new Set(rows.map(r => UREN_TYPES.find(t => t.id === r.typeId)?.label || r.typeId))].join(', ');
@@ -671,38 +1530,109 @@ export default function ChatBot() {
         const total = rows.reduce((sum, r) => {
             const typeInfo = UREN_TYPES.find(t => t.id === r.typeId);
             if (typeInfo?.noHours) return sum;
+            if (r.typeId === 'meerwerk' && r.meerwerkSoort === 'post') return sum;
             return sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
         }, 0);
 
         // Bouw projecten-structuur op met contract-ID als projectId
-        const projectMap = {};
+        // Laad bestaande weekdata om niet alles te wissen!
+        const existingData = uren2LoadData(user?.id, weekNum, year) || [];
+
         rows.forEach((r, i) => {
             const cid = r.contractId || 'zzp_overig';
             const typeId = r.typeId || 'normaal';
-            if (!projectMap[cid]) {
-                projectMap[cid] = {
+            
+            let projObj = existingData.find(p => p.projectId === cid);
+            if (!projObj) {
+                projObj = {
                     id: 'pzzp' + Date.now() + i,
                     projectId: cid,        // contract-ID als referentie
                     contractId: cid,        // extra veld voor herkenbaarheid
                     types: {},
                     notes: {}
                 };
+                existingData.push(projObj);
             }
+            
+            if (!projObj.types[typeId]) projObj.types[typeId] = ['','','','','','',''];
+            if (!projObj.notes) projObj.notes = {};
+            if (!projObj.notes[typeId]) projObj.notes[typeId] = ['','','','','','',''];
+
             const typeInfo = UREN_TYPES.find(t => t.id === typeId);
+            
+            let displayNote = r.note || '';
+            if (r.materiaal) {
+                displayNote += (displayNote ? '\n' : '') + 'Materiaal: ' + r.materiaal;
+            }
+
             if (typeInfo?.noHours) {
-                projectMap[cid].types[typeId] = ['1','1','1','1','1'];
-                projectMap[cid].notes[typeId] = ['','','','',''];
+                projObj.types[typeId] = ['1','1','1','1','1'];
+                if (displayNote) {
+                    projObj.notes[typeId][0] = projObj.notes[typeId][0] ? projObj.notes[typeId][0] + '\n' + displayNote : displayNote;
+                }
             } else {
-                projectMap[cid].types[typeId] = r.hours.map(h => String(h));
-                projectMap[cid].notes[typeId] = ['','','','',''];
+                const isPost = (r.typeId === 'meerwerk' && r.meerwerkSoort === 'post');
+                for (let di = 0; di < 5; di++) {
+                    if (isPost) continue;
+                    const addedHrs = parseFloat(r.hours[di]) || 0;
+                    if (addedHrs > 0) {
+                        const currentHrs = parseFloat(projObj.types[typeId][di]) || 0;
+                        projObj.types[typeId][di] = String(currentHrs + addedHrs);
+                        if (displayNote) {
+                            projObj.notes[typeId][di] = projObj.notes[typeId][di] ? projObj.notes[typeId][di] + '\n' + displayNote : displayNote;
+                        }
+                    }
+                }
+                if (isPost && displayNote) {
+                    let placed = false;
+                    for (let di = 0; di < 5; di++) {
+                        if (parseFloat(projObj.types[typeId][di]) > 0) {
+                            projObj.notes[typeId][di] = projObj.notes[typeId][di] ? projObj.notes[typeId][di] + '\n' + displayNote : displayNote;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        projObj.notes[typeId][0] = projObj.notes[typeId][0] ? projObj.notes[typeId][0] + '\n' + displayNote : displayNote;
+                    }
+                }
+            }
+
+            // --- MEERWERK KOPPELING NAAR ZZP CONTRACT ---
+            if (typeId === 'meerwerk') {
+                try {
+                    const mwStoreKey = `schildersapp_meerwerk_${cid}`;
+                    const existingMw = JSON.parse(localStorage.getItem(mwStoreKey) || '[]');
+                    const isPost = r.meerwerkSoort === 'post';
+                    const totalHours = isPost ? 0 : r.hours.reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
+                    const postBedrag = isPost ? (parseFloat(r.postBedrag) || 0) : 0;
+                    
+                    if (totalHours > 0 || isPost || r.note || r.photo) {
+                        existingMw.push({
+                            id: Date.now() + i,
+                            omschrijving: `ZZP via Chatbot: ${r.note ? r.note : (isPost ? 'Vaste Post' : 'Extra werk')}`,
+                            uren: totalHours,
+                            bedrag: postBedrag,
+                            toelichting: r.note || (isPost ? 'Vaste aangenomen post ingevoerd via ZZP chatbot.' : 'Ingevoerd via ZZP WhatsApp chatbot formulier.'),
+                            materiaal: r.materiaal || '',
+                            datum: r.datum || new Date().toISOString().split('T')[0],
+                            status: 'aanvraag',
+                            akkoordDatum: '',
+                            foto: r.photo || null
+                        });
+                        localStorage.setItem(mwStoreKey, JSON.stringify(existingMw));
+                    }
+                } catch (e) {
+                    console.error('Fout bij opslaan ZZP meerwerk:', e);
+                }
             }
         });
-        const newProjects = Object.values(projectMap);
-        uren2SaveData(user?.id, weekNum, year, newProjects);
+        uren2SaveData(user?.id, weekNum, year, existingData);
 
         // Sla ook uren-link op per contract
         rows.forEach(r => {
             if (!r.contractId) return;
+            if (r.typeId === 'meerwerk' && r.meerwerkSoort === 'post') return;
             const dayTotal = r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
             const urenLinks = JSON.parse(localStorage.getItem(`wa_contract_uren_${r.contractId}`) || '[]');
             urenLinks.push({ weekNum, year, uren: dayTotal, typeId: r.typeId, savedAt: new Date().toISOString() });
@@ -720,12 +1650,39 @@ export default function ChatBot() {
     };
 
     const handleAction = (action) => {
-        const isZZP = user?.role === "ZZP'er";
+        const isZZP = (() => {
+            try {
+                const saved = localStorage.getItem(`schildersapp_urenrol_${user?.id}`);
+                if (saved) return saved === 'zzp';
+            } catch {}
+            return user?.role === "ZZP'er";
+        })();
         if (action === 'fill_zzp') {
-            addUserMessage("Uren boeken als ZZP'er");
+            addUserMessage("Uren boeken (ZZP)");
             setTimeout(() => {
                 addBotMessage('Koppel je uren aan een contractnummer 📋');
-                setTimeout(() => setShowZZPTemplate(true), 300);
+                setTimeout(() => {
+                    setTemplateOverride(null);
+                    setShowZZPTemplate(true);
+                }, 300);
+            }, 400);
+        } else if (action === 'fill_meerwerk_zzp') {
+            addUserMessage("Extra werkzaamheden tussendoor toevoegen (ZZP)");
+            setTimeout(() => {
+                addBotMessage('Koppel je extra werk aan een contractnummer 👇');
+                setTimeout(() => { 
+                    setTemplateOverride(['meerwerk']); 
+                    setShowZZPTemplate(true); 
+                }, 300);
+            }, 400);
+        } else if (action === 'fill_meerwerk') {
+            addUserMessage("Extra werkzaamheden tussendoor toevoegen");
+            setTimeout(() => {
+                addBotMessage('Koppel je uren en notities the het juiste project 👇');
+                setTimeout(() => { 
+                    setTemplateOverride(['meerwerk']); 
+                    setShowTemplate(true); 
+                }, 300);
             }, 400);
         } else if (action === 'fill_template') {
             addUserMessage(isZZP ? "Uren boeken als ZZP'er" : 'Uren boeken als werknemer');
@@ -734,7 +1691,10 @@ export default function ChatBot() {
                     ? 'Koppel je uren aan een contractnummer 📋'
                     : 'Hier is je weekstaat! Vul je uren in per project per dag 👇'
                 );
-                setTimeout(() => { isZZP ? setShowZZPTemplate(true) : setShowTemplate(true); }, 300);
+                setTimeout(() => { 
+                    setTemplateOverride(null);
+                    isZZP ? setShowZZPTemplate(true) : setShowTemplate(true); 
+                }, 300);
             }, 400);
         } else if (action === 'goto_uren') {
             addUserMessage('Ga naar Urenregistratie');
@@ -792,9 +1752,21 @@ export default function ChatBot() {
                 window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(msg)}`, '_blank');
                 addBotMessage('Oké, je reactie wordt via WhatsApp verstuurd. Vergeet het niet! 😊');
             }, 500);
+        } else if (action === 'add_note') {
+            addUserMessage('Notitie / Planning toevoegen');
+            setTimeout(() => {
+                addBotMessage('Waar gaat de notitie over? Kies een project en type 👇');
+                setTimeout(() => { 
+                    setShowNotitieForm(true); 
+                }, 300);
+            }, 400);
         } else if (action === 'goto_projecten') {
             addUserMessage('Ga naar Projecten');
             setTimeout(() => { window.location.href = '/projecten'; }, 500);
+        } else if (action.startsWith('goto_project_')) {
+            const pid = action.replace('goto_project_', '');
+            addUserMessage('Ga naar Project');
+            setTimeout(() => { window.location.href = `/projecten/${pid}`; }, 500);
         } else if (action === 'goto_materieel') {
             addUserMessage('Ga naar Materieel');
             setTimeout(() => { window.location.href = '/materieel'; }, 500);
@@ -842,26 +1814,41 @@ export default function ChatBot() {
 
             // Directe uren-invulling via NLP
             if (hours !== null && hours > 0 && hours <= 24 && dayIdx >= 0) {
+                if (lower.includes('extra') || lower.includes('meerwerk')) {
+                    addBotMessage('Extra werk uren gevonden! ➕ Om extra werkzaamheden goed te boeken met notities/foto\'s, klik aub op de volgende knop 👇', [
+                        { label: '➕ Extra Werk Noteren', action: 'fill_meerwerk' }
+                    ]);
+                    return;
+                }
+
                 const weekNum = getWeekNumber();
                 const year = new Date().getFullYear();
-                const proj = uren2LoadData(user?.id, weekNum, year) || [{
-                    id: 'p' + Date.now(), projectId: matchedProject?.id || '1',
-                    types: { normaal: ['','','','',''] }, notes: { normaal: ['','','','',''] }
-                }];
-                // Zet uren op de juiste dag in het eerste project
-                const target = matchedProject ? (proj.find(p => p.projectId === matchedProject.id) || proj[0]) : proj[0];
-                if (target) {
-                    const hrs = [...(target.types.normaal || ['','','','',''])];
-                    hrs[dayIdx] = String(hours);
-                    target.types.normaal = hrs;
-                    if (matchedProject && !proj.find(p => p.projectId === matchedProject.id)) {
-                        target.projectId = matchedProject.id;
-                    }
+                const proj = uren2LoadData(user?.id, weekNum, year) || [];
+                
+                // Vind of maak project
+                const pTargetId = matchedProject ? matchedProject.id : '1';
+                let target = proj.find(p => p.projectId === pTargetId);
+                if (!target) {
+                    target = { 
+                        id: 'p' + Date.now(), projectId: pTargetId, 
+                        types: { normaal: ['','','','','','',''] }, notes: { normaal: ['','','','','','',''] } 
+                    };
+                    proj.push(target);
                 }
+                
+                // Optellen ipv overschrijven
+                if (!target.types) target.types = {};
+                if (!target.types.normaal) target.types.normaal = ['','','','','','',''];
+                if (!target.notes) target.notes = {};
+                if (!target.notes.normaal) target.notes.normaal = ['','','','','','',''];
+                
+                const currentHrs = parseFloat(target.types.normaal[dayIdx]) || 0;
+                target.types.normaal[dayIdx] = String(currentHrs + hours);
+                
                 uren2SaveData(user?.id, weekNum, year, proj);
                 const DAY_NAMES = ['maandag','dinsdag','woensdag','donderdag','vrijdag'];
-                const projName = PROJECTS.find(p => p.id === (target?.projectId || '1'))?.name || 'project';
-                addBotMessage(`✅ Opgeslagen! ${hours} uur op ${DAY_NAMES[dayIdx]} voor ${projName}.\n\nWeek ${weekNum} bijgewerkt. 💪`, [
+                const projName = PROJECTS.find(p => p.id === pTargetId)?.name || 'project';
+                addBotMessage(`✅ Aangevuld! ${hours} extra uur erbij op ${DAY_NAMES[dayIdx]} voor ${projName}.\n\nWeek ${weekNum} bijgewerkt. 💪`, [
                     { label: '📋 Bekijk Urenregistratie', action: 'goto_uren' },
                     { label: '📝 Meer invullen', action: 'fill_template' },
                 ]);
@@ -1034,9 +2021,12 @@ export default function ChatBot() {
                         {showTemplate && (
                             <div style={{ alignSelf: 'flex-start', maxWidth: '100%' }}>
                                 <InlineUrenstaat
-                                    onSave={handleSaveTemplate}
-                                    onCancel={() => { setShowTemplate(false); addBotMessage('Geen probleem! Je kunt later invullen. ⏰'); }}
-                                    allowedTypes={getUserUrenTypes(user?.id)}
+                                    onSave={(rows) => { handleSaveTemplate(rows); setTemplateOverride(null); }}
+                                    onCancel={() => { setShowTemplate(false); setTemplateOverride(null); addBotMessage('Geen probleem! Je kunt later invullen. ⏰'); }}
+                                    allowedTypes={(() => {
+                                        if (templateOverride) return UREN_TYPES.filter(t => templateOverride.includes(t.id));
+                                        return getUserUrenTypes(user?.id);
+                                    })()}
                                 />
                             </div>
                         )}
@@ -1044,9 +2034,20 @@ export default function ChatBot() {
                         {showZZPTemplate && (
                             <div style={{ alignSelf: 'flex-start', maxWidth: '100%' }}>
                                 <InlineUrenstaatZZP
-                                    onSave={handleSaveZZPTemplate}
-                                    onCancel={() => { setShowZZPTemplate(false); addBotMessage('Geen probleem! Je kunt later invullen. ⏰'); }}
-                                    allowedTypes={getUserUrenTypes(user?.id)}
+                                    onSave={(rows) => { handleSaveZZPTemplate(rows); setTemplateOverride(null); }}
+                                    onCancel={() => { setShowZZPTemplate(false); setTemplateOverride(null); addBotMessage('Geen probleem! Je kunt later invullen. ⏰'); }}
+                                    allowedTypes={(() => {
+                                        if (templateOverride) return UREN_TYPES.filter(t => templateOverride.includes(t.id));
+                                        return getUserUrenTypes(user?.id);
+                                    })()}
+                                />
+                            </div>
+                        )}
+                        {showNotitieForm && (
+                            <div style={{ alignSelf: 'flex-start', maxWidth: '100%' }}>
+                                <InlineNotitie
+                                    onSave={handleSaveNotitie}
+                                    onCancel={() => { setShowNotitieForm(false); addBotMessage('Geen probleem! Notitie geannuleerd.'); }}
                                 />
                             </div>
                         )}

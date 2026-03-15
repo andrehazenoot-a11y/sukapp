@@ -31,7 +31,7 @@ const INITIAL_PROJECTS = [
     {
         id: 1, name: 'Nieuwbouw Villa Wassenaar', client: 'Fam. Jansen', address: 'Duinweg 42, Wassenaar',
         startDate: '2026-03-02', endDate: '2026-04-17', estimatedHours: 320, color: '#3b82f6',
-        status: 'active',
+        status: 'active', kanbanStatus: 'uitvoering',
         tasks: [
             { id: 't1', name: 'Buitenschilderwerk kozijnen', startDate: '2026-03-02', endDate: '2026-03-13', assignedTo: [2, 4], completed: false },
             { id: 't2', name: 'Binnenschilderwerk begane grond', startDate: '2026-03-16', endDate: '2026-03-27', assignedTo: [2], completed: false },
@@ -42,7 +42,7 @@ const INITIAL_PROJECTS = [
     {
         id: 2, name: 'Onderhoud Rijtjeshuizen Leiden', client: 'Woonstichting Leiden', address: 'Rapenburg 100, Leiden',
         startDate: '2026-03-09', endDate: '2026-05-08', estimatedHours: 480, color: '#10b981',
-        status: 'active',
+        status: 'active', kanbanStatus: 'uitvoering',
         tasks: [
             { id: 't5', name: 'Houtrot reparatie blok 1-3', startDate: '2026-03-09', endDate: '2026-03-27', assignedTo: [4], completed: false },
             { id: 't6', name: 'Grondverf aanbrengen', startDate: '2026-03-30', endDate: '2026-04-10', assignedTo: [2, 3], completed: false },
@@ -53,7 +53,7 @@ const INITIAL_PROJECTS = [
     {
         id: 3, name: 'Kantoorpand Voorschoten', client: 'Bakker BV', address: 'Industrieweg 8, Voorschoten',
         startDate: '2026-04-20', endDate: '2026-05-22', estimatedHours: 200, color: '#8b5cf6',
-        status: 'planning',
+        status: 'planning', kanbanStatus: 'werkvoorbereiding',
         tasks: [
             { id: 't9', name: 'Voorbereiding & schuren', startDate: '2026-04-20', endDate: '2026-04-24', assignedTo: [3], completed: false },
             { id: 't10', name: 'Latex muren binnenzijde', startDate: '2026-04-27', endDate: '2026-05-08', assignedTo: [2, 3], completed: false },
@@ -63,7 +63,7 @@ const INITIAL_PROJECTS = [
     {
         id: 4, name: 'Woonhuis Den Haag', client: 'Fam. de Groot', address: 'Laan van Meerdervoort 200',
         startDate: '2026-05-18', endDate: '2026-06-12', estimatedHours: 160, color: '#f59e0b',
-        status: 'planning',
+        status: 'planning', kanbanStatus: 'werkvoorbereiding',
         tasks: [
             { id: 't12', name: 'Binnenschilderwerk', startDate: '2026-05-18', endDate: '2026-06-05', assignedTo: [3], completed: false },
             { id: 't13', name: 'Buitenschilderwerk', startDate: '2026-06-08', endDate: '2026-06-12', assignedTo: [2, 3], completed: false },
@@ -124,9 +124,44 @@ export default function ProjectenPage() {
     const [filterStatus, setFilterStatus] = useState('alle');
 
     // Persist projects to localStorage whenever they change
+    const _isSavingRef = useRef(false);
     useEffect(() => {
+        _isSavingRef.current = true;
         localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
+        _isSavingRef.current = false;
     }, [projects]);
+
+    // ===== CROSS-TAB SYNC: reload when another tab changes project data =====
+    useEffect(() => {
+        const reloadFromStorage = () => {
+            try {
+                const s = localStorage.getItem('schildersapp_projecten');
+                if (s) setProjects(JSON.parse(s));
+            } catch {}
+        };
+        // storage event fires when ANOTHER tab writes to localStorage
+        const onStorage = (e) => {
+            if (e.key === 'schildersapp_projecten') reloadFromStorage();
+        };
+        // visibilitychange fires when the user switches back to this tab
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') reloadFromStorage();
+        };
+        // schilders-sync fires when the detail page's "Opslaan" button is clicked
+        // (works within the SAME tab, unlike the storage event)
+        const onSync = (e) => {
+            if (e.detail?.projecten) setProjects(e.detail.projecten);
+            else reloadFromStorage();
+        };
+        window.addEventListener('storage', onStorage);
+        window.addEventListener('schilders-sync', onSync);
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            window.removeEventListener('storage', onStorage);
+            window.removeEventListener('schilders-sync', onSync);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, []);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -177,6 +212,7 @@ export default function ProjectenPage() {
             estimatedHours: parseInt(newProject.estimatedHours) || 0,
             color: PROJECT_COLORS[projects.length % PROJECT_COLORS.length],
             status: 'planning',
+            kanbanStatus: 'werkvoorbereiding',
             tasks: []
         };
         setProjects([...projects, p]);
@@ -563,8 +599,8 @@ export default function ProjectenPage() {
 
     // ===== RENDER =====
     return (
-        <div className="content-area" id="view-planning">
-            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+        <div className="content-area" id="view-planning" style={{ maxWidth: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 }}>
                 <div>
                     <h1 style={{ margin: 0 }}>Planning</h1>
                     <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.88rem' }}>Project- en personeelsplanning met Gantt overzicht</p>
@@ -1711,93 +1747,138 @@ export default function ProjectenPage() {
                 })()
             }
             {/* ===== TAB 4: PROJECTMAPPEN ===== */}
-            {tab === 'mappen' && (
-                <div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
-                        {filteredProjects.map(p => {
-                            const done = p.tasks.filter(t => t.completed).length;
-                            const total = p.tasks.length;
-                            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-                            const daysLeft = Math.ceil((new Date(p.endDate + 'T00:00:00') - new Date()) / 86400000);
-                            const statusLabels = { active: 'Actief', planning: 'In Planning', completed: 'Afgerond', paused: 'Gepauzeerd' };
-                            const statusColors = { active: { bg: '#dcfce7', color: '#16a34a' }, planning: { bg: '#dbeafe', color: '#2563eb' }, completed: { bg: '#f1f5f9', color: '#475569' }, paused: { bg: '#fef9c3', color: '#ca8a04' } };
-                            const sc = statusColors[p.status] || statusColors.planning;
-                            const teamIds = [...new Set(p.tasks.flatMap(t => t.assignedTo || []))];
-                            const team = allUsers.filter(u => teamIds.includes(u.id));
+            {tab === 'mappen' && (() => {
+                const KANBAN_COLUMNS = [
+                    { id: 'werkvoorbereiding', title: 'Werkvoorbereiding', color: '#8b5cf6' },
+                    { id: 'uitvoering', title: 'Opdracht / Planning / Uitvoering', color: '#3b82f6' },
+                    { id: 'afgerond', title: 'Afgeronde werken', color: '#10b981' },
+                    { id: 'archief', title: 'Archief', color: '#64748b' }
+                ];
+
+                const handleDragStart = (e, projectId) => {
+                    e.dataTransfer.setData('projectId', projectId);
+                    e.dataTransfer.effectAllowed = 'move';
+                    // Optional styling during drag
+                    setTimeout(() => e.target.style.opacity = '0.5', 0);
+                };
+
+                const handleDragEnd = (e) => {
+                    e.target.style.opacity = '1';
+                };
+
+                const handleDragOver = (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    e.currentTarget.style.background = 'rgba(0,0,0,0.02)';
+                };
+
+                const handleDragLeave = (e) => {
+                    e.currentTarget.style.background = 'transparent';
+                };
+
+                const handleDrop = (e, columnId) => {
+                    e.preventDefault();
+                    e.currentTarget.style.background = 'transparent';
+                    const projectId = Number(e.dataTransfer.getData('projectId'));
+                    if (projectId) {
+                        setProjects(prev => prev.map(pr => pr.id === projectId ? { ...pr, kanbanStatus: columnId } : pr));
+                    }
+                };
+
+                return (
+                    <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', paddingBottom: '16px', flex: 1, alignItems: 'stretch' }}>
+                        {KANBAN_COLUMNS.map(col => {
+                            const columnProjects = filteredProjects.filter(p => (p.kanbanStatus || 'werkvoorbereiding') === col.id);
+                            
                             return (
-                                <div key={p.id} style={{ background: '#fff', borderRadius: '16px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', border: '1px solid #f1f5f9', overflow: 'hidden', transition: 'transform 0.15s, box-shadow 0.15s' }}
-                                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.1)'; }}
-                                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.07)'; }}>
-                                    {/* Gekleurde bovenrand */}
-                                    <div style={{ height: '5px', background: p.color }} />
-                                    <div style={{ padding: '18px' }}>
-                                        {/* Header */}
-                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '14px' }}>
-                                            <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: p.color + '22', color: p.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
-                                                <i className="fa-solid fa-folder-open" />
-                                            </div>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                                                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
-                                                    <i className="fa-solid fa-user" style={{ marginRight: '4px', opacity: 0.6 }} />{p.client || '—'}
-                                                </div>
-                                            </div>
-                                            <span style={{ background: sc.bg, color: sc.color, padding: '3px 9px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 700, flexShrink: 0 }}>
-                                                {statusLabels[p.status] || p.status}
-                                            </span>
-                                        </div>
-                                        {/* Info rij */}
-                                        <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: '#64748b', marginBottom: '14px' }}>
-                                            <span><i className="fa-solid fa-location-dot" style={{ marginRight: '3px', opacity: 0.6 }} />{p.address?.split(',')[0] || '—'}</span>
-                                            <span style={{ marginLeft: 'auto', color: daysLeft < 0 ? '#ef4444' : daysLeft < 14 ? '#f59e0b' : '#64748b', fontWeight: daysLeft < 14 ? 700 : 400 }}>
-                                                <i className="fa-solid fa-calendar-days" style={{ marginRight: '3px' }} />
-                                                {daysLeft < 0 ? 'Verlopen' : `${daysLeft}d over`}
-                                            </span>
-                                        </div>
-                                        {/* Voortgang balk */}
-                                        <div style={{ marginBottom: '14px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '5px' }}>
-                                                <span>Voortgang taken</span>
-                                                <span style={{ fontWeight: 700, color: pct === 100 ? '#16a34a' : '#1e293b' }}>{pct}%</span>
-                                            </div>
-                                            <div style={{ height: '7px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
-                                                <div style={{ height: '100%', width: pct + '%', background: pct === 100 ? '#22c55e' : p.color, borderRadius: '4px', transition: 'width 0.4s ease' }} />
-                                            </div>
-                                        </div>
-                                        {/* Team avatars */}
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <div style={{ display: 'flex' }}>
-                                                {team.slice(0, 4).map((u, i) => (
-                                                    <div key={u.id} title={u.name} style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'linear-gradient(135deg,#F5850A,#E07000)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, border: '2px solid #fff', marginLeft: i === 0 ? '0' : '-8px', zIndex: team.length - i }}>
-                                                        {u.initials}
-                                                    </div>
-                                                ))}
-                                                {team.length === 0 && <span style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>Geen team</span>}
-                                            </div>
-                                            <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{done}/{total} taken</span>
-                                        </div>
+                                <div key={col.id} 
+                                    style={{ flex: 1, minWidth: '300px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', maxHeight: '100%' }}
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, col.id)}
+                                >
+                                    {/* Kolom Header */}
+                                    <div style={{ padding: '16px', borderBottom: '2px solid', borderBottomColor: col.color, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: '12px 12px 0 0' }}>
+                                        <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{col.title}</h3>
+                                        <span style={{ background: col.color + '22', color: col.color, padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700 }}>
+                                            {columnProjects.length}
+                                        </span>
                                     </div>
-                                    {/* Dossier button */}
-                                    <Link href={`/projecten/${p.id}`}
-                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '13px', background: 'linear-gradient(135deg, rgba(245,133,10,0.06), rgba(245,133,10,0.1))', borderTop: '1px solid rgba(245,133,10,0.15)', color: '#F5850A', textDecoration: 'none', fontWeight: 700, fontSize: '0.85rem', transition: 'background 0.15s' }}
-                                        onMouseEnter={e => e.currentTarget.style.background = 'linear-gradient(135deg, rgba(245,133,10,0.14), rgba(245,133,10,0.2))'}
-                                        onMouseLeave={e => e.currentTarget.style.background = 'linear-gradient(135deg, rgba(245,133,10,0.06), rgba(245,133,10,0.1))'}
-                                    >
-                                        <i className="fa-solid fa-folder-open" /> Dossier openen
-                                        <i className="fa-solid fa-arrow-right" style={{ fontSize: '0.75rem', opacity: 0.7 }} />
-                                    </Link>
+                                    
+                                    {/* Mappen Grid in de Kolom */}
+                                    <div style={{ padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
+                                        {columnProjects.map(p => {
+                                            const done = p.tasks.filter(t => t.completed).length;
+                                            const total = p.tasks.length;
+                                            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                                            const daysLeft = Math.ceil((new Date(p.endDate + 'T00:00:00') - new Date()) / 86400000);
+                                            const teamIds = [...new Set(p.tasks.flatMap(t => t.assignedTo || []))];
+                                            const team = allUsers.filter(u => teamIds.includes(u.id));
+                                            
+                                            return (
+                                                <div key={p.id} 
+                                                    draggable
+                                                    onDragStart={(e) => handleDragStart(e, p.id)}
+                                                    onDragEnd={handleDragEnd}
+                                                    style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', overflow: 'hidden', cursor: 'grab', transition: 'box-shadow 0.15s, transform 0.15s' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.08)'; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'; }}
+                                                >
+                                                    <div style={{ height: '4px', background: p.color }} />
+                                                    <div style={{ padding: '14px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' }}>
+                                                            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: p.color + '15', color: p.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>
+                                                                <i className="fa-solid fa-folder-open" />
+                                                            </div>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                                                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '1px' }}>
+                                                                    {p.client || '—'}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '10px' }}>
+                                                            <span><i className="fa-solid fa-location-dot" style={{ opacity: 0.6, marginRight: '4px' }} />{p.address?.split(',')[0] || '—'}</span>
+                                                            <span style={{ color: daysLeft < 0 ? '#ef4444' : daysLeft < 14 ? '#f59e0b' : '#64748b', fontWeight: daysLeft < 14 ? 700 : 400 }}>
+                                                                {daysLeft < 0 ? 'Verlopen' : `${daysLeft}d`}
+                                                            </span>
+                                                        </div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                            <div style={{ display: 'flex' }}>
+                                                                {team.slice(0, 3).map((u, i) => (
+                                                                    <div key={u.id} title={u.name} style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'linear-gradient(135deg,#F5850A,#E07000)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.55rem', fontWeight: 700, border: '2px solid #fff', marginLeft: i === 0 ? '0' : '-6px', zIndex: team.length - i }}>
+                                                                        {u.initials}
+                                                                    </div>
+                                                                ))}
+                                                                {team.length === 0 && <span style={{ fontSize: '0.65rem', color: '#cbd5e1' }}>Geen team</span>}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.65rem', fontWeight: 600, color: pct === 100 ? '#16a34a' : '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                <i className="fa-solid fa-check-double" /> {done}/{total}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <Link href={`/projecten/${p.id}`}
+                                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', background: 'rgba(245,133,10,0.04)', borderTop: '1px solid rgba(245,133,10,0.1)', color: '#F5850A', textDecoration: 'none', fontWeight: 700, fontSize: '0.75rem', transition: 'background 0.15s' }}
+                                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,133,10,0.08)'}
+                                                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(245,133,10,0.04)'}
+                                                    >
+                                                        Dossier inzien <i className="fa-solid fa-angle-right" style={{ marginLeft: '4px', fontSize: '0.65rem' }}/>
+                                                    </Link>
+                                                </div>
+                                            );
+                                        })}
+                                        {columnProjects.length === 0 && (
+                                            <div style={{ textAlign: 'center', padding: '30px 10px', color: '#94a3b8', fontSize: '0.78rem', fontStyle: 'italic', background: 'transparent', border: '1px dashed #cbd5e1', borderRadius: '8px' }}>
+                                                Sleep hier een map naartoe
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             );
                         })}
                     </div>
-                    {filteredProjects.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-                            <i className="fa-solid fa-folder-open" style={{ fontSize: '2.5rem', marginBottom: '12px', display: 'block' }} />
-                            <p style={{ margin: 0 }}>Geen projecten gevonden</p>
-                        </div>
-                    )}
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 }

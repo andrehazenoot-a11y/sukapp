@@ -66,14 +66,14 @@ export default function Sidebar({ user, onLogout }) {
             <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
                 <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '0', position: 'relative', overflow: 'hidden',
-                    background: '#fff',
-                    borderBottom: '1px solid rgba(255,255,255,0.25)',
+                    padding: '16px 20px 12px', position: 'relative', overflow: 'hidden',
+                    background: 'transparent',
+                    borderBottom: 'none',
                 }}>
                     <img
-                        src="/ds-logo.png"
+                        src="/ds-logo-rond-nieuw.png"
                         alt="De Schilders uit Katwijk Logo"
-                        style={{ width: '100%', height: 'auto', display: 'block' }}
+                        style={{ width: '100%', height: 'auto', display: 'block', maxWidth: '170px' }}
                     />
                 </div>
 

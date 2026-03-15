@@ -2577,7 +2577,8 @@ Bedankt! Tot morgen 👋` }
                                         const zzp = medewerkers.find(m => m.id === c.medewerkerId);
                                         const email = (zzp && zzp.email) ? zzp.email : '';
                                         const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/contract/${c.id}`;
-                                        const mailto = `mailto:${email}?subject=Contract%20-%20${encodeURIComponent(c.projectNaam)}&body=Beste%20${encodeURIComponent(c.medewerkerNaam.split(' ')[0])},%0A%0AHierbij%20de%20link%20naar%20het%20contract.%0A%0A${encodeURIComponent(url)}`;
+                                        const firstName = c.medewerkerNaam ? c.medewerkerNaam.split(' ')[0] : 'ZZP\'er';
+                                        const mailto = `mailto:${email}?subject=Contract%20-%20${encodeURIComponent(c.projectNaam || 'Contract')}&body=Beste%20${encodeURIComponent(firstName)},%0A%0AHierbij%20de%20link%20naar%20het%20contract.%0A%0A${encodeURIComponent(url)}`;
                                         return (
                                             <div key={c.id}
                                                  draggable
@@ -2841,7 +2842,8 @@ Bedankt! Tot morgen 👋` }
                                                         const zzp = medewerkers.find(m => m.id === contract.medewerkerId);
                                                         const email = (zzp && zzp.email) ? zzp.email : '';
                                                         const url = `${window.location.origin}/contract/${contract.id}`;
-                                                        const mailto = `mailto:${email}?subject=Contract%20-%20${encodeURIComponent(contract.projectNaam)}&body=Beste%20${encodeURIComponent(contract.medewerkerNaam.split(' ')[0])},%0A%0AHierbij%20de%20link%20naar%20het%20contract.%0A%0A${encodeURIComponent(url)}`;
+                                                        const firstName = contract.medewerkerNaam ? contract.medewerkerNaam.split(' ')[0] : 'ZZP\'er';
+                                                        const mailto = `mailto:${email}?subject=Contract%20-%20${encodeURIComponent(contract.projectNaam || 'Contract')}&body=Beste%20${encodeURIComponent(firstName)},%0A%0AHierbij%20de%20link%20naar%20het%20contract.%0A%0A${encodeURIComponent(url)}`;
                                                         return (
                                                             <a
                                                                 href={mailto}

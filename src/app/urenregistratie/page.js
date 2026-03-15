@@ -42,7 +42,7 @@ const PROJECTS = [
 
 const UREN_TYPES = [
     { id: 'normaal',           label: 'Project uren',       color: '#F5850A', icon: 'fa-paint-roller',    inputType: 'hours' },
-    { id: 'meerwerk',          label: 'Meerwerk',           color: '#f59e0b', icon: 'fa-plus-minus',      inputType: 'hours' },
+    { id: 'meerwerk',          label: 'Extra werk',           color: '#f59e0b', icon: 'fa-plus-minus',      inputType: 'hours' },
     { id: 'oplevering',        label: 'Oplevering',         color: '#06b6d4', icon: 'fa-flag-checkered',  inputType: 'hours' },
     { id: 'werkvoorbereiding', label: 'Werkvoorbereiding',  color: '#6366f1', icon: 'fa-clipboard-list',  inputType: 'hours' },
     { id: 'ziek',              label: 'Ziek',               color: '#ef4444', icon: 'fa-briefcase-medical', inputType: 'icon' },
@@ -456,7 +456,7 @@ function MijnUren({ userId, adminMode = false, adminUserName = null }) {
                         value={noteModal.value}
                         onChange={e => setNoteModal(prev => ({ ...prev, value: e.target.value }))}
                         onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) saveNote(); if (e.key === 'Escape') setNoteModal(null); }}
-                        placeholder="Bijv. 2u meerwerk wegens lekkage reparatie..."
+                        placeholder="Bijv. 2u extra werk wegens lekkage reparatie..."
                         rows={3}
                         style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #FA9F52', borderRadius: '10px', fontSize: '0.88rem', color: '#1e293b', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
                     />

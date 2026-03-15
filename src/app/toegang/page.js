@@ -24,7 +24,7 @@ export default function ToegangPage() {
     // ── Urentypen per gebruiker (chatbot) ──
     const UREN_TYPES_ALL = [
         { id: 'normaal',           label: 'Project uren',      color: '#F5850A', icon: 'fa-paint-roller' },
-        { id: 'meerwerk',          label: 'Meerwerk',          color: '#f59e0b', icon: 'fa-plus-minus' },
+        { id: 'meerwerk',          label: 'Extra werk',          color: '#f59e0b', icon: 'fa-plus-minus' },
         { id: 'oplevering',        label: 'Oplevering',        color: '#06b6d4', icon: 'fa-flag-checkered' },
         { id: 'werkvoorbereiding', label: 'Werkvoorbereiding', color: '#6366f1', icon: 'fa-clipboard-list' },
         { id: 'ziek',              label: 'Ziek',              color: '#ef4444', icon: 'fa-briefcase-medical' },
@@ -40,10 +40,24 @@ export default function ToegangPage() {
         return ['normaal', 'meerwerk', 'ziek', 'vrij'];
     };
 
+    const getUrenRole = (userId) => {
+        try {
+            const saved = localStorage.getItem(`schildersapp_urenrol_${userId}`);
+            if (saved) return saved;
+        } catch {}
+        const u = allUsers.find(x => x.id === userId);
+        return u?.role === "ZZP'er" ? 'zzp' : 'werknemer';
+    };
+
     const [localUrenTypes, setLocalUrenTypes] = useState([]);
+    const [localUrenRole, setLocalUrenRole] = useState('werknemer');
 
     const saveUrenTypes = (userId, types) => {
         try { localStorage.setItem(`schildersapp_urentypes_${userId}`, JSON.stringify(types)); } catch {}
+    };
+
+    const saveUrenRole = (userId, rol) => {
+        try { localStorage.setItem(`schildersapp_urenrol_${userId}`, rol); } catch {}
     };
 
 
@@ -61,6 +75,7 @@ export default function ToegangPage() {
         if (selectedUser) {
             setLocalPerms([...getUserPermissions(selectedUser.id)]);
             setLocalUrenTypes(getUrenTypes(selectedUser.id));
+            setLocalUrenRole(getUrenRole(selectedUser.id));
             setSaved(false);
         }
     }, [selectedUser]);
@@ -605,6 +620,44 @@ export default function ToegangPage() {
                                 </div>
 
                                 <div style={{ marginTop: '24px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)' }}>
+                                        <div style={{ width: '32px', height: '32px', borderRadius: '9px', background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fa-solid fa-briefcase" style={{ color: '#3b82f6', fontSize: '0.85rem' }} />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b' }}>Soort ureninvoer (Chatbot)</div>
+                                            <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Bepaalt welk formulier de chatbot toont aan {selectedUser.name}.</div>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        {[
+                                            { id: 'werknemer', label: 'Werknemer (Projecten)', icon: 'fa-user-tie', color: '#3b82f6' },
+                                            { id: 'zzp', label: 'ZZP\'er (Contracten)', icon: 'fa-file-invoice', color: '#8b5cf6' }
+                                        ].map(r => {
+                                            const isSelected = localUrenRole === r.id;
+                                            return (
+                                                <div key={r.id}
+                                                    onClick={() => {
+                                                        setLocalUrenRole(r.id);
+                                                        saveUrenRole(selectedUser.id, r.id);
+                                                    }}
+                                                    style={{
+                                                        flex: 1, padding: '12px 14px', borderRadius: '10px', border: `2px solid ${isSelected ? r.color : '#e2e8f0'}`,
+                                                        background: isSelected ? `${r.color}0a` : '#fff', cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.15s'
+                                                    }}>
+                                                    <div style={{ flexShrink: 0, width: '18px', height: '18px', borderRadius: '50%', border: `2px solid ${isSelected ? r.color : '#cbd5e1'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        {isSelected && <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: r.color }} />}
+                                                    </div>
+                                                    <i className={`fa-solid ${r.icon}`} style={{ color: isSelected ? r.color : '#94a3b8', fontSize: '0.9rem' }} />
+                                                    <span style={{ fontWeight: 600, fontSize: '0.8rem', color: isSelected ? r.color : '#64748b' }}>{r.label}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div style={{ marginTop: '24px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)' }}>
                                             <div style={{ width: '32px', height: '32px', borderRadius: '9px', background: 'rgba(245,133,10,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                 <i className="fa-solid fa-clock" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
@@ -622,7 +675,7 @@ export default function ToegangPage() {
                                                     <div
                                                         key={t.id}
                                                         onClick={() => {
-                                                            if (isRequired || selectedUser.role === 'Beheerder') return;
+                                                            if (isRequired) return;
                                                             const next = isOn
                                                                 ? localUrenTypes.filter(x => x !== t.id)
                                                                 : [...localUrenTypes, t.id];
@@ -671,10 +724,8 @@ export default function ToegangPage() {
                                     <button
                                         onClick={savePerms}
                                         className="btn btn-primary"
-                                        disabled={selectedUser.role === 'Beheerder'}
                                         style={{
-                                            padding: '10px 24px', display: 'flex', alignItems: 'center', gap: '6px',
-                                            opacity: selectedUser.role === 'Beheerder' ? 0.5 : 1
+                                            padding: '10px 24px', display: 'flex', alignItems: 'center', gap: '6px'
                                         }}
                                     >
                                         <i className="fa-solid fa-floppy-disk"></i>
