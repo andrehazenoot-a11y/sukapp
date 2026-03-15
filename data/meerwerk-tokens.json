@@ -1,0 +1,86 @@
+{
+  "2cff5401-03d4-4c76-b424-a3dc27280fc4": {
+    "projectId": "1",
+    "meerwerkItem": {
+      "omschrijving": "Extra schilderwerk badkamer",
+      "toelichting": "Schimmelbehandeling wanden",
+      "uren": 6,
+      "bedrag": 480,
+      "datum": "2026-03-14"
+    },
+    "projectNaam": "Villa Wassenaar",
+    "toName": "André de Schilders",
+    "toEmail": "andre@deschildersuitkatwijk.nl",
+    "createdAt": "2026-03-14T13:05:31.904Z",
+    "status": "pending"
+  },
+  "0f0db173-095b-4bdb-8a7f-3369d4a9f641": {
+    "projectId": "1",
+    "meerwerkItem": {
+      "id": 1773490167338,
+      "omschrijving": "Extra schilderwerk badkamer",
+      "uren": 8,
+      "bedrag": 520,
+      "toelichting": "Beschadigde wand bij badkamer gevonden tijdens werkzaamheden",
+      "datum": "2026-03-14",
+      "status": "aanvraag",
+      "akkoordDatum": ""
+    },
+    "projectNaam": "Nieuwbouw Villa Wassenaar",
+    "toName": "Fam. Jansen",
+    "toEmail": "andre@deschildersuitkatwijk.nl",
+    "createdAt": "2026-03-14T13:11:29.297Z",
+    "status": "pending"
+  },
+  "3efd877d-9170-4e58-96e2-c5b2d1007864": {
+    "projectId": "1",
+    "meerwerkItem": {
+      "toelichting": "Schimmelbehandeling wanden",
+      "uren": 6,
+      "bedrag": 480,
+      "datum": "2026-03-14",
+      "omschrijving": "Extra schilderwerk badkamer"
+    },
+    "projectNaam": "Villa Wassenaar",
+    "toName": "Andre de Schilders",
+    "toEmail": "andre@deschildersuitkatwijk.nl",
+    "createdAt": "2026-03-14T13:12:42.721Z",
+    "status": "pending"
+  },
+  "287a4325-c317-4542-b2ae-f4621375ac66": {
+    "projectId": "1",
+    "meerwerkItem": {
+      "id": 1773490167338,
+      "omschrijving": "Extra schilderwerk badkamer",
+      "uren": 8,
+      "bedrag": 520,
+      "toelichting": "Beschadigde wand bij badkamer gevonden tijdens werkzaamheden",
+      "datum": "2026-03-14",
+      "status": "aanvraag",
+      "akkoordDatum": ""
+    },
+    "projectNaam": "Nieuwbouw Villa Wassenaar",
+    "toName": "Fam. Jansen",
+    "toEmail": "andre@deschildersuitkatwijk.nl",
+    "createdAt": "2026-03-14T13:14:04.950Z",
+    "status": "pending"
+  },
+  "c61ae390-4a57-421e-9699-58068d635e96": {
+    "projectId": "1",
+    "meerwerkItem": {
+      "id": 1773490167338,
+      "omschrijving": "Extra schilderwerk badkamer",
+      "uren": 8,
+      "bedrag": 520,
+      "toelichting": "Beschadigde wand bij badkamer gevonden tijdens werkzaamheden",
+      "datum": "2026-03-14",
+      "status": "aanvraag",
+      "akkoordDatum": ""
+    },
+    "projectNaam": "Nieuwbouw Villa Wassenaar",
+    "toName": "Dhr. Jansen",
+    "toEmail": "jansen@villa-wassenaar.nl",
+    "createdAt": "2026-03-14T13:16:15.950Z",
+    "status": "pending"
+  }
+}
