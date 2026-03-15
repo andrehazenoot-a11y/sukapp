@@ -77,8 +77,24 @@ const UREN_TYPES = [
     { id: 'vrij',              label: 'Vrij (hele dag)',     color: '#8b5cf6', icon: 'fa-umbrella-beach', noHours: true },
 ];
 
+// Lees per-gebruiker toegestane urentypen uit localStorage (ingesteld door beheerder)
+function getUserUrenTypes(userId) {
+    try {
+        const saved = localStorage.getItem(`schildersapp_urentypes_${userId}`);
+        if (saved) {
+            const allowed = JSON.parse(saved);
+            // Normaal is altijd inbegrepen
+            const allIds = allowed.includes('normaal') ? allowed : ['normaal', ...allowed];
+            return UREN_TYPES.filter(t => allIds.includes(t.id));
+        }
+    } catch {}
+    // Standaard: normaal + meerwerk + ziek + vrij
+    return UREN_TYPES.filter(t => ['normaal', 'meerwerk', 'ziek', 'vrij'].includes(t.id));
+}
+
 // Inline urenstaat mini-form
-function InlineUrenstaat({ onSave, onCancel }) {
+function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
+    const types = allowedTypes && allowedTypes.length > 0 ? allowedTypes : UREN_TYPES.filter(t => ['normaal', 'meerwerk', 'ziek', 'vrij'].includes(t.id));
     const [rows, setRows] = useState([
         { projectId: '1', hours: ['8', '8', '8', '8', '8'], typeId: 'normaal' }
     ]);
@@ -98,7 +114,7 @@ function InlineUrenstaat({ onSave, onCancel }) {
 
     const updateType = (ri, typeId) => {
         const u = [...rows];
-        const isNoHours = UREN_TYPES.find(t => t.id === typeId)?.noHours;
+        const isNoHours = types.find(t => t.id === typeId)?.noHours;
         u[ri] = { ...u[ri], typeId, hours: isNoHours ? ['✓', '✓', '✓', '✓', '✓'] : ['8', '8', '8', '8', '8'] };
         setRows(u);
     };
@@ -113,7 +129,7 @@ function InlineUrenstaat({ onSave, onCancel }) {
 
     const getTotal = () => {
         return rows.reduce((sum, r) => {
-            const typeInfo = UREN_TYPES.find(t => t.id === r.typeId);
+            const typeInfo = types.find(t => t.id === r.typeId);
             if (typeInfo?.noHours) return sum;
             return sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
         }, 0);
@@ -133,7 +149,7 @@ function InlineUrenstaat({ onSave, onCancel }) {
             </div>
 
             {rows.map((row, ri) => {
-                const typeInfo = UREN_TYPES.find(t => t.id === row.typeId) || UREN_TYPES[0];
+                const typeInfo = types.find(t => t.id === row.typeId) || types[0];
                 const isNoHours = typeInfo.noHours;
                 return (
                     <div key={ri} style={{ marginBottom: '10px', padding: '8px', borderRadius: '8px', background: `${typeInfo.color}08`, border: `1px solid ${typeInfo.color}22` }}>
@@ -164,7 +180,7 @@ function InlineUrenstaat({ onSave, onCancel }) {
                             )}
                         </div>
 
-                        {/* Urentype select */}
+                        {/* Urentype select — alleen toegestane types */}
                         <div style={{ marginBottom: '6px' }}>
                             <select
                                 value={row.typeId}
@@ -176,7 +192,7 @@ function InlineUrenstaat({ onSave, onCancel }) {
                                     cursor: 'pointer', outline: 'none', WebkitAppearance: 'none'
                                 }}
                             >
-                                {UREN_TYPES.map(t => (
+                                {types.map(t => (
                                     <option key={t.id} value={t.id}>{t.label}</option>
                                 ))}
                             </select>
@@ -226,7 +242,8 @@ function InlineUrenstaat({ onSave, onCancel }) {
                 );
             })}
 
-            {/* Add project button */}
+            {/* Add project button — verberg als slechts 1 type beschikbaar */}
+            {types.length > 0 && (
             <button onClick={addRow} style={{
                 width: '100%', padding: '4px', border: '1px dashed #d0d5dd', borderRadius: '6px',
                 background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '0.68rem',
@@ -237,6 +254,7 @@ function InlineUrenstaat({ onSave, onCancel }) {
             >
                 <i className="fa-solid fa-plus"></i> Rij toevoegen
             </button>
+            )}
 
             {/* Totaal + buttons */}
             <div style={{
@@ -728,6 +746,7 @@ export default function ChatBot() {
                                 <InlineUrenstaat
                                     onSave={handleSaveTemplate}
                                     onCancel={() => { setShowTemplate(false); addBotMessage('Geen probleem! Je kunt later invullen. ⏰'); }}
+                                    allowedTypes={getUserUrenTypes(user?.id)}
                                 />
                             </div>
                         )}

@@ -21,6 +21,32 @@ export default function ToegangPage() {
     const [editFields, setEditFields] = useState({ name: '', username: '', password: '', role: '', phone: '' });
     const [waSent, setWaSent] = useState(new Set());
 
+    // ── Urentypen per gebruiker (chatbot) ──
+    const UREN_TYPES_ALL = [
+        { id: 'normaal',           label: 'Project uren',      color: '#F5850A', icon: 'fa-paint-roller' },
+        { id: 'meerwerk',          label: 'Meerwerk',          color: '#f59e0b', icon: 'fa-plus-minus' },
+        { id: 'oplevering',        label: 'Oplevering',        color: '#06b6d4', icon: 'fa-flag-checkered' },
+        { id: 'werkvoorbereiding', label: 'Werkvoorbereiding', color: '#6366f1', icon: 'fa-clipboard-list' },
+        { id: 'ziek',              label: 'Ziek',              color: '#ef4444', icon: 'fa-briefcase-medical' },
+        { id: 'vrij',              label: 'Vrij',              color: '#8b5cf6', icon: 'fa-umbrella-beach' },
+    ];
+
+    const getUrenTypes = (userId) => {
+        try {
+            const saved = localStorage.getItem(`schildersapp_urentypes_${userId}`);
+            if (saved) return JSON.parse(saved);
+        } catch {}
+        // Standaard: normaal + meerwerk + ziek + vrij
+        return ['normaal', 'meerwerk', 'ziek', 'vrij'];
+    };
+
+    const [localUrenTypes, setLocalUrenTypes] = useState([]);
+
+    const saveUrenTypes = (userId, types) => {
+        try { localStorage.setItem(`schildersapp_urentypes_${userId}`, JSON.stringify(types)); } catch {}
+    };
+
+
     const allUsers = getAllUsers();
 
     // Redirect als niet beheerder
@@ -30,13 +56,15 @@ export default function ToegangPage() {
         }
     }, [user, router]);
 
-    // Laad rechten als gebruiker geselecteerd wordt
+    // Laad rechten + urentypen als gebruiker geselecteerd wordt
     useEffect(() => {
         if (selectedUser) {
             setLocalPerms([...getUserPermissions(selectedUser.id)]);
+            setLocalUrenTypes(getUrenTypes(selectedUser.id));
             setSaved(false);
         }
     }, [selectedUser]);
+
 
     // Profiel subs die mutueel exclusief zijn (of werknemer of zzp)
     const EXCLUSIVE_PROFIEL_SUBS = ['profiel.werknemer', 'profiel.zzp'];
@@ -573,6 +601,68 @@ export default function ToegangPage() {
                                         );
                                     })}
                                 </div>
+
+                                <div style={{ marginTop: '24px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)' }}>
+                                            <div style={{ width: '32px', height: '32px', borderRadius: '9px', background: 'rgba(245,133,10,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <i className="fa-solid fa-clock" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
+                                            </div>
+                                            <div>
+                                                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b' }}>Urentypen in Chatbot</div>
+                                                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Welke types mag {selectedUser.name} gebruiken bij snelle ureninvoer?</div>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                            {UREN_TYPES_ALL.map(t => {
+                                                const isOn = localUrenTypes.includes(t.id);
+                                                const isRequired = t.id === 'normaal'; // normaal altijd aan
+                                                return (
+                                                    <div
+                                                        key={t.id}
+                                                        onClick={() => {
+                                                            if (isRequired || selectedUser.role === 'Beheerder') return;
+                                                            const next = isOn
+                                                                ? localUrenTypes.filter(x => x !== t.id)
+                                                                : [...localUrenTypes, t.id];
+                                                            setLocalUrenTypes(next);
+                                                            saveUrenTypes(selectedUser.id, next);
+                                                        }}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', gap: '8px',
+                                                            padding: '8px 14px', borderRadius: '10px', cursor: isRequired ? 'default' : 'pointer',
+                                                            border: `1.5px solid ${isOn ? t.color + '55' : '#e2e8f0'}`,
+                                                            background: isOn ? t.color + '0f' : '#fafafa',
+                                                            transition: 'all 0.15s', opacity: isRequired ? 0.7 : 1,
+                                                            userSelect: 'none'
+                                                        }}
+                                                        title={isRequired ? 'Project uren zijn altijd beschikbaar' : ''}
+                                                    >
+                                                        <i className={`fa-solid ${t.icon}`} style={{ fontSize: '0.75rem', color: isOn ? t.color : '#94a3b8' }} />
+                                                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: isOn ? t.color : '#94a3b8' }}>{t.label}</span>
+                                                        {/* Mini toggle */}
+                                                        <div style={{
+                                                            width: '32px', height: '18px', borderRadius: '9px',
+                                                            background: isOn ? t.color : '#e2e8f0',
+                                                            display: 'flex', alignItems: 'center', padding: '2px',
+                                                            transition: 'all 0.2s', marginLeft: '4px'
+                                                        }}>
+                                                            <div style={{
+                                                                width: '14px', height: '14px', borderRadius: '50%', background: '#fff',
+                                                                boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                                                                transform: isOn ? 'translateX(14px)' : 'translateX(0)',
+                                                                transition: 'all 0.2s'
+                                                            }} />
+                                                        </div>
+                                                        {isRequired && <span style={{ fontSize: '0.6rem', color: '#94a3b8', marginLeft: '2px' }}>verplicht</span>}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div style={{ marginTop: '8px', fontSize: '0.7rem', color: '#94a3b8' }}>
+                                            <i className="fa-solid fa-circle-info" style={{ marginRight: '4px' }} />
+                                            Wijzigingen worden direct opgeslagen en zijn meteen actief in de chatbot.
+                                        </div>
+                                    </div>
 
                                 {/* Opslaan knop */}
                                 <div style={{ marginTop: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
