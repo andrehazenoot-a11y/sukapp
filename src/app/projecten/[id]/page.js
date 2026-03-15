@@ -2695,6 +2695,7 @@ export default function ProjectDossierPage() {
             )}
 
 
+            {previewAtt && (
                 <div
                     onClick={() => setPreviewAtt(null)}
                     onKeyDown={e => e.key === 'Escape' && setPreviewAtt(null)}
