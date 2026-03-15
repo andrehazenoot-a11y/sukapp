@@ -91,13 +91,15 @@ ${BEDRIJF_TELEFOON}`;
     <p>Tijdens de uitvoering van project <strong>${projectNaam}</strong> is aanvullend werk naar voren gekomen. Wij verzoeken u hiervoor akkoord te verlenen voordat wij met de uitvoering starten.</p>
 
     <table class="spec">
-      <tr><th colspan="2">Meerwerk specificatie</th></tr>
-      <tr><td><strong>Omschrijving</strong></td><td>${meerwerkItem.omschrijving}</td></tr>
-      ${meerwerkItem.toelichting ? `<tr><td><strong>Toelichting</strong></td><td>${meerwerkItem.toelichting}</td></tr>` : ''}
-      ${meerwerkItem.uren > 0 ? `<tr><td><strong>Extra uren</strong></td><td>${meerwerkItem.uren} uur</td></tr>` : ''}
-      <tr><td><strong>Datum aanvraag</strong></td><td>${meerwerkItem.datum}</td></tr>
-      <tr><td><strong>Referentie</strong></td><td>${contractNummer}</td></tr>
-      <tr class="total"><td><strong>Totaalbedrag</strong></td><td>EUR ${bedragFormatted(meerwerkItem.bedrag)}</td></tr>
+      <tr><th colspan="2">Meerwerk specificatie${(meerwerkItems && meerwerkItems.length > 1) ? ` (${meerwerkItems.length} posten)` : ''}</th></tr>
+      ${(meerwerkItems && meerwerkItems.length > 0 ? meerwerkItems : [meerwerkItem]).map((item, i) => `
+        ${meerwerkItems && meerwerkItems.length > 1 ? `<tr style="background:#f8fafc"><td colspan="2" style="padding:6px 12px;font-weight:700;font-size:13px;color:#1e293b;border-bottom:1px solid #e2e8f0">${i + 1}. ${item.omschrijving}</td></tr>` : `<tr><td><strong>Omschrijving</strong></td><td>${item.omschrijving}</td></tr>`}
+        ${item.toelichting ? `<tr><td><strong>Toelichting</strong></td><td>${item.toelichting}</td></tr>` : ''}
+        ${item.uren > 0 ? `<tr><td><strong>Extra uren</strong></td><td>${item.uren} uur</td></tr>` : ''}
+        <tr><td><strong>Datum aanvraag</strong></td><td>${item.datum}</td></tr>
+        ${meerwerkItems && meerwerkItems.length > 1 ? `<tr class="total"><td><strong>Bedrag post ${i + 1}</strong></td><td>EUR ${bedragFormatted(item.bedrag)}</td></tr>` : `<tr><td><strong>Referentie</strong></td><td>${contractNummer}</td></tr>`}
+      `).join('')}
+      <tr class="total"><td><strong>Totaalbedrag</strong></td><td>EUR ${bedragFormatted((meerwerkItems && meerwerkItems.length > 0 ? meerwerkItems : [meerwerkItem]).reduce((s, m) => s + Number(m.bedrag), 0))}</td></tr>
     </table>
 
     <div class="notice">

@@ -240,7 +240,8 @@ export default function ProjectDossierPage() {
     const [showAddEmailContact, setShowAddEmailContact] = useState(false);
     // E-mail picker voor meerwerk
     const [meerwerkEmailPicker, setMeerwerkEmailPicker] = useState(null); // meerwerk-item waarvoor picker open is
-    const [meerwerkCompose, setMeerwerkCompose] = useState(null); // { item, contact } → opstelmodal
+    const [meerwerkSelectie, setMeerwerkSelectie] = useState([]); // geselecteerde item-IDs voor bulk mail
+    const [meerwerkCompose, setMeerwerkCompose] = useState(null); // { items[], contact } → opstelmodal
     const [composeOntwerp, setComposeOntwerp] = useState('');
     const [composeBericht, setComposeBericht] = useState('');
     const [composeVanNaam, setComposeVanNaam] = useState('De Schilders uit Katwijk');
@@ -248,6 +249,14 @@ export default function ProjectDossierPage() {
     const [composeBCC, setComposeBCC] = useState(() => {
         try { return localStorage.getItem('schildersapp_default_bcc') || ''; } catch { return ''; }
     });
+
+    const toggleMeerwerkSelectie = (id) => setMeerwerkSelectie(prev =>
+        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+    const selectAllMeerwerk = () => setMeerwerkSelectie(
+        meerwerkSelectie.length === meerwerk.length ? [] : meerwerk.map(m => m.id)
+    );
+    const geselecteerdeItems = meerwerk.filter(m => meerwerkSelectie.includes(m.id));
 
     const saveEmailContacten = (updated) => {
         setEmailContacten(updated);
@@ -517,12 +526,15 @@ export default function ProjectDossierPage() {
     };
     const deleteMeerwerkItem = (mwId) => saveMeerwerk(meerwerk.filter(m => m.id !== mwId));
 
-    const openCompose = (item, contact) => {
+    const openCompose = (items, contact) => {
+        // items kan 1 item of een array zijn
+        const arr = Array.isArray(items) ? items : [items];
         setMeerwerkEmailPicker(null);
-        setComposeOntwerp(`Verzoek om akkoord meerwerk - ${project?.name || ''} (ref. MW-${item.id})`);
+        const ref = arr.length === 1 ? `MW-${arr[0].id}` : `MW-bulk-${arr.length}items`;
+        setComposeOntwerp(`Verzoek om akkoord meerwerk - ${project?.name || ''} (ref. ${ref})`);
         setComposeBericht('');
         setComposeCC('');
-        setMeerwerkCompose({ item, contact });
+        setMeerwerkCompose({ items: arr, contact });
     };
 
     const sendMeerwerkEmail = (item) => {
@@ -531,21 +543,40 @@ export default function ProjectDossierPage() {
             return;
         }
         if (allEmailTargets.length === 1) {
-            openCompose(item, allEmailTargets[0]);
+            openCompose([item], allEmailTargets[0]);
         } else {
             setMeerwerkEmailPicker(item);
         }
     };
 
-    const sendMeerwerkEmailTo = async (item, contact, persoonlijkBericht, onderwerp, vanNaam, cc, bcc) => {
+    const sendMeerwerkBulk = () => {
+        if (geselecteerdeItems.length === 0) return;
+        if (allEmailTargets.length === 0) {
+            alert('Nog geen e-mailcontacten. Voeg er een toe via Overzicht → E-mailcontacten.');
+            return;
+        }
+        if (allEmailTargets.length === 1) {
+            openCompose(geselecteerdeItems, allEmailTargets[0]);
+        } else {
+            setMeerwerkEmailPicker('_bulk_');
+        }
+    };
+
+    const sendMeerwerkEmailTo = async (items, contact, persoonlijkBericht, onderwerp, vanNaam, cc, bcc) => {
         setMeerwerkCompose(null);
+        setMeerwerkSelectie([]);
         // Sla standaard BCC op
         if (bcc?.trim()) {
             try { localStorage.setItem('schildersapp_default_bcc', bcc.trim()); } catch {}
         }
-        setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'sending' }));
+        const itemsArr = Array.isArray(items) ? items : [items];
+        // Zet alle items op 'sending'
+        setMeerwerkEmailStatus(prev => {
+            const next = { ...prev };
+            itemsArr.forEach(m => { next[m.id] = 'sending'; });
+            return next;
+        });
         try {
-            // 1. Maak een uniek akkoord-token aan
             const baseUrl = window.location.origin;
             const tokenRes = await fetch('/api/meerwerk-akkoord', {
                 method: 'POST',
@@ -553,7 +584,8 @@ export default function ProjectDossierPage() {
                 body: JSON.stringify({
                     projectId: id,
                     projectNaam: project.name,
-                    meerwerkItem: item,
+                    meerwerkItems: itemsArr,         // array
+                    meerwerkItem: itemsArr[0],       // backwards compat
                     toName: contact.naam,
                     toEmail: contact.email,
                 }),
@@ -563,17 +595,17 @@ export default function ProjectDossierPage() {
                 ? `${baseUrl}/meerwerk-akkoord/${tokenData.token}`
                 : null;
 
-            // 2. Stuur de email met de akkoord-link
             const res = await fetch('/api/send-email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     to: contact.email,
                     toName: contact.naam,
-                    contractNummer: `MW-${item.id}`,
+                    contractNummer: itemsArr.length === 1 ? `MW-${itemsArr[0].id}` : `MW-bulk`,
                     projectNaam: project.name,
                     contractUrl: '',
-                    meerwerkItem: item,
+                    meerwerkItems: itemsArr,
+                    meerwerkItem: itemsArr[0],
                     isMeerwerk: true,
                     akkoordUrl,
                     persoonlijkBericht: persoonlijkBericht?.trim() || '',
@@ -584,14 +616,25 @@ export default function ProjectDossierPage() {
                 }),
             });
             const data = await res.json();
-            setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: data.success ? 'sent' : 'error' }));
+            const nu = new Date().toISOString().split('T')[0];
+            setMeerwerkEmailStatus(prev => {
+                const next = { ...prev };
+                itemsArr.forEach(m => { next[m.id] = data.success ? 'sent' : 'error'; });
+                return next;
+            });
             if (data.success) {
-                saveMeerwerk(meerwerk.map(m => m.id === item.id
-                    ? { ...m, emailVerzonden: new Date().toISOString().split('T')[0], emailNaar: contact.email, akkoordToken: tokenData.token }
-                    : m));
+                saveMeerwerk(meerwerk.map(m =>
+                    itemsArr.some(i => i.id === m.id)
+                        ? { ...m, emailVerzonden: nu, emailNaar: contact.email, akkoordToken: tokenData.token }
+                        : m
+                ));
             }
         } catch {
-            setMeerwerkEmailStatus(prev => ({ ...prev, [item.id]: 'error' }));
+            setMeerwerkEmailStatus(prev => {
+                const next = { ...prev };
+                itemsArr.forEach(m => { next[m.id] = 'error'; });
+                return next;
+            });
         }
     };
 
@@ -1814,7 +1857,15 @@ export default function ProjectDossierPage() {
                         ) : (
                             <div>
                                 {/* Tabel header */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.8fr 1.1fr 220px', gap: 0, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '32px 2fr 0.7fr 0.8fr 1.1fr 220px', gap: 0, padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
+                                    <div>
+                                        <input type="checkbox"
+                                            checked={meerwerkSelectie.length === meerwerk.length && meerwerk.length > 0}
+                                            onChange={selectAllMeerwerk}
+                                            title="Alles selecteren"
+                                            style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#F5850A' }}
+                                        />
+                                    </div>
                                     {['Omschrijving', 'Uren', 'Bedrag', 'Status', ''].map(h => (
                                         <div key={h} style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</div>
                                     ))}
@@ -1823,8 +1874,17 @@ export default function ProjectDossierPage() {
                                 {meerwerk.map((m, idx) => {
                                     const sc = STATUS_MW[m.status] || STATUS_MW.aanvraag;
                                     const emailSt = meerwerkEmailStatus[m.id];
+                                    const isSelected = meerwerkSelectie.includes(m.id);
                                     return (
-                                        <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.8fr 1.1fr 220px', alignItems: 'center', padding: '14px 20px', borderTop: idx === 0 ? 'none' : '1px solid #f8fafc', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                        <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 0.7fr 0.8fr 1.1fr 220px', alignItems: 'center', padding: '14px 20px', borderTop: idx === 0 ? 'none' : '1px solid #f8fafc', background: isSelected ? '#fff7ed' : idx % 2 === 0 ? '#fff' : '#fafafa', transition: 'background 0.15s' }}>
+                                            {/* Checkbox */}
+                                            <div>
+                                                <input type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => toggleMeerwerkSelectie(m.id)}
+                                                    style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#F5850A' }}
+                                                />
+                                            </div>
                                             <div>
                                                 <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{m.omschrijving}</div>
                                                 {m.toelichting && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>{m.toelichting}</div>}
@@ -1886,8 +1946,30 @@ export default function ProjectDossierPage() {
                                     );
                                 })}
 
+                                {/* Selectie-actiebalk */}
+                                {meerwerkSelectie.length > 0 && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 20px', background: 'linear-gradient(135deg,#fff7ed,#fffbf5)', borderTop: '2px solid #fdba74', borderBottom: '1px solid #fed7aa' }}>
+                                        <i className="fa-solid fa-check-square" style={{ color: '#F5850A', fontSize: '1rem' }} />
+                                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#92400e' }}>
+                                            {meerwerkSelectie.length} item{meerwerkSelectie.length !== 1 ? 's' : ''} geselecteerd
+                                            &nbsp;·&nbsp;
+                                            €{geselecteerdeItems.reduce((s, m) => s + m.bedrag, 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}
+                                        </span>
+                                        <button onClick={sendMeerwerkBulk}
+                                            style={{ marginLeft: 'auto', padding: '7px 16px', borderRadius: '8px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                            <i className="fa-solid fa-paper-plane" />
+                                            Verstuur geselecteerde ({meerwerkSelectie.length})
+                                        </button>
+                                        <button onClick={() => setMeerwerkSelectie([])}
+                                            style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid #fed7aa', background: '#fff', color: '#92400e', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>
+                                            Deselecteer
+                                        </button>
+                                    </div>
+                                )}
+
                                 {/* Totaalrij */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.8fr 1.1fr 220px', alignItems: 'center', padding: '12px 20px', borderTop: '2px solid #f1f5f9', background: '#f8fafc' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '32px 2fr 0.7fr 0.8fr 1.1fr 220px', alignItems: 'center', padding: '12px 20px', borderTop: '2px solid #f1f5f9', background: '#f8fafc' }}>
+                                    <div />
                                     <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#475569', gridColumn: 'span 2' }}>Totaal meerwerk ({meerwerk.length})</div>
                                     <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>€{meerwerk.reduce((s, m) => s + m.bedrag, 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</div>
                                     <div style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: 700 }}>€{mwGoedgekeurd.toLocaleString('nl-NL')} goedgekeurd</div>
@@ -2544,7 +2626,10 @@ export default function ProjectDossierPage() {
                             <div>
                                 <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>Kies e-mailontvanger</div>
                                 <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
-                                    Meerwerk: {meerwerkEmailPicker.omschrijving}
+                                    {meerwerkEmailPicker === '_bulk_'
+                                        ? `${geselecteerdeItems.length} meerwerk items geselecteerd`
+                                        : `Meerwerk: ${meerwerkEmailPicker?.omschrijving || ''}`
+                                    }
                                 </div>
                             </div>
                             <button onClick={() => setMeerwerkEmailPicker(null)}
@@ -2559,7 +2644,10 @@ export default function ProjectDossierPage() {
                             </div>
                             {allEmailTargets.map(contact => (
                                 <button key={contact.id}
-                                    onClick={() => openCompose(meerwerkEmailPicker, contact)}
+                                    onClick={() => openCompose(
+                                        meerwerkEmailPicker === '_bulk_' ? geselecteerdeItems : [meerwerkEmailPicker],
+                                        contact
+                                    )}
                                     style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', border: '2px solid #e2e8f0', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', textAlign: 'left', transition: 'all 0.15s' }}
                                     onMouseEnter={e => { e.currentTarget.style.borderColor = '#F5850A'; e.currentTarget.style.background = '#fffbf5'; }}
                                     onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fff'; }}>
@@ -2702,30 +2790,24 @@ export default function ProjectDossierPage() {
                                 />
                             </div>
 
-                            {/* Meerwerk preview */}
-                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', fontSize: '13px' }}>
-                                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
-                                    Meerwerk details (vast, niet bewerkbaar hier)
+                            {/* Meerwerk items preview */}
+                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden', fontSize: '13px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '10px 14px 6px' }}>
+                                    {meerwerkCompose.items.length === 1 ? 'Meerwerk details' : `${meerwerkCompose.items.length} meerwerk items`} (vast, niet bewerkbaar hier)
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                    <span style={{ color: '#64748b' }}>Omschrijving</span>
-                                    <span style={{ fontWeight: 600 }}>{meerwerkCompose.item.omschrijving}</span>
-                                </div>
-                                {meerwerkCompose.item.toelichting && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <span style={{ color: '#64748b' }}>Toelichting</span>
-                                        <span style={{ maxWidth: '60%', textAlign: 'right', color: '#475569' }}>{meerwerkCompose.item.toelichting}</span>
+                                {meerwerkCompose.items.map((item, i) => (
+                                    <div key={item.id} style={{ borderTop: i === 0 ? '1px solid #e2e8f0' : '1px solid #f1f5f9', padding: '10px 14px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '3px' }}>
+                                            <span style={{ fontWeight: 700, color: '#1e293b', maxWidth: '65%' }}>{item.omschrijving}</span>
+                                            <span style={{ fontWeight: 800, color: '#92400e' }}>€ {Number(item.bedrag).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                        {item.toelichting && <div style={{ fontSize: '12px', color: '#64748b' }}>{item.toelichting}</div>}
+                                        {item.uren > 0 && <div style={{ fontSize: '12px', color: '#64748b' }}>{item.uren} extra uren</div>}
                                     </div>
-                                )}
-                                {meerwerkCompose.item.uren > 0 && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <span style={{ color: '#64748b' }}>Extra uren</span>
-                                        <span style={{ fontWeight: 600 }}>{meerwerkCompose.item.uren} uur</span>
-                                    </div>
-                                )}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid #e2e8f0', marginTop: '6px' }}>
-                                    <span style={{ fontWeight: 700, color: '#92400e' }}>Totaalbedrag</span>
-                                    <span style={{ fontWeight: 800, color: '#92400e' }}>€ {Number(meerwerkCompose.item.bedrag).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span>
+                                ))}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderTop: '2px solid #e2e8f0', background: '#fff' }}>
+                                    <span style={{ fontWeight: 700, color: '#92400e' }}>Totaal</span>
+                                    <span style={{ fontWeight: 800, color: '#92400e' }}>€ {meerwerkCompose.items.reduce((s, m) => s + Number(m.bedrag), 0).toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span>
                                 </div>
                             </div>
 
@@ -2741,7 +2823,7 @@ export default function ProjectDossierPage() {
                                 style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
                                 Annuleren
                             </button>
-                            <button onClick={() => sendMeerwerkEmailTo(meerwerkCompose.item, meerwerkCompose.contact, composeBericht, composeOntwerp, composeVanNaam, composeCC, composeBCC)}
+                            <button onClick={() => sendMeerwerkEmailTo(meerwerkCompose.items, meerwerkCompose.contact, composeBericht, composeOntwerp, composeVanNaam, composeCC, composeBCC)}
                                 style={{ padding: '9px 20px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#e06b00)', color: '#fff', fontWeight: 700, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fa-solid fa-paper-plane" />
                                 Versturen
