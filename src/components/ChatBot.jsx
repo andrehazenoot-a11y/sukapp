@@ -283,6 +283,149 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
     );
 }
 
+// ─── ZZP Uren invoer (koppelt aan contractnummer) ───────────────────────────
+function InlineUrenstaatZZP({ onSave, onCancel, allowedTypes }) {
+    const types = allowedTypes && allowedTypes.length > 0 ? allowedTypes : UREN_TYPES.filter(t => ['normaal', 'meerwerk'].includes(t.id));
+
+    // Laad contracten uit localStorage
+    const contracten = (() => {
+        try { return JSON.parse(localStorage.getItem('wa_contracten') || '[]'); } catch { return []; }
+    })();
+
+    const [rows, setRows] = useState([{
+        contractId: contracten[0]?.id || '',
+        hours: ['8', '8', '8', '8', '8'],
+        typeId: 'normaal'
+    }]);
+
+    const updateHour = (ri, di, val) => {
+        setRows(prev => prev.map((r, i) => i !== ri ? r : { ...r, hours: r.hours.map((h, j) => j === di ? val : h) }));
+    };
+    const updateContract = (ri, cid) => {
+        setRows(prev => prev.map((r, i) => i !== ri ? r : { ...r, contractId: cid }));
+    };
+    const updateType = (ri, typeId) => {
+        const isNoHours = types.find(t => t.id === typeId)?.noHours;
+        setRows(prev => prev.map((r, i) => i !== ri ? r : { ...r, typeId, hours: isNoHours ? ['✓','✓','✓','✓','✓'] : ['8','8','8','8','8'] }));
+    };
+    const addRow = () => setRows(prev => [...prev, { contractId: contracten[0]?.id || '', hours: ['','','','',''], typeId: 'normaal' }]);
+    const removeRow = (ri) => { if (rows.length > 1) setRows(prev => prev.filter((_, i) => i !== ri)); };
+    const getTotal = () => rows.reduce((sum, r) => {
+        const typeInfo = types.find(t => t.id === r.typeId);
+        if (typeInfo?.noHours) return sum;
+        return sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
+    }, 0);
+
+    return (
+        <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0', maxWidth: '100%' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className="fa-solid fa-file-contract" style={{ color: '#6366f1', fontSize: '0.75rem' }} />
+                </div>
+                <div>
+                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b' }}>Week {getWeekNumber()} — ZZP Uren</span>
+                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Koppel je uren aan een contractnummer</div>
+                </div>
+            </div>
+
+            {contracten.length === 0 && (
+                <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', padding: '10px 12px', marginBottom: '10px', fontSize: '0.75rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <i className="fa-solid fa-triangle-exclamation" />
+                    Geen contracten gevonden. Maak eerst een contract aan.
+                </div>
+            )}
+
+            {rows.map((row, ri) => {
+                const typeInfo = types.find(t => t.id === row.typeId) || types[0];
+                const isNoHours = typeInfo?.noHours;
+                const contract = contracten.find(c => c.id === row.contractId);
+                return (
+                    <div key={ri} style={{ marginBottom: '10px', padding: '8px', borderRadius: '8px', background: `${typeInfo.color}08`, border: `1px solid ${typeInfo.color}22` }}>
+                        {/* Contract select */}
+                        <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                            <select
+                                value={row.contractId}
+                                onChange={(e) => updateContract(ri, e.target.value)}
+                                style={{ flex: 1, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, border: '1.5px solid #6366f133', borderRadius: '6px', color: '#1e293b', background: 'rgba(99,102,241,0.04)', cursor: 'pointer', outline: 'none' }}
+                            >
+                                <option value="">Selecteer contract...</option>
+                                {contracten.map(c => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.contractnummer || c.id} {c.klant ? `— ${c.klant}` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            {rows.length > 1 && (
+                                <button onClick={() => removeRow(ri)} style={{ width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.04)', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0 }}>
+                                    <i className="fa-solid fa-xmark" />
+                                </button>
+                            )}
+                        </div>
+                        {/* Contract info badge */}
+                        {contract && (
+                            <div style={{ marginBottom: '6px', fontSize: '0.65rem', color: '#6366f1', background: 'rgba(99,102,241,0.06)', padding: '3px 8px', borderRadius: '4px', display: 'flex', gap: '6px' }}>
+                                {contract.omschrijving && <span><i className="fa-solid fa-tag" style={{ marginRight: '3px' }} />{contract.omschrijving}</span>}
+                                {contract.aanneemsom && <span><i className="fa-solid fa-euro-sign" style={{ marginRight: '3px' }} />{Number(contract.aanneemsom).toLocaleString('nl-NL')}</span>}
+                            </div>
+                        )}
+                        {/* Type select */}
+                        {types.length > 1 && (
+                            <div style={{ marginBottom: '6px' }}>
+                                <select
+                                    value={row.typeId}
+                                    onChange={(e) => updateType(ri, e.target.value)}
+                                    style={{ width: '100%', padding: '4px 8px', fontSize: '0.7rem', fontWeight: 700, border: `1px solid ${typeInfo.color}55`, borderRadius: '6px', color: typeInfo.color, background: `${typeInfo.color}0d`, cursor: 'pointer', outline: 'none' }}
+                                >
+                                    {types.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                </select>
+                            </div>
+                        )}
+                        {/* Day inputs */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
+                            {DAY_LABELS.map((day, di) => (
+                                <div key={di} style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: '0.55rem', fontWeight: 600, color: '#94a3b8', marginBottom: '2px' }}>{day}</div>
+                                    {isNoHours ? (
+                                        <div style={{ height: '30px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${typeInfo.color}15`, border: `1.5px solid ${typeInfo.color}44` }}>
+                                            <i className={`fa-solid ${typeInfo.icon}`} style={{ fontSize: '0.7rem', color: typeInfo.color }} />
+                                        </div>
+                                    ) : (
+                                        <input
+                                            type="text" value={row.hours[di]} placeholder="0"
+                                            onChange={(e) => updateHour(ri, di, e.target.value)}
+                                            style={{ width: '100%', height: '30px', textAlign: 'center', border: `1.5px solid ${parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#e2e8f0'}`, borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, color: parseFloat(row.hours[di]) > 0 ? typeInfo.color : '#94a3b8', background: parseFloat(row.hours[di]) > 0 ? `${typeInfo.color}0d` : '#fff', outline: 'none', boxSizing: 'border-box' }}
+                                            onFocus={(e) => { e.currentTarget.style.borderColor = typeInfo.color; e.currentTarget.select(); }}
+                                            onBlur={(e) => { if (!parseFloat(e.currentTarget.value)) e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                        />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })}
+
+            <button onClick={addRow} style={{ width: '100%', padding: '4px', border: '1px dashed #d0d5dd', borderRadius: '6px', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '0.68rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginBottom: '8px' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#6366f1'; e.currentTarget.style.borderColor = '#6366f1'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderColor = '#d0d5dd'; }}
+            >
+                <i className="fa-solid fa-plus" /> Contract toevoegen
+            </button>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 0', borderTop: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b' }}>Totaal: <span style={{ color: '#6366f1', fontSize: '0.85rem' }}>{getTotal()}u</span></span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={onCancel} style={{ padding: '5px 12px', fontSize: '0.7rem', borderRadius: '16px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', cursor: 'pointer', fontWeight: 600 }}>Annuleren</button>
+                    <button onClick={() => onSave(rows)} style={{ padding: '5px 14px', fontSize: '0.7rem', borderRadius: '16px', border: 'none', background: 'linear-gradient(135deg, #818cf8, #6366f1)', color: '#fff', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <i className="fa-solid fa-check" /> Opslaan
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function ChatBot() {
     const { user, getAllUsers } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
@@ -291,6 +434,7 @@ export default function ChatBot() {
     const [hasNotified, setHasNotified] = useState(false);
     const [showPulse, setShowPulse] = useState(false);
     const [showTemplate, setShowTemplate] = useState(false);
+    const [showZZPTemplate, setShowZZPTemplate] = useState(false);
     const [showEmployeePicker, setShowEmployeePicker] = useState(false);
     const messagesEndRef = useRef(null);
     const userName = user?.name?.split(' ')[0] || 'daar';
@@ -300,7 +444,7 @@ export default function ChatBot() {
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, showTemplate, showEmployeePicker]);
+    }, [messages, showTemplate, showZZPTemplate, showEmployeePicker]);
 
     // Check urenstaat + contract tracker — runs ONCE only
     useEffect(() => {
@@ -339,13 +483,16 @@ export default function ChatBot() {
             ];
 
             // Urenstaat bericht
+            const isZZP = user?.role === "ZZP'er";
             if (!hasHours) {
                 msgs.push({
                     id: 2, from: 'bot',
                     text: `⏱️ Het is ${day} en je urenstaat deze week is nog niet ingevuld.`,
                     time: new Date(),
                     actions: [
-                        { label: '📝 Vul nu in', action: 'fill_template' },
+                        isZZP
+                            ? { label: '📋 Uren boeken als ZZP\'er', action: 'fill_zzp' }
+                            : { label: '📝 Uren boeken als werknemer', action: 'fill_template' },
                         { label: '📋 Urenstaat', action: 'goto_uren' },
                         { label: '💬 Stuur herinnering', action: 'whatsapp_reminder' },
                         { label: '⏰ Later', action: 'later' },
@@ -439,12 +586,78 @@ export default function ChatBot() {
         ]);
     };
 
+    // ZZP uren opslaan (koppelt aan contract)
+    const handleSaveZZPTemplate = (rows) => {
+        const weekNum = getWeekNumber();
+        const year = new Date().getFullYear();
+        const contracten = (() => { try { return JSON.parse(localStorage.getItem('wa_contracten') || '[]'); } catch { return []; } })();
+        const total = rows.reduce((sum, r) => {
+            const typeInfo = UREN_TYPES.find(t => t.id === r.typeId);
+            if (typeInfo?.noHours) return sum;
+            return sum + r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
+        }, 0);
+
+        // Bouw projecten-structuur op met contract-ID als projectId
+        const projectMap = {};
+        rows.forEach((r, i) => {
+            const cid = r.contractId || 'zzp_overig';
+            const typeId = r.typeId || 'normaal';
+            if (!projectMap[cid]) {
+                projectMap[cid] = {
+                    id: 'pzzp' + Date.now() + i,
+                    projectId: cid,        // contract-ID als referentie
+                    contractId: cid,        // extra veld voor herkenbaarheid
+                    types: {},
+                    notes: {}
+                };
+            }
+            const typeInfo = UREN_TYPES.find(t => t.id === typeId);
+            if (typeInfo?.noHours) {
+                projectMap[cid].types[typeId] = ['1','1','1','1','1'];
+                projectMap[cid].notes[typeId] = ['','','','',''];
+            } else {
+                projectMap[cid].types[typeId] = r.hours.map(h => String(h));
+                projectMap[cid].notes[typeId] = ['','','','',''];
+            }
+        });
+        const newProjects = Object.values(projectMap);
+        uren2SaveData(user?.id, weekNum, year, newProjects);
+
+        // Sla ook uren-link op per contract
+        rows.forEach(r => {
+            if (!r.contractId) return;
+            const dayTotal = r.hours.reduce((s, h) => s + (parseFloat(h) || 0), 0);
+            const urenLinks = JSON.parse(localStorage.getItem(`wa_contract_uren_${r.contractId}`) || '[]');
+            urenLinks.push({ weekNum, year, uren: dayTotal, typeId: r.typeId, savedAt: new Date().toISOString() });
+            localStorage.setItem(`wa_contract_uren_${r.contractId}`, JSON.stringify(urenLinks));
+        });
+
+        setShowZZPTemplate(false);
+        const contractLabels = rows.map(r => {
+            const c = contracten.find(x => x.id === r.contractId);
+            return c ? (c.contractnummer || c.id) : 'onbekend';
+        });
+        addBotMessage(`✅ ${total} uur geboekt als ZZP'er op contract${contractLabels.length > 1 ? 'en' : ''}: ${[...new Set(contractLabels)].join(', ')} (week ${weekNum}).`, [
+            { label: '📋 Naar Urenregistratie', action: 'goto_uren' }
+        ]);
+    };
+
     const handleAction = (action) => {
-        if (action === 'fill_template') {
-            addUserMessage('Ja, vul nu in');
+        const isZZP = user?.role === "ZZP'er";
+        if (action === 'fill_zzp') {
+            addUserMessage("Uren boeken als ZZP'er");
             setTimeout(() => {
-                addBotMessage('Hier is je weekstaat template! Vul je uren in per project per dag 👇');
-                setTimeout(() => setShowTemplate(true), 300);
+                addBotMessage('Koppel je uren aan een contractnummer 📋');
+                setTimeout(() => setShowZZPTemplate(true), 300);
+            }, 400);
+        } else if (action === 'fill_template') {
+            addUserMessage(isZZP ? "Uren boeken als ZZP'er" : 'Uren boeken als werknemer');
+            setTimeout(() => {
+                addBotMessage(isZZP
+                    ? 'Koppel je uren aan een contractnummer 📋'
+                    : 'Hier is je weekstaat! Vul je uren in per project per dag 👇'
+                );
+                setTimeout(() => { isZZP ? setShowZZPTemplate(true) : setShowTemplate(true); }, 300);
             }, 400);
         } else if (action === 'goto_uren') {
             addUserMessage('Ga naar Urenregistratie');
@@ -746,6 +959,16 @@ export default function ChatBot() {
                                 <InlineUrenstaat
                                     onSave={handleSaveTemplate}
                                     onCancel={() => { setShowTemplate(false); addBotMessage('Geen probleem! Je kunt later invullen. ⏰'); }}
+                                    allowedTypes={getUserUrenTypes(user?.id)}
+                                />
+                            </div>
+                        )}
+
+                        {showZZPTemplate && (
+                            <div style={{ alignSelf: 'flex-start', maxWidth: '100%' }}>
+                                <InlineUrenstaatZZP
+                                    onSave={handleSaveZZPTemplate}
+                                    onCancel={() => { setShowZZPTemplate(false); addBotMessage('Geen probleem! Je kunt later invullen. ⏰'); }}
                                     allowedTypes={getUserUrenTypes(user?.id)}
                                 />
                             </div>
