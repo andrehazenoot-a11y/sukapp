@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -1083,6 +1083,7 @@ export default function ProjectDossierPage() {
             {activeTab === 'planning' && (
                 <ProjectGantt
                     project={project}
+                    allUsers={allUsers}
                     onSave={(updatedProject) => {
                         setProject(updatedProject);
                         try {

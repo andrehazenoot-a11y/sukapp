@@ -89,6 +89,30 @@ function getWeekNumber(d) {
 }
 function isWeekend(d) { const day = d.getDay(); return day === 0 || day === 6; }
 function isHoliday(d) { return HOLIDAYS_2026[formatDate(d)] || null; }
+function isNonWorkDay(d) { return isWeekend(d) || !!isHoliday(d); }
+// Splits a date range into Mon–Fri segments (skipping Sa/Su) and returns {left,width}% per segment
+function getWorkdaySegments(startDate, endDate, tStart, tEnd, totalDays) {
+    const segments = [];
+    // Clamp to timeline
+    const s = new Date(Math.max(startDate.getTime(), tStart.getTime()));
+    const e = new Date(Math.min(endDate.getTime(), tEnd.getTime()));
+    if (s > e) return segments;
+    let cur = new Date(s);
+    while (cur <= e) {
+        // Skip leading weekends only (feestdagen lopen door in de balk)
+        while (cur <= e && isWeekend(cur)) cur.setDate(cur.getDate() + 1);
+        if (cur > e) break;
+        const segStart = new Date(cur);
+        // Advance through weekdays (incl. feestdagen — die zijn grijs maar balk loopt door)
+        while (cur <= e && !isWeekend(cur)) cur.setDate(cur.getDate() + 1);
+        const segEnd = new Date(cur); segEnd.setDate(segEnd.getDate() - 1);
+        const left  = (diffDays(tStart, segStart) / totalDays) * 100;
+        const width = Math.max(((diffDays(segStart, segEnd) + 1) / totalDays) * 100, 0.6);
+        segments.push({ left, width });
+    }
+    return segments;
+}
+
 function getMonday(d) { const r = new Date(d); const day = r.getDay(); const diff = r.getDate() - day + (day === 0 ? -6 : 1); r.setDate(diff); return r; }
 const MONTHS_NL = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
 const MONTHS_FULL = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'];
@@ -113,6 +137,8 @@ export default function ProjectenPage() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [newProject, setNewProject] = useState({ name: '', client: '', address: '', startDate: '', endDate: '', estimatedHours: '' });
     const [showTaskForm, setShowTaskForm] = useState(false);
+    const [workerTooltip, setWorkerTooltip] = useState(null); // { name, x, y }
+    const [teamPopup, setTeamPopup] = useState(null); // { projectId, taskId|null, x, y }
     const [newTask, setNewTask] = useState({ name: '', startDate: '', endDate: '', assignedTo: [] });
     const dragRef = useRef(null);
     const ganttWrapperRef = useRef(null);
@@ -123,6 +149,24 @@ export default function ProjectenPage() {
     const [zoekTerm, setZoekTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('alle');
 
+    // Afwezigheid registratie (vakantie, ziek, vrije dag, dokter)
+    const [workerAbsences, setWorkerAbsences] = useState(() => {
+        if (typeof window === 'undefined') return [];
+        try { return JSON.parse(localStorage.getItem('schilders-absences') || '[]'); } catch { return []; }
+    });
+    const [absPopup, setAbsPopup] = useState(null); // { workerId, startDate, x, y }
+    const [absForm, setAbsForm] = useState({ type: 'vakantie', startDate: '', endDate: '' });
+    // Taak bewerken vanuit personeelsplanning
+    const [taskEditPopup, setTaskEditPopup] = useState(null); // { projId, taskId, x, y }
+    const [taskEditForm, setTaskEditForm] = useState({ name: '', startDate: '', endDate: '' });
+    // Afwezigheid bewerken
+    const [absEditPopup, setAbsEditPopup] = useState(null); // { absId, x, y }
+    // Sleep-om-taak-te-maken
+    const [drawCreate, setDrawCreate] = useState(null); // { projectId, startDate, currentDate, x, y, width }
+    const [quickTaskPopup, setQuickTaskPopup] = useState(null); // { projectId, startDate, endDate, x, y }
+    const [quickTaskName, setQuickTaskName] = useState('');
+    const drawCreateRef = useRef(null);
+
     // Persist projects to localStorage whenever they change
     const _isSavingRef = useRef(false);
     useEffect(() => {
@@ -131,7 +175,13 @@ export default function ProjectenPage() {
         _isSavingRef.current = false;
     }, [projects]);
 
+    // Persist absences to localStorage
+    useEffect(() => {
+        localStorage.setItem('schilders-absences', JSON.stringify(workerAbsences));
+    }, [workerAbsences]);
+
     // ===== CROSS-TAB SYNC: reload when another tab changes project data =====
+
     useEffect(() => {
         const reloadFromStorage = () => {
             try {
@@ -549,30 +599,43 @@ export default function ProjectenPage() {
         moveBar(projectId, null, days);
     };
 
-    // ===== CALCULATE BAR POSITION =====
+    // ===== CALCULATE BAR POSITION (pixel-exact, mode-aware) =====
+    const getBarSegments = (startStr, endStr, color, extraStyle = {}) => {
+        try {
+            const start = parseDate(startStr);
+            const end   = parseDate(endStr);
+            const tStart = timelineDates[0];
+            const tEnd   = timelineDates[timelineDates.length - 1];
+            if (start > tEnd || end < tStart) return [];
+            const totalDays = timelineDates.length;
+
+            if (viewMode === 'week') {
+                // Week-weergave: één doorlopende balk (weekenden zijn zichtbare kolommen)
+                const barStart = start < tStart ? tStart : start;
+                const barEnd = end > tEnd ? tEnd : end;
+                const offsetDays = diffDays(tStart, barStart);
+                const durationDays = diffDays(barStart, barEnd) + 1;
+                return [{
+                    left:       `${offsetDays * zoomLevel}px`,
+                    width:      `${Math.max(durationDays * zoomLevel, zoomLevel * 0.9)}px`,
+                    background: color,
+                    ...extraStyle,
+                }];
+            }
+
+            // Maand-weergave: gesegmenteerd per weekdagblok (weekenden overgeslagen)
+            return getWorkdaySegments(start, end, tStart, tEnd, totalDays).map(seg => ({
+                left:       `${seg.left * zoomLevel / 100 * totalDays}px`,
+                width:      `${Math.max(seg.width * zoomLevel / 100 * totalDays, zoomLevel * 0.9)}px`,
+                background: color,
+                ...extraStyle,
+            }));
+        } catch { return []; }
+    };
+    // Legacy single-segment style (kept for drag overlay compatibility)
     const getBarStyle = (startStr, endStr, color) => {
-        const start = parseDate(startStr);
-        const end = parseDate(endStr);
-        const timelineStart = timelineDates[0];
-        const timelineEnd = timelineDates[timelineDates.length - 1];
-
-        const barStart = start < timelineStart ? timelineStart : start;
-        const barEnd = end > timelineEnd ? timelineEnd : end;
-
-        if (barStart > timelineEnd || barEnd < timelineStart) return null;
-
-        const totalDays = timelineDates.length;
-        const offsetDays = diffDays(timelineStart, barStart);
-        const durationDays = diffDays(barStart, barEnd) + 1;
-
-        const leftPct = (offsetDays / totalDays) * 100;
-        const widthPct = (durationDays / totalDays) * 100;
-
-        return {
-            left: `${leftPct}%`,
-            width: `${Math.max(widthPct, 2)}%`,
-            background: color,
-        };
+        const segs = getBarSegments(startStr, endStr, color);
+        return segs.length ? segs[0] : null;
     };
 
     // ===== PERSONNEL ASSIGNMENTS =====
@@ -599,6 +662,7 @@ export default function ProjectenPage() {
 
     // ===== RENDER =====
     return (
+        <>
         <div className="content-area" id="view-planning" style={{ maxWidth: '100%', display: 'flex', flexDirection: 'column' }}>
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 }}>
                 <div>
@@ -755,10 +819,7 @@ export default function ProjectenPage() {
                                 <i className="fa-solid fa-chevron-left"></i>
                             </button>
                             <span style={{ fontWeight: 700, fontSize: '0.9rem', minWidth: '140px', textAlign: 'center' }}>
-                                {viewMode === 'week'
-                                    ? `Week ${Math.ceil((timelineDates[0].getDate()) / 7)} — ${MONTHS_FULL[timelineDates[0].getMonth()]} ${timelineDates[0].getFullYear()}`
-                                    : `${MONTHS_FULL[currentDate.getMonth()]} — ${MONTHS_FULL[(currentDate.getMonth() + 1) % 12]} ${currentDate.getFullYear()}`
-                                }
+                                {`${MONTHS_FULL[currentDate.getMonth()]} — ${MONTHS_FULL[(currentDate.getMonth() + 1) % 12]} ${currentDate.getFullYear()}`}
                             </span>
                             <button onClick={() => navigate(1)} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
                                 <i className="fa-solid fa-chevron-right"></i>
@@ -772,12 +833,7 @@ export default function ProjectenPage() {
                                 <button className={`view-btn ${planningView === 'gantt' ? 'active' : ''}`} onClick={() => setPlanningView('gantt')}><i className="fa-solid fa-chart-gantt" style={{ marginRight: '4px' }}></i>Gantt</button>
                                 <button className={`view-btn ${planningView === 'grid' ? 'active' : ''}`} onClick={() => setPlanningView('grid')}><i className="fa-solid fa-grid-2" style={{ marginRight: '4px' }}></i>Grid</button>
                             </div>
-                            {planningView === 'gantt' && (
-                                <div className="view-btns">
-                                    <button className={`view-btn ${viewMode === 'week' ? 'active' : ''}`} onClick={() => setViewMode('week')}>Week</button>
-                                    <button className={`view-btn ${viewMode === 'month' ? 'active' : ''}`} onClick={() => setViewMode('month')}>Maand</button>
-                                </div>
-                            )}
+
                             {planningView === 'gantt' && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#fff', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '2px 4px' }}>
                                     <button onClick={() => setZoomLevel(z => Math.max(16, z - 4))} title="Uitzoomen"
@@ -886,6 +942,7 @@ export default function ProjectenPage() {
                                     {/* Day row */}
                                     <div className="gantt-header-row day-row">
                                         <div className="gantt-header-label" style={{ fontWeight: 700, fontSize: '0.7rem' }}>Project / Taak</div>
+                                        <div className="gantt-team-col header">Team</div>
                                         {timelineDates.map((d, i) => {
                                             const dateStr = formatDate(d);
                                             return (
@@ -893,7 +950,8 @@ export default function ProjectenPage() {
                                                     title={`${d.getDate()} ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`}
                                                     style={{ cursor: 'pointer' }}
                                                     onClick={() => { setViewMode('week'); setCurrentDate(new Date(d)); }}>
-                                                    <div style={{ fontSize: '0.62rem', fontWeight: 700 }}>{d.getDate()}</div>
+                                                    <div style={{ fontSize: '0.52rem', color: 'inherit', lineHeight: 1, marginBottom: '1px', opacity: 0.75 }}>{DAYS_NL[d.getDay()]}</div>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, lineHeight: 1 }}>{d.getDate()}</div>
                                                 </div>
                                             );
                                         })}
@@ -905,6 +963,7 @@ export default function ProjectenPage() {
                             {filteredProjects.map(p => (
                                 <React.Fragment key={p.id}>
                                     <div className="gantt-row" onClick={() => onRowClick(p)}
+                                        data-draw-project={p.id}
                                         style={{ cursor: 'pointer', background: selectedProject?.id === p.id ? 'rgba(250,160,82,0.04)' : undefined }}>
                                         <div className="gantt-row-label">
                                             <i className={expandedProjects.has(p.id) ? "fa-solid fa-chevron-down" : "fa-solid fa-chevron-right"}
@@ -972,27 +1031,115 @@ export default function ProjectenPage() {
                                                 <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: 600, minWidth: '26px', textAlign: 'right' }}>{diffDays(parseDate(p.startDate), parseDate(p.endDate)) + 1}d</span>
                                             </div>
                                         </div>
+                                        {/* ===== TEAM KOLOM (project = alle taak-medewerkers) ===== */}
+                                        {(() => {
+                                            // Uniek samengestelde lijst — ALLEEN niet-afgevinkte taken
+                                            const taskWorkerIds = [...new Set(
+                                                (p.tasks || []).filter(t => !t.completed).flatMap(t => t.assignedTo || [])
+                                            )];
+                                            const workers = taskWorkerIds.map(id => allUsers.find(u => u.id === id)).filter(Boolean);
+                                            const MAX_AV = 4;
+                                            return (
+                                                <div className="gantt-team-col" style={{ justifyContent: 'flex-start', paddingLeft: '4px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                        {workers.slice(0, MAX_AV).map((user, idx) => {
+                                                            const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+                                                            // Welke taken heeft deze persoon?
+                                                            const userTasks = (p.tasks || []).filter(t => (t.assignedTo || []).includes(user.id)).map(t => t.name).join(', ');
+                                                            return (
+                                                                <div key={user.id} className="gantt-worker-avatar"
+                                                                    style={{ background: p.color || '#3b82f6', color: '#fff', marginLeft: idx > 0 ? '-6px' : '0', zIndex: MAX_AV - idx, pointerEvents: 'auto', border: '2px solid #fff' }}
+                                                                    onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setWorkerTooltip({ name: `${user.name || user.email}`, x: r.left + r.width / 2, y: r.top }); }}
+                                                                    onMouseLeave={() => setWorkerTooltip(null)}>
+                                                                    {initials}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {workers.length > MAX_AV && (
+                                                            <div className="gantt-worker-avatar"
+                                                                style={{ background: '#94a3b8', color: '#fff', marginLeft: '-6px', fontSize: '0.42rem', border: '2px solid #fff', pointerEvents: 'auto' }}
+                                                                onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setWorkerTooltip({ name: workers.slice(MAX_AV).map(u => u.name?.split(' ')[0]).join(', '), x: r.left + r.width / 2, y: r.top }); }}
+                                                                onMouseLeave={() => setWorkerTooltip(null)}>
+                                                                +{workers.length - MAX_AV}
+                                                            </div>
+                                                        )}
+                                                        {workers.length === 0 && (
+                                                            <span style={{ fontSize: '0.58rem', color: '#d1d5db', fontStyle: 'italic' }}>—</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                         <div className="gantt-row-timeline">
                                             {timelineDates.map((d, i) => (
-                                                <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''} ${isHoliday(d) ? 'holiday' : ''}`}></div>
+                                                <div key={i}
+                                                    className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''} ${isHoliday(d) ? 'holiday' : ''}`}
+                                                    style={{ pointerEvents: 'auto', cursor: isWeekend(d) ? 'default' : 'crosshair' }}
+                                                    onMouseDown={isWeekend(d) ? undefined : (e) => {
+                                                        if (e.button !== 0) return;
+                                                        // Only start draw if clicking on the cell itself, not on a bar
+                                                        if (e.target.closest('.gantt-bar') || e.target.closest('.resize-handle')) return;
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        const dateStr = formatDate(d);
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        const dc = { projectId: p.id, startDate: dateStr, currentDate: dateStr, startX: rect.left, currentX: rect.right, y: rect.top };
+                                                        drawCreateRef.current = dc;
+                                                        setDrawCreate({ ...dc });
+                                                        // Expand project so user sees tasks
+                                                        setExpandedProjects(prev => new Set([...prev, p.id]));
+
+                                                        const onMove = (me) => {
+                                                            // Find which date the mouse is over
+                                                            const timelineEls = document.querySelectorAll(`[data-draw-project="${p.id}"] .gantt-cell`);
+                                                            let hovDate = null;
+                                                            let hovX = me.clientX;
+                                                            timelineEls.forEach((el, idx) => {
+                                                                const r = el.getBoundingClientRect();
+                                                                if (me.clientX >= r.left && me.clientX <= r.right) {
+                                                                    hovDate = formatDate(timelineDates[idx]);
+                                                                    hovX = r.right;
+                                                                }
+                                                            });
+                                                            if (hovDate && drawCreateRef.current) {
+                                                                const updated = { ...drawCreateRef.current, currentDate: hovDate, currentX: hovX };
+                                                                drawCreateRef.current = updated;
+                                                                setDrawCreate({ ...updated });
+                                                            }
+                                                        };
+                                                        const onUp = (ue) => {
+                                                            document.removeEventListener('mousemove', onMove, true);
+                                                            document.removeEventListener('mouseup', onUp, true);
+                                                            const dc2 = drawCreateRef.current;
+                                                            setDrawCreate(null);
+                                                            drawCreateRef.current = null;
+                                                            if (!dc2) return;
+                                                            const s = dc2.startDate <= dc2.currentDate ? dc2.startDate : dc2.currentDate;
+                                                            const eDate = dc2.startDate <= dc2.currentDate ? dc2.currentDate : dc2.startDate;
+                                                            setQuickTaskPopup({ projectId: dc2.projectId, startDate: s, endDate: eDate, x: ue.clientX, y: ue.clientY });
+                                                            setQuickTaskName('');
+                                                        };
+                                                        document.addEventListener('mousemove', onMove, true);
+                                                        document.addEventListener('mouseup', onUp, true);
+                                                    }}
+                                                ></div>
                                             ))}
-                                            {/* Project bar */}
-                                            {(() => {
-                                                const style = getBarStyle(p.startDate, p.endDate, p.color);
-                                                if (!style) return null;
-                                                return <div className="gantt-bar" data-project-id={p.id} data-task-id={null} style={{ ...style, cursor: 'grab' }}
-                                                >
-                                                    <div className="resize-handle resize-handle-left" ></div>
-                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>{p.name}</span>
-                                                    <div className="resize-handle resize-handle-right" ></div>
-                                                </div>;
-                                            })()}
+                                            {/* Project bar — schoon zonder avatars */}
+                                            {getBarSegments(p.startDate, p.endDate, p.color).map((segStyle, si, segs) => (
+                                                <div key={si} className="gantt-bar" data-project-id={p.id} data-task-id={null}
+                                                    style={{ ...segStyle, cursor: 'grab', borderRadius: si === 0 && segs.length === 1 ? '6px' : si === 0 ? '6px 0 0 6px' : si === segs.length - 1 ? '0 6px 6px 0' : '0' }}>
+                                                    {si === 0 && <div className="resize-handle resize-handle-left"></div>}
+                                                    {si === 0 && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>{p.name}</span>}
+                                                    {si === segs.length - 1 && <div className="resize-handle resize-handle-right"></div>}
+                                                </div>
+                                            ))}
+                                            {/* Weekend overlays removed */}
                                         </div>
                                     </div>
                                     {/* Inline task rows when expanded */}
                                     {expandedProjects.has(p.id) && p.tasks.map(t => (
                                         <div key={t.id} className="gantt-row" onClick={() => onTaskRowClick(p.id, t.id)}
-                                            style={{ background: selectedTask?.taskId === t.id ? 'rgba(250,160,82,0.08)' : 'rgba(0,0,0,0.015)', cursor: 'pointer', borderLeft: selectedTask?.taskId === t.id ? '3px solid var(--accent)' : '3px solid transparent' }}>
+                                            style={{ background: selectedTask?.taskId === t.id ? 'rgba(250,160,82,0.08)' : 'rgba(0,0,0,0.015)', cursor: 'pointer', boxShadow: selectedTask?.taskId === t.id ? 'inset 3px 0 0 var(--accent)' : 'none' }}>
                                             <div className="gantt-row-label" style={{ paddingLeft: '36px', flexDirection: 'column', alignItems: 'stretch', gap: '2px', padding: '4px 10px 4px 36px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                     <input type="checkbox" checked={t.completed} onChange={() => toggleTask(p.id, t.id)}
@@ -1083,20 +1230,82 @@ export default function ProjectenPage() {
                                                     </button>
                                                 </div>
                                             </div>
+                                            {/* ===== TEAM KOLOM (taak) ===== */}
+                                            <div className="gantt-team-col" style={{ background: 'rgba(0,0,0,0.015)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                    {(t.assignedTo || []).slice(0, 3).map((uid, idx) => {
+                                                        const user = allUsers.find(u => u.id === uid);
+                                                        if (!user) return null;
+                                                        const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+                                                        return (
+                                                            <div key={uid} className="gantt-worker-avatar"
+                                                                style={{ width: '16px', height: '16px', fontSize: '0.4rem', background: p.color + 'cc', color: '#fff', marginLeft: idx > 0 ? '-4px' : '0', border: '2px solid #fff', pointerEvents: 'auto' }}
+                                                                onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setWorkerTooltip({ name: user.name || user.email, x: r.left + r.width / 2, y: r.top }); }}
+                                                                onMouseLeave={() => setWorkerTooltip(null)}>
+                                                                {initials}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {(t.assignedTo || []).length === 0 && (
+                                                        <span title="Geen medewerkers ingepland" style={{
+                                                            display: 'inline-flex', alignItems: 'center', gap: '3px',
+                                                            fontSize: '0.55rem', fontWeight: 700,
+                                                            color: '#ef4444',
+                                                            background: '#fee2e2',
+                                                            border: '1px solid #fca5a5',
+                                                            borderRadius: '5px',
+                                                            padding: '1px 5px',
+                                                            whiteSpace: 'nowrap',
+                                                        }}>
+                                                            <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.45rem' }} />
+                                                            niet ingepland
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {/* + knop voor taak */}
+                                                <button
+                                                    onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ projectId: p.id, taskId: t.id, x: r.left, y: r.bottom }); }}
+                                                    title="Personeel inplannen op taak"
+                                                    style={{ width: '14px', height: '14px', borderRadius: '50%', border: '1.5px solid #d1d5db', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#94a3b8', fontSize: '0.45rem', transition: 'all 0.15s', outline: 'none', pointerEvents: 'auto' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.borderColor = p.color; e.currentTarget.style.color = p.color; e.currentTarget.style.background = `${p.color}14`; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = '#fff'; }}>
+                                                    <i className="fa-solid fa-plus"></i>
+                                                </button>
+                                            </div>
                                             <div className="gantt-row-timeline">
                                                 {timelineDates.map((d, i) => (
                                                     <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''}`}></div>
                                                 ))}
+                                                {/* Task bar — weekday segments only */}
                                                 {(() => {
-                                                    const style = getBarStyle(t.startDate, t.endDate, p.color + 'bb');
-                                                    if (!style) return null;
-                                                    return <div className="gantt-bar" data-project-id={p.id} data-task-id={t.id} style={{ ...style, height: '18px', top: '6px', fontSize: '0.58rem', opacity: t.completed ? 0.4 : 1, cursor: 'grab' }}
-                                                    >
-                                                        <div className="resize-handle resize-handle-left" ></div>
-                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>{t.name}</span>
-                                                        <div className="resize-handle resize-handle-right" ></div>
-                                                    </div>;
+                                                    const noTeam = (t.assignedTo || []).length === 0;
+                                                    const barColor = noTeam ? '#ef444488' : p.color + 'bb';
+                                                    const segs = getBarSegments(t.startDate, t.endDate, barColor);
+                                                    return segs.map((segStyle, si) => (
+                                                        <div key={si} className="gantt-bar" data-project-id={p.id} data-task-id={t.id}
+                                                            style={{
+                                                                ...segStyle,
+                                                                height: '18px', top: '6px', fontSize: '0.58rem',
+                                                                opacity: t.completed ? 0.4 : 1, cursor: 'grab',
+                                                                borderRadius: si === 0 && segs.length === 1 ? '5px' : si === 0 ? '5px 0 0 5px' : si === segs.length - 1 ? '0 5px 5px 0' : '0',
+                                                                ...(noTeam && {
+                                                                    background: `repeating-linear-gradient(45deg, #ef444455, #ef444455 4px, #ef444422 4px, #ef444422 8px)`,
+                                                                    border: '1.5px dashed #ef4444',
+                                                                    boxShadow: 'none',
+                                                                }),
+                                                            }}>
+                                                            {si === 0 && <div className="resize-handle resize-handle-left"></div>}
+                                                            {si === 0 && (
+                                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                                    {noTeam && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
+                                                                    <span style={{ color: noTeam ? '#ef4444' : undefined, fontWeight: noTeam ? 700 : undefined }}>{t.name}</span>
+                                                                </span>
+                                                            )}
+                                                            {si === segs.length - 1 && <div className="resize-handle resize-handle-right"></div>}
+                                                        </div>
+                                                    ));
                                                 })()}
+                                                {/* Weekend cell backgrounds provide the gap indicator */}
                                             </div>
                                         </div>
                                     ))}
@@ -1118,6 +1327,8 @@ export default function ProjectenPage() {
                                                     }}
                                                     style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: '0.68rem', color: '#94a3b8', padding: '2px 4px', fontStyle: 'italic' }} />
                                             </div>
+                                            {/* Lege team-kolom voor uitlijning */}
+                                            <div className="gantt-team-col" style={{ background: 'rgba(0,0,0,0.01)' }}></div>
                                             <div className="gantt-row-timeline">
                                                 {timelineDates.map((d, i) => (
                                                     <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''}`}></div>
@@ -1316,7 +1527,7 @@ export default function ProjectenPage() {
                         </div>
                     )}
 
-                    {/* Selected project details */}
+
                     {selectedProject && (
                         <div className="project-detail-panel">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1393,6 +1604,182 @@ export default function ProjectenPage() {
                                 }}></div>
                             </div>
 
+                            {/* ===== TAAK PERSONEEL INPLANNEN (toont als taak geselecteerd is) ===== */}
+                            {selectedTask && (() => {
+                                const proj = projects.find(pr => pr.id === selectedTask.projectId);
+                                const task = proj?.tasks.find(t => t.id === selectedTask.taskId);
+                                if (!proj || !task) return null;
+                                const taskColor = proj.color || 'var(--accent)';
+                                const updateTaskWorkers = (updated) => {
+                                    setProjects(prev => prev.map(pr =>
+                                        pr.id !== proj.id ? pr : {
+                                            ...pr,
+                                            tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, assignedTo: updated })
+                                        }
+                                    ));
+                                };
+                                return (
+                                    <div style={{ marginTop: '14px', borderTop: '1px solid #f1f5f9', paddingTop: '12px', background: `${taskColor}08`, borderRadius: '10px', padding: '12px', border: `1.5px solid ${taskColor}30`, marginBottom: '4px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                                <i className="fa-solid fa-list-check" style={{ color: taskColor, fontSize: '0.75rem' }}></i>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b' }}>{task.name}</span>
+                                            </div>
+                                            <button onClick={() => setSelectedTask(null)}
+                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.7rem', padding: '2px 4px' }}>
+                                                <i className="fa-solid fa-xmark"></i>
+                                            </button>
+                                        </div>
+                                        {/* Taak datums */}
+                                        <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748b' }}>Start:</span>
+                                                <input type="date" value={task.startDate}
+                                                    onChange={e => {
+                                                        const updated = e.target.value;
+                                                        setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                                                            ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, startDate: updated })
+                                                        }));
+                                                    }}
+                                                    style={{ padding: '3px 7px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.72rem', outline: 'none' }} />
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748b' }}>Einde:</span>
+                                                <input type="date" value={task.endDate}
+                                                    onChange={e => {
+                                                        const updated = e.target.value;
+                                                        setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                                                            ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, endDate: updated })
+                                                        }));
+                                                    }}
+                                                    style={{ padding: '3px 7px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.72rem', outline: 'none' }} />
+                                            </div>
+                                        </div>
+                                        {/* Personeel inplannen op taak */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <i className="fa-solid fa-users" style={{ color: taskColor }}></i>
+                                                Personeel op taak
+                                            </span>
+                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{(task.assignedTo || []).length} ingepland</span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                            {allUsers.map(user => {
+                                                const assigned = (task.assignedTo || []).includes(user.id);
+                                                const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+                                                return (
+                                                    <button key={user.id}
+                                                        onClick={() => updateTaskWorkers(assigned ? (task.assignedTo || []).filter(id => id !== user.id) : [...(task.assignedTo || []), user.id])}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', gap: '6px',
+                                                            padding: '4px 10px 4px 5px', borderRadius: '20px', cursor: 'pointer',
+                                                            border: assigned ? `2px solid ${taskColor}` : '2px solid #e2e8f0',
+                                                            background: assigned ? `${taskColor}18` : '#fff',
+                                                            transition: 'all 0.15s', outline: 'none',
+                                                        }}
+                                                        onMouseEnter={e => { if (!assigned) { e.currentTarget.style.borderColor = taskColor; e.currentTarget.style.background = `${taskColor}0d`; } }}
+                                                        onMouseLeave={e => { if (!assigned) { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fff'; } }}
+                                                    >
+                                                        <div style={{
+                                                            width: '22px', height: '22px', borderRadius: '50%',
+                                                            background: assigned ? taskColor : '#e2e8f0',
+                                                            color: assigned ? '#fff' : '#64748b',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            fontSize: '0.55rem', fontWeight: 700, flexShrink: 0,
+                                                        }}>
+                                                            {initials}
+                                                        </div>
+                                                        <span style={{ fontSize: '0.7rem', fontWeight: assigned ? 700 : 500, color: assigned ? taskColor : '#475569', whiteSpace: 'nowrap' }}>
+                                                            {user.name?.split(' ')[0] || user.email}
+                                                        </span>
+                                                        {assigned && <i className="fa-solid fa-check" style={{ fontSize: '0.5rem', color: taskColor }}></i>}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* ===== PERSONEEL INPLANNEN ===== */}
+                            <div style={{ marginTop: '14px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fa-solid fa-users" style={{ color: selectedProject.color || 'var(--accent)' }}></i>
+                                        Personeel inplannen
+                                    </span>
+                                    <span style={{ fontSize: '0.67rem', color: '#94a3b8' }}>
+                                        {(selectedProject.assignedWorkers || []).length} ingepland
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                    {allUsers.map(user => {
+                                        const assigned = (selectedProject.assignedWorkers || []).includes(user.id);
+                                        const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+                                        const avatarColor = user.avatarColor || selectedProject.color || '#3b82f6';
+                                        return (
+                                            <button
+                                                key={user.id}
+                                                title={assigned ? `${user.name} uitplannen` : `${user.name} inplannen`}
+                                                onClick={() => {
+                                                    const current = selectedProject.assignedWorkers || [];
+                                                    const updated = assigned
+                                                        ? current.filter(id => id !== user.id)
+                                                        : [...current, user.id];
+                                                    setProjects(prev => prev.map(pr =>
+                                                        pr.id !== selectedProject.id ? pr : { ...pr, assignedWorkers: updated }
+                                                    ));
+                                                    setSelectedProject(prev => prev ? { ...prev, assignedWorkers: updated } : prev);
+                                                }}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: '7px',
+                                                    padding: '5px 11px 5px 6px',
+                                                    borderRadius: '20px',
+                                                    border: assigned ? `2px solid ${selectedProject.color || 'var(--accent)'}` : '2px solid #e2e8f0',
+                                                    background: assigned ? `${selectedProject.color || 'var(--accent)'}18` : '#fff',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.15s',
+                                                    outline: 'none',
+                                                }}
+                                                onMouseEnter={e => {
+                                                    if (!assigned) { e.currentTarget.style.borderColor = selectedProject.color || 'var(--accent)'; e.currentTarget.style.background = `${selectedProject.color || 'var(--accent)'}0d`; }
+                                                }}
+                                                onMouseLeave={e => {
+                                                    if (!assigned) { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fff'; }
+                                                }}
+                                            >
+                                                {/* Avatar circle */}
+                                                <div style={{
+                                                    width: '26px', height: '26px', borderRadius: '50%',
+                                                    background: assigned ? (selectedProject.color || '#3b82f6') : avatarColor + '30',
+                                                    color: assigned ? '#fff' : (avatarColor || '#64748b'),
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontSize: '0.6rem', fontWeight: 700, flexShrink: 0,
+                                                    border: assigned ? 'none' : `1px solid ${avatarColor}60`,
+                                                }}>
+                                                    {initials}
+                                                </div>
+                                                {/* Name */}
+                                                <span style={{
+                                                    fontSize: '0.72rem', fontWeight: assigned ? 700 : 500,
+                                                    color: assigned ? (selectedProject.color || 'var(--accent)') : '#475569',
+                                                    whiteSpace: 'nowrap',
+                                                }}>
+                                                    {user.name?.split(' ')[0] || user.email}
+                                                </span>
+                                                {/* Check icon when assigned */}
+                                                {assigned && (
+                                                    <i className="fa-solid fa-check" style={{ fontSize: '0.55rem', color: selectedProject.color || 'var(--accent)' }}></i>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                    {allUsers.length === 0 && (
+                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>Geen medewerkers gevonden</span>
+                                    )}
+                                </div>
+                            </div>
+
                             {/* Nieuwe taak formulier */}
                             <div style={{ marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
                                 {!showTaskForm ? (
@@ -1460,109 +1847,347 @@ export default function ProjectenPage() {
             }
 
             {/* ===== TAB 2: PERSONEELSPLANNING ===== */}
-            {
-                tab === 'personeel' && (
-                    <div>
+            {tab === 'personeel' && (() => {
+                const workers = allUsers.filter(u => u.role !== 'Beheerder');
+                const tStart = timelineDates[0];
+                const tEnd = timelineDates[timelineDates.length - 1];
+                const totalDays = timelineDates.length;
+
+                const ABS_TYPES = {
+                    vakantie:  { label: 'Vakantie',       color: '#f59e0b', icon: 'fa-umbrella-beach',   bg: 'rgba(245,158,11,0.12)' },
+                    ziek:      { label: 'Ziek',           color: '#ef4444', icon: 'fa-face-thermometer', bg: 'rgba(239,68,68,0.12)'  },
+                    vrije_dag: { label: 'Vrije dag',      color: '#ec4899', icon: 'fa-calendar-xmark',   bg: 'rgba(236,72,153,0.12)' },
+                    dokter:    { label: 'Dokter/Tandarts',color: '#eab308', icon: 'fa-stethoscope',       bg: 'rgba(234,179,8,0.12)'  },
+                };
+
+                const toggleWorkerOnProject = (userId, projId) => {
+                    setProjects(prev => prev.map(pr => {
+                        if (pr.id !== projId) return pr;
+                        const on = (pr.tasks || []).some(t => (t.assignedTo || []).includes(userId));
+                        return { ...pr, tasks: (pr.tasks || []).map(t => ({ ...t, assignedTo: on ? (t.assignedTo||[]).filter(id=>id!==userId) : [...new Set([...(t.assignedTo||[]),userId])] })) };
+                    }));
+                };
+
+                const getWorkerBars = (userId) => {
+                    const bars = [];
+                    projects.forEach(proj => (proj.tasks||[]).forEach(task => {
+                        if (!(task.assignedTo||[]).includes(userId)) return;
+                        try {
+                            const s = parseDate(task.startDate), e = parseDate(task.endDate);
+                            if (s > tEnd || e < tStart) return;
+                            const segs = getWorkdaySegments(s, e, tStart, tEnd, totalDays);
+                            segs.forEach((seg, si) => bars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length }));
+                        } catch {}
+                    }));
+                    return bars;
+                };
+
+                const getAbsBars = (userId) => (workerAbsences||[]).filter(a=>a.userId===userId).flatMap(a => {
+                    try {
+                        const s = parseDate(a.startDate), e = parseDate(a.endDate);
+                        if (s > tEnd || e < tStart) return [];
+                        return getWorkdaySegments(s, e, tStart, tEnd, totalDays).map((seg, si, arr) => ({ ...a, left: seg.left, width: seg.width, si, total: arr.length }));
+                    } catch { return []; }
+                });
+
+                const isAbsent = (userId, ds) => (workerAbsences||[]).some(a => a.userId===userId && ds>=a.startDate && ds<=a.endDate);
+
+                const dailyCounts = timelineDates.map(d => {
+                    if (isWeekend(d)) return null; // gesloten op za/zo
+                    const ds = formatDate(d);
+                    return workers.filter(u => !isAbsent(u.id,ds) && projects.some(proj => (proj.tasks||[]).some(t => (t.assignedTo||[]).includes(u.id) && ds>=t.startDate && ds<=t.endDate))).length;
+                });
+
+                const handleTimelineClick = (e, workerId) => {
+                    if (e.target.closest('.abs-bar') || e.target.closest('.task-bar')) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const idx = Math.min(Math.floor(((e.clientX-rect.left)/rect.width)*totalDays), totalDays-1);
+                    const ds = formatDate(timelineDates[Math.max(0,idx)]);
+                    setAbsForm({ type: 'vakantie', startDate: ds, endDate: ds });
+                    setAbsPopup({ workerId, x: e.clientX, y: e.clientY });
+                };
+
+                const deleteAbsence = (id) => setWorkerAbsences(prev => prev.filter(a => a.id !== id));
+
+                const saveAbsence = () => {
+                    if (!absPopup || !absForm.startDate || !absForm.endDate) return;
+                    setWorkerAbsences(prev => [...prev, { id: Date.now(), userId: absPopup.workerId, type: absForm.type, startDate: absForm.startDate, endDate: absForm.endDate }]);
+                    setAbsPopup(null);
+                };
+
+                // Taak bewerken: klik op project-balk
+                const openTaskEdit = (e, proj, task) => {
+                    e.stopPropagation();
+                    setTaskEditForm({ name: task.name, startDate: task.startDate, endDate: task.endDate });
+                    setTaskEditPopup({ projId: proj.id, taskId: task.id, projColor: proj.color, projName: proj.name, x: e.clientX, y: e.clientY });
+                };
+
+                const saveTaskEdit = () => {
+                    if (!taskEditPopup) return;
+                    setProjects(prev => prev.map(pr => {
+                        if (pr.id !== taskEditPopup.projId) return pr;
+                        return { ...pr, tasks: (pr.tasks || []).map(t => t.id === taskEditPopup.taskId ? { ...t, name: taskEditForm.name, startDate: taskEditForm.startDate, endDate: taskEditForm.endDate } : t) };
+                    }));
+                    setTaskEditPopup(null);
+                };
+
+                // Afwezigheid bewerken: klik op abs-balk
+                const openAbsEdit = (e, abs) => {
+                    e.stopPropagation();
+                    setAbsForm({ type: abs.type, startDate: abs.startDate, endDate: abs.endDate });
+                    setAbsEditPopup({ absId: abs.id, x: e.clientX, y: e.clientY });
+                };
+
+                const saveAbsEdit = () => {
+                    if (!absEditPopup) return;
+                    setWorkerAbsences(prev => prev.map(a => a.id === absEditPopup.absId ? { ...a, type: absForm.type, startDate: absForm.startDate, endDate: absForm.endDate } : a));
+                    setAbsEditPopup(null);
+                };
+
+
+                return (
+                    <div style={{ position: 'relative' }}>
+
+                        {absPopup && (
+                            <>
+                                <div onClick={() => setAbsPopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
+                                <div style={{ position: 'fixed', left: Math.min(absPopup.x, window.innerWidth-320), top: Math.min(absPopup.y+12, window.innerHeight-290), zIndex: 9999, background: '#fff', borderRadius: '14px', boxShadow: '0 12px 40px rgba(0,0,0,0.18)', padding: '18px', width: '300px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                        <i className="fa-solid fa-calendar-xmark" style={{ color: '#F5850A' }}></i> Afwezigheid registreren
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '14px' }}>
+                                        {Object.entries(ABS_TYPES).map(([key, cfg]) => (
+                                            <button key={key} onClick={() => setAbsForm(f => ({ ...f, type: key }))}
+                                                style={{ padding: '8px 6px', borderRadius: '9px', cursor: 'pointer', border: `2px solid ${absForm.type===key?cfg.color:'#e2e8f0'}`, background: absForm.type===key?cfg.bg:'#f8fafc', color: absForm.type===key?cfg.color:'#64748b', fontWeight: 700, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.12s' }}>
+                                                <i className={`fa-solid ${cfg.icon}`}></i>{cfg.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+                                        <div><div style={{ fontSize:'0.62rem',fontWeight:700,color:'#64748b',marginBottom:'4px' }}>Van</div>
+                                            <input type="date" value={absForm.startDate} onChange={e=>setAbsForm(f=>({...f,startDate:e.target.value}))} style={{ width:'100%',border:'1px solid #e2e8f0',borderRadius:'7px',padding:'6px 8px',fontSize:'0.75rem',outline:'none',boxSizing:'border-box' }} /></div>
+                                        <div><div style={{ fontSize:'0.62rem',fontWeight:700,color:'#64748b',marginBottom:'4px' }}>Tot en met</div>
+                                            <input type="date" value={absForm.endDate} onChange={e=>setAbsForm(f=>({...f,endDate:e.target.value}))} style={{ width:'100%',border:'1px solid #e2e8f0',borderRadius:'7px',padding:'6px 8px',fontSize:'0.75rem',outline:'none',boxSizing:'border-box' }} /></div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => setAbsPopup(null)} style={{ flex:1,padding:'8px',border:'1px solid #e2e8f0',borderRadius:'8px',background:'#f8fafc',color:'#64748b',fontWeight:600,fontSize:'0.75rem',cursor:'pointer' }}>Annuleren</button>
+                                        <button onClick={saveAbsence} style={{ flex:2,padding:'8px',border:'none',borderRadius:'8px',background:ABS_TYPES[absForm.type].color,color:'#fff',fontWeight:700,fontSize:'0.75rem',cursor:'pointer' }}>
+                                            <i className="fa-solid fa-check" style={{ marginRight:'5px' }}></i>Opslaan
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {/* === Popup: taak bewerken === */}
+                        {taskEditPopup && (
+                            <>
+                                <div onClick={() => setTaskEditPopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
+                                <div style={{ position: 'fixed', left: Math.min(taskEditPopup.x, window.innerWidth-320), top: Math.min(taskEditPopup.y+12, window.innerHeight-290), zIndex: 9999, background: '#fff', borderRadius: '14px', boxShadow: '0 12px 40px rgba(0,0,0,0.18)', padding: '18px', width: '300px', border: `2px solid ${taskEditPopup.projColor}` }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: taskEditPopup.projColor, flexShrink: 0 }}></div>
+                                        Taak bewerken
+                                    </div>
+                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginBottom: '14px' }}>{taskEditPopup.projName}</div>
+                                    <div style={{ marginBottom: '10px' }}>
+                                        <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Taaknaam</div>
+                                        <input type="text" value={taskEditForm.name} onChange={e => setTaskEditForm(f => ({ ...f, name: e.target.value }))}
+                                            style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', fontWeight: 600 }} />
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+                                        <div><div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Startdatum</div>
+                                            <input type="date" value={taskEditForm.startDate} onChange={e => setTaskEditForm(f => ({ ...f, startDate: e.target.value }))} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }} /></div>
+                                        <div><div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Einddatum</div>
+                                            <input type="date" value={taskEditForm.endDate} onChange={e => setTaskEditForm(f => ({ ...f, endDate: e.target.value }))} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }} /></div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => setTaskEditPopup(null)} style={{ flex: 1, padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '0.75rem', cursor: 'pointer' }}>Annuleren</button>
+                                        <button onClick={saveTaskEdit} style={{ flex: 2, padding: '8px', border: 'none', borderRadius: '8px', background: taskEditPopup.projColor, color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>
+                                            <i className="fa-solid fa-check" style={{ marginRight: '5px' }}></i>Opslaan
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {/* === Popup: afwezigheid bewerken === */}
+                        {absEditPopup && (
+                            <>
+                                <div onClick={() => setAbsEditPopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
+                                <div style={{ position: 'fixed', left: Math.min(absEditPopup.x, window.innerWidth-320), top: Math.min(absEditPopup.y+12, window.innerHeight-290), zIndex: 9999, background: '#fff', borderRadius: '14px', boxShadow: '0 12px 40px rgba(0,0,0,0.18)', padding: '18px', width: '300px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <span><i className="fa-solid fa-pen-to-square" style={{ color: '#F5850A', marginRight: '7px' }}></i>Afwezigheid bewerken</span>
+                                        <button onClick={() => { deleteAbsence(absEditPopup.absId); setAbsEditPopup(null); }} title="Verwijderen" style={{ border: 'none', background: '#fee2e2', color: '#ef4444', borderRadius: '6px', padding: '3px 7px', cursor: 'pointer', fontWeight: 700, fontSize: '0.7rem' }}>
+                                            <i className="fa-solid fa-trash"></i>
+                                        </button>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '14px' }}>
+                                        {Object.entries(ABS_TYPES).map(([key, cfg]) => (
+                                            <button key={key} onClick={() => setAbsForm(f => ({ ...f, type: key }))} style={{ padding: '8px 6px', borderRadius: '9px', cursor: 'pointer', border: `2px solid ${absForm.type===key?cfg.color:'#e2e8f0'}`, background: absForm.type===key?cfg.bg:'#f8fafc', color: absForm.type===key?cfg.color:'#64748b', fontWeight: 700, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.12s' }}>
+                                                <i className={`fa-solid ${cfg.icon}`}></i>{cfg.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+                                        <div><div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Van</div>
+                                            <input type="date" value={absForm.startDate} onChange={e => setAbsForm(f => ({ ...f, startDate: e.target.value }))} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }} /></div>
+                                        <div><div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Tot en met</div>
+                                            <input type="date" value={absForm.endDate} onChange={e => setAbsForm(f => ({ ...f, endDate: e.target.value }))} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }} /></div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => setAbsEditPopup(null)} style={{ flex: 1, padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '0.75rem', cursor: 'pointer' }}>Annuleren</button>
+                                        <button onClick={saveAbsEdit} style={{ flex: 2, padding: '8px', border: 'none', borderRadius: '8px', background: ABS_TYPES[absForm.type].color, color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>
+                                            <i className="fa-solid fa-check" style={{ marginRight: '5px' }}></i>Opslaan
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
                         <div className="planning-toolbar">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <button onClick={() => navigate(-1)} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
-                                    <i className="fa-solid fa-chevron-left"></i>
-                                </button>
-                                <span style={{ fontWeight: 700, fontSize: '0.9rem', minWidth: '140px', textAlign: 'center' }}>
-                                    {viewMode === 'week'
-                                        ? `Week ${Math.ceil(timelineDates[0]?.getDate() / 7)} — ${MONTHS_FULL[timelineDates[0]?.getMonth()]} ${timelineDates[0]?.getFullYear()}`
-                                        : `${MONTHS_FULL[currentDate.getMonth()]} — ${MONTHS_FULL[(currentDate.getMonth() + 1) % 12]} ${currentDate.getFullYear()}`
-                                    }
+                                <button onClick={() => navigate(-1)} style={{ border:'1px solid var(--border-color)',background:'#fff',borderRadius:'8px',padding:'6px 10px',cursor:'pointer' }}><i className="fa-solid fa-chevron-left"></i></button>
+                                <span style={{ fontWeight:700,fontSize:'0.9rem',minWidth:'160px',textAlign:'center' }}>
+                                    {viewMode==='week' ? `Week ${getWeekNumber(timelineDates[0])} — ${MONTHS_FULL[timelineDates[0]?.getMonth()]} ${timelineDates[0]?.getFullYear()}` : `${MONTHS_FULL[currentDate.getMonth()]} — ${MONTHS_FULL[(currentDate.getMonth()+1)%12]} ${currentDate.getFullYear()}`}
                                 </span>
-                                <button onClick={() => navigate(1)} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
-                                    <i className="fa-solid fa-chevron-right"></i>
-                                </button>
-                                <button onClick={() => setCurrentDate(new Date())} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#64748b' }}>
-                                    Vandaag
-                                </button>
+                                <button onClick={() => navigate(1)} style={{ border:'1px solid var(--border-color)',background:'#fff',borderRadius:'8px',padding:'6px 10px',cursor:'pointer' }}><i className="fa-solid fa-chevron-right"></i></button>
+                                <button onClick={() => setCurrentDate(new Date())} style={{ border:'1px solid var(--border-color)',background:'#fff',borderRadius:'8px',padding:'6px 10px',cursor:'pointer',fontSize:'0.78rem',fontWeight:600,color:'#64748b' }}>Vandaag</button>
                             </div>
                             <div className="view-btns">
-                                <button className={`view-btn ${viewMode === 'week' ? 'active' : ''}`} onClick={() => setViewMode('week')}>Week</button>
-                                <button className={`view-btn ${viewMode === 'month' ? 'active' : ''}`} onClick={() => setViewMode('month')}>Maand</button>
+                                <button className={`view-btn ${viewMode==='week'?'active':''}`} onClick={()=>setViewMode('week')}>Week</button>
+                                <button className={`view-btn ${viewMode==='month'?'active':''}`} onClick={()=>setViewMode('month')}>Maand</button>
                             </div>
                         </div>
 
-                        <div className="gantt-wrapper">
-                            {/* Header */}
-                            <div className="gantt-header">
-                                <div className="gantt-header-project">Medewerker</div>
-                                {timelineDates.map((d, i) => (
-                                    <div key={i} className={`gantt-header-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''}`}>
-                                        <div>{DAYS_NL[d.getDay()]}</div>
-                                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>{d.getDate()}</div>
+                        <div style={{ display:'flex',alignItems:'center',gap:'16px',padding:'8px 14px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:'10px',marginBottom:'12px',flexWrap:'wrap' }}>
+                            <span style={{ fontSize:'0.68rem',fontWeight:700,color:'#64748b' }}>
+                                <i className="fa-solid fa-circle-info" style={{ color:'#F5850A',marginRight:'4px' }}></i>
+                                Klik op tijdlijn → afwezigheid invoeren &nbsp;·&nbsp; Klik op badge → project toewijzen
+                            </span>
+                            <div style={{ display:'flex',gap:'10px',marginLeft:'auto',flexWrap:'wrap' }}>
+                                {Object.entries(ABS_TYPES).map(([key,cfg]) => (
+                                    <div key={key} style={{ display:'flex',alignItems:'center',gap:'4px',fontSize:'0.65rem',color:'#64748b' }}>
+                                        <div style={{ width:'12px',height:'12px',borderRadius:'3px',background:cfg.color }}></div>{cfg.label}
                                     </div>
                                 ))}
                             </div>
+                        </div>
 
-                            {/* Personnel rows */}
-                            {allUsers.filter(u => u.role !== 'Beheerder').map(u => (
-                                <div key={u.id} className="personnel-row">
-                                    <div className="personnel-label">
-                                        <div className="personnel-avatar">{u.initials}</div>
-                                        <div>
-                                            <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{u.name}</div>
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{u.role}</div>
-                                        </div>
+                        <div className="gantt-wrapper" style={{ borderRadius:'12px',overflow:'hidden',border:'1px solid #e2e8f0' }}>
+                            <div style={{ display:'flex',borderBottom:'1px solid #e2e8f0',background:'#f8fafc' }}>
+                                <div className="gantt-header-label" style={{ fontWeight:700,fontSize:'0.72rem',color:'#64748b',background:'#f8fafc' }}>Medewerker</div>
+                                <div style={{ flex:1,display:'flex',flexDirection:'column' }}>
+                                    <div style={{ display:'flex',borderBottom:'1px solid #e2e8f0' }}>
+                                        {(() => {
+                                            const groups=[]; let i=0;
+                                            while(i<timelineDates.length){const wk=getWeekNumber(timelineDates[i]);let j=i+1;while(j<timelineDates.length&&getWeekNumber(timelineDates[j])===wk)j++;groups.push({label:`W${wk}`,count:j-i,startD:timelineDates[i]});i=j;}
+                                            return groups.map((g,gi)=>(<div key={gi} style={{ flex:g.count,minWidth:`${g.count*zoomLevel}px`,fontSize:'0.6rem',fontWeight:700,color:'#475569',padding:'3px 6px',borderLeft:gi>0?'1px solid #e2e8f0':'none',whiteSpace:'nowrap',overflow:'hidden' }}>{g.label} · {MONTHS_NL[g.startD.getMonth()]}</div>));
+                                        })()}
                                     </div>
-                                    {timelineDates.map((d, i) => {
-                                        const we = isWeekend(d);
-                                        const hol = isHoliday(d);
-                                        const assignments = getPersonnelAssignments(u.id, d);
-                                        const cellClass = we ? 'weekend' : assignments.length > 1 ? 'overloaded' : assignments.length === 1 ? 'busy' : '';
+                                    <div style={{ display:'flex' }}>
+                                        {timelineDates.map((d,i)=>(<div key={i} className={`gantt-header-cell ${isWeekend(d)?'weekend':''} ${formatDate(today)===formatDate(d)?'today':''}`} style={{ flex:1,minWidth:`${zoomLevel}px`,textAlign:'center',padding:'2px 0',fontSize:'0.58rem' }}><div style={{ color:'#94a3b8' }}>{DAYS_NL[d.getDay()]}</div><div style={{ fontWeight:700,fontSize:'0.7rem',color:formatDate(today)===formatDate(d)?'var(--accent)':'#334155' }}>{d.getDate()}</div></div>))}
+                                    </div>
+                                </div>
+                            </div>
 
-                                        return (
-                                            <div key={i} className={`personnel-cell ${cellClass} ${formatDate(today) === formatDate(d) ? 'today' : ''}`}
-                                                title={hol || assignments.map(a => a.project.name).join(', ') || 'Beschikbaar'}>
-                                                {hol ? (
-                                                    <span style={{ fontSize: '0.6rem', color: '#ef4444' }}>🏴</span>
-                                                ) : we ? null : assignments.length > 0 ? (
-                                                    <div style={{
-                                                        width: '90%', height: '70%', borderRadius: '4px',
-                                                        background: assignments[0].project.color,
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        color: '#fff', fontSize: '0.55rem', fontWeight: 700
-                                                    }}>
-                                                        {assignments.length > 1 ? `${assignments.length}×` : assignments[0].project.name.substring(0, 3)}
-                                                    </div>
-                                                ) : null}
+                            {workers.map(worker => {
+                                const bars = getWorkerBars(worker.id);
+                                const absBars = getAbsBars(worker.id);
+                                const workerAbs = (workerAbsences||[]).filter(a => {
+                                    if (a.userId!==worker.id) return false;
+                                    try { const s=parseDate(a.startDate),e=parseDate(a.endDate); return !(s>tEnd||e<tStart); } catch { return false; }
+                                });
+                                return (
+                                    <div key={worker.id} className="gantt-row" style={{ minHeight:'64px',borderBottom:'1px solid #f1f5f9',alignItems:'stretch' }}>
+                                        <div className="gantt-row-label" style={{ flexDirection:'column',alignItems:'flex-start',padding:'6px 10px',gap:'4px' }}>
+                                            <div style={{ display:'flex',alignItems:'center',gap:'8px',width:'100%' }}>
+                                                <div style={{ width:'30px',height:'30px',borderRadius:'50%',background:'linear-gradient(135deg,#F5850A,#E07000)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.62rem',fontWeight:700,flexShrink:0,boxShadow:'0 2px 4px rgba(245,133,10,0.35)' }}>{worker.initials||worker.name?.slice(0,2).toUpperCase()}</div>
+                                                <div style={{ flex:1,minWidth:0 }}>
+                                                    <div style={{ fontWeight:700,fontSize:'0.78rem',color:'#1e293b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{worker.name}</div>
+                                                    <div style={{ fontSize:'0.6rem',color:'#94a3b8' }}>{worker.role}</div>
+                                                </div>
+                                            </div>
+                                            <div style={{ display:'flex',gap:'3px',flexWrap:'wrap',paddingLeft:'38px' }}>
+                                                {projects.map(proj => {
+                                                    const active=(proj.tasks||[]).some(t=>(t.assignedTo||[]).includes(worker.id));
+                                                    return (<button key={proj.id} onClick={()=>toggleWorkerOnProject(worker.id,proj.id)} title={active?`Verwijder van ${proj.name}`:`Voeg toe aan ${proj.name}`} style={{ padding:'1px 6px 1px 4px',borderRadius:'8px',fontSize:'0.58rem',fontWeight:700,cursor:'pointer',border:`2px solid ${proj.color}`,background:active?proj.color:'transparent',color:active?'#fff':proj.color,display:'flex',alignItems:'center',gap:'2px',transition:'all 0.12s' }}><i className={`fa-solid ${active?'fa-check':'fa-plus'}`} style={{ fontSize:'0.42rem' }}></i><span style={{ maxWidth:'72px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{proj.name.split(' ').slice(0,2).join(' ')}</span></button>);
+                                                })}
+                                                {workerAbs.map(a => (
+                                                    <span key={a.id} onClick={e => openAbsEdit(e, a)} title={`${ABS_TYPES[a.type]?.label}: ${a.startDate} → ${a.endDate} · klik om te bewerken`} style={{ padding:'1px 5px',borderRadius:'8px',fontSize:'0.58rem',fontWeight:700,cursor:'pointer',background:ABS_TYPES[a.type]?.color||'#94a3b8',color:'#fff',display:'flex',alignItems:'center',gap:'3px' }}>
+                                                        <i className={`fa-solid ${ABS_TYPES[a.type]?.icon}`} style={{ fontSize:'0.4rem' }}></i>{ABS_TYPES[a.type]?.label}<i className="fa-solid fa-pen" style={{ fontSize:'0.4rem',opacity:0.7 }}></i>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        {/* Timeline with lane-based bar positioning */}
+                                        {(() => {
+                                            // Assign lanes to tasks to avoid overlap
+                                            const taskEntries = projects.flatMap(proj =>
+                                                (proj.tasks||[]).filter(t => (t.assignedTo||[]).includes(worker.id)).map(t => ({ proj, task: t }))
+                                            );
+                                            const lanes = [];
+                                            const taskLane = new Map();
+                                            taskEntries.forEach(({ task }) => {
+                                                let lane = lanes.findIndex(l => !l.some(t => t.startDate < task.endDate && t.endDate > task.startDate));
+                                                if (lane === -1) { lane = lanes.length; lanes.push([]); }
+                                                lanes[lane].push(task);
+                                                taskLane.set(task.id, lane);
+                                            });
+                                            const laneH = 28, laneGap = 4, topBase = 4;
+                                            const numLanes = Math.max(1, lanes.length);
+                                            const rowH = Math.max(48, topBase + numLanes * (laneH + laneGap));
+                                            return (
+                                                <div className="gantt-row-timeline" style={{ position:'relative', cursor:'crosshair', minHeight:`${rowH}px` }} onClick={e=>handleTimelineClick(e,worker.id)}>
+                                                    {timelineDates.map((d,i)=><div key={i} className={`gantt-cell ${isWeekend(d)?'weekend':''} ${formatDate(d)===formatDate(today)?'today':''} ${isHoliday(d)?'holiday':''}`} />)}
+                                                    {absBars.map((a) => {
+                                                        const cfg=ABS_TYPES[a.type]||ABS_TYPES.vrije_dag;
+                                                        const borderR = a.si===0 && a.total===1 ? '6px' : a.si===0 ? '6px 0 0 6px' : a.si===a.total-1 ? '0 6px 6px 0' : '0';
+                                                        return (<div key={`${a.id}-${a.si}`} className="abs-bar" title={`${cfg.label}: ${a.startDate} → ${a.endDate} · klik om te bewerken`} onClick={e=>openAbsEdit(e,a)} style={{ position:'absolute',left:`${a.left * zoomLevel / 100 * timelineDates.length}px`,width:`${Math.max(a.width * zoomLevel / 100 * timelineDates.length, zoomLevel * 0.9)}px`,top:0,bottom:0,background:cfg.bg,borderTop:`3px solid ${cfg.color}`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',zIndex:1,overflow:'hidden',borderRadius:borderR }}>{a.si===0&&<span style={{ fontSize:'0.6rem',fontWeight:700,color:cfg.color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',padding:'0 6px',pointerEvents:'none' }}><i className={`fa-solid ${cfg.icon}`} style={{ marginRight:'3px' }}></i>{cfg.label}</span>}</div>);
+                                                    })}
+                                                    {bars.map((b, bi) => {
+                                                        const lane = taskLane.get(b.task.id) ?? 0;
+                                                        const top = topBase + lane * (laneH + laneGap);
+                                                        const borderR = b.si===0 && b.total===1 ? '6px' : b.si===0 ? '6px 0 0 6px' : b.si===b.total-1 ? '0 6px 6px 0' : '0';
+                                                        return (<div key={bi} className="task-bar" title={`${b.task.name} · ${b.proj.name} · klik om te bewerken`} onClick={e=>openTaskEdit(e,b.proj,b.task)} style={{ position:'absolute',left:`${b.left * zoomLevel / 100 * timelineDates.length}px`,width:`${Math.max(b.width * zoomLevel / 100 * timelineDates.length, zoomLevel * 0.9)}px`,top:`${top}px`,height:`${laneH}px`,background:b.proj.color,borderRadius:borderR,display:'flex',alignItems:'center',paddingLeft:b.si===0?'8px':'2px',overflow:'hidden',cursor:'pointer',boxShadow:'0 2px 5px rgba(0,0,0,0.15)',opacity:b.task.completed?0.4:1,zIndex:3 }}>{b.si===0&&<span style={{ fontSize:'0.65rem',fontWeight:700,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',pointerEvents:'none' }}>{b.task.name}</span>}</div>);
+                                                    })}
+                                                    {bars.length===0&&absBars.length===0&&(<div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none' }}><span style={{ fontSize:'0.6rem',color:'#d1d5db',fontStyle:'italic' }}>Klik hier voor afwezigheid</span></div>)}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                );
+                            })}
+
+                            <div style={{ display:'flex',borderTop:'2px solid #e2e8f0',background:'#f8fafc' }}>
+                                <div className="gantt-header-label" style={{ fontSize:'0.62rem',fontWeight:700,color:'#64748b',display:'flex',alignItems:'center',gap:'5px' }}><i className="fa-solid fa-chart-column" style={{ color:'#F5850A' }}></i> Bezetting</div>
+                                <div style={{ flex:1,display:'flex',height:'36px',alignItems:'flex-end' }}>
+                                    {dailyCounts.map((count,i)=>{
+                                        const d = timelineDates[i];
+                                        const weekend = isWeekend(d);
+                                        if (weekend) return (
+                                            <div key={i} style={{ flex:1,minWidth:`${zoomLevel}px`,height:'100%',background:'repeating-linear-gradient(-45deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 2px,transparent 2px,transparent 6px)',borderLeft:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'center' }}>
+                                                {zoomLevel>=28&&<span style={{ fontSize:'0.42rem',color:'#cbd5e1',fontWeight:700,writingMode:'vertical-rl' }}>–</span>}
                                             </div>
                                         );
+                                        const maxW=workers.length,pct=maxW>0?count/maxW:0,bg=count===0?'#e2e8f0':pct>=1?'#ef4444':pct>=0.6?'#f59e0b':'#22c55e';
+                                        const dsI=formatDate(d),absCnt=workers.filter(u=>isAbsent(u.id,dsI)).length;
+                                        return (<div key={i} title={`${count} ingepland · ${absCnt} afwezig`} style={{ flex:1,minWidth:`${zoomLevel}px`,height:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',borderLeft:'1px solid #e2e8f0',padding:'2px 1px' }}>{absCnt>0&&<div style={{ width:'100%',height:`${(absCnt/maxW)*14}px`,background:'#fca5a5',borderRadius:'1px' }}/>}<div style={{ width:'100%',height:`${Math.max(pct*22,count>0?4:0)}px`,background:bg,borderRadius:'2px 2px 0 0',transition:'height 0.2s' }}/>{zoomLevel>=24&&<div style={{ fontSize:'0.5rem',textAlign:'center',color:count===0?'#e5e7eb':'#64748b',fontWeight:700,lineHeight:1.1 }}>{count>0?count:''}</div>}</div>);
                                     })}
                                 </div>
-                            ))}
+                            </div>
                         </div>
 
-                        {/* Legenda */}
-                        <div style={{ marginTop: '12px', display: 'flex', gap: '16px', fontSize: '0.75rem', color: '#64748b', flexWrap: 'wrap' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <div style={{ width: '16px', height: '12px', borderRadius: '3px', background: 'rgba(250,160,82,0.2)' }}></div>
-                                Ingepland
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <div style={{ width: '16px', height: '12px', borderRadius: '3px', background: 'rgba(239,68,68,0.15)' }}></div>
-                                Meerdere projecten
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <div style={{ width: '16px', height: '12px', borderRadius: '3px', background: 'rgba(0,0,0,0.04)' }}></div>
-                                Weekend
-                            </div>
-                            {filteredProjects.map(p => (
-                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <div style={{ width: '16px', height: '12px', borderRadius: '3px', background: p.color }}></div>
-                                    {p.name.length > 20 ? p.name.substring(0, 20) + '…' : p.name}
-                                </div>
-                            ))}
+                        <div style={{ marginTop:'12px',display:'flex',gap:'12px',fontSize:'0.72rem',color:'#64748b',flexWrap:'wrap',alignItems:'center' }}>
+                            <span style={{ fontWeight:700,color:'#334155' }}>Projecten:</span>
+                            {projects.map(p=>(<div key={p.id} style={{ display:'flex',alignItems:'center',gap:'5px' }}><div style={{ width:'14px',height:'10px',borderRadius:'3px',background:p.color,flexShrink:0 }}></div><span>{p.name.length>22?p.name.substring(0,22)+'…':p.name}</span></div>))}
+                            <div style={{ display:'flex',alignItems:'center',gap:'5px',marginLeft:'auto',fontSize:'0.65rem',color:'#94a3b8' }}><i className="fa-solid fa-rotate" style={{ fontSize:'0.6rem' }}></i> Automatisch opgeslagen</div>
                         </div>
                     </div>
-                )
-            }
+                );
+            })()}
 
             {/* ===== TAB 3: JAARPLANNING ===== */}
+
             {
                 tab === 'jaar' && (() => {
                     // Build a 365/366-day array for the selected year
@@ -1880,5 +2505,217 @@ export default function ProjectenPage() {
                 );
             })()}
         </div>
+
+        {/* ===== WORKER AVATAR TOOLTIP (fixed = buiten overflow clipping) ===== */}
+        {workerTooltip && (
+            <div style={{
+                position: 'fixed',
+                left: workerTooltip.x,
+                top: workerTooltip.y - 36,
+                transform: 'translateX(-50%)',
+                background: '#1e293b',
+                color: '#fff',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                padding: '5px 10px',
+                borderRadius: '7px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+                whiteSpace: 'nowrap',
+                zIndex: 99999,
+                pointerEvents: 'none',
+            }}>
+                {workerTooltip.name}
+                {/* Arrow */}
+                <div style={{
+                    position: 'absolute',
+                    top: '100%', left: '50%',
+                    transform: 'translateX(-50%)',
+                    borderLeft: '5px solid transparent',
+                    borderRight: '5px solid transparent',
+                    borderTop: '5px solid #1e293b',
+                }} />
+            </div>
+        )}
+
+        {/* ===== TEAM POPUP — inline medewerker toggle voor taken ===== */}
+        {teamPopup && (() => {
+            const proj = projects.find(pr => pr.id === teamPopup.projectId);
+            if (!proj || !teamPopup.taskId) return null;
+            const task = proj.tasks.find(t => t.id === teamPopup.taskId);
+            if (!task) return null;
+            const color = proj.color || 'var(--accent)';
+            const assigned = task.assignedTo || [];
+
+            const toggle = (userId) => {
+                const next = assigned.includes(userId)
+                    ? assigned.filter(id => id !== userId)
+                    : [...assigned, userId];
+                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, assignedTo: next })
+                }));
+            };
+
+            return (
+                <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 99990 }}
+                        onClick={() => setTeamPopup(null)} />
+                    <div style={{
+                        position: 'fixed',
+                        left: Math.min(teamPopup.x, window.innerWidth - 260),
+                        top: teamPopup.y + 6,
+                        zIndex: 99995,
+                        background: '#fff',
+                        borderRadius: '12px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+                        border: '1px solid #e2e8f0',
+                        padding: '10px',
+                        minWidth: '230px',
+                        maxWidth: '280px',
+                    }}
+                        onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color }}></div>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b' }}>{task.name}</span>
+                            </div>
+                            <button onClick={() => setTeamPopup(null)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', padding: '2px' }}>
+                                <i className="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {allUsers.map(user => {
+                                const on = assigned.includes(user.id);
+                                const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+                                return (
+                                    <button key={user.id} onClick={() => toggle(user.id)}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '8px',
+                                            padding: '6px 10px',
+                                            border: on ? `1.5px solid ${color}` : '1.5px solid #f1f5f9',
+                                            background: on ? `${color}14` : '#f8fafc',
+                                            outline: 'none', width: '100%', textAlign: 'left',
+                                            transition: 'all 0.12s',
+                                        }}
+                                        onMouseEnter={e => { if (!on) e.currentTarget.style.background = '#f1f5f9'; }}
+                                        onMouseLeave={e => { if (!on) e.currentTarget.style.background = '#f8fafc'; }}>
+                                        <div style={{
+                                            width: '24px', height: '24px', borderRadius: '50%', flexShrink: 0,
+                                            background: on ? color : '#e2e8f0', color: on ? '#fff' : '#64748b',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: '0.55rem', fontWeight: 800,
+                                        }}>{initials}</div>
+                                        <span style={{ flex: 1, fontSize: '0.75rem', fontWeight: on ? 700 : 500, color: on ? color : '#334155' }}>
+                                            {user.name || user.email}
+                                        </span>
+                                        {on
+                                            ? <i className="fa-solid fa-circle-check" style={{ color, fontSize: '0.7rem' }}></i>
+                                            : <i className="fa-regular fa-circle" style={{ color: '#cbd5e1', fontSize: '0.7rem' }}></i>
+                                        }
+                                    </button>
+                                );
+                            })}
+                            {allUsers.length === 0 && (
+                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic', padding: '4px' }}>Geen medewerkers gevonden</span>
+                            )}
+                        </div>
+                    </div>
+                </>
+            );
+        })()}
+
+        {/* ===== DRAW PREVIEW ===== */}
+        {drawCreate && (() => {
+            const proj = projects.find(pr => pr.id === drawCreate.projectId);
+            const color = proj?.color || '#3b82f6';
+            const x1 = Math.min(drawCreate.startX, drawCreate.currentX);
+            const x2 = Math.max(drawCreate.startX, drawCreate.currentX);
+            const s = drawCreate.startDate <= drawCreate.currentDate ? drawCreate.startDate : drawCreate.currentDate;
+            const e = drawCreate.startDate <= drawCreate.currentDate ? drawCreate.currentDate : drawCreate.startDate;
+            return (
+                <div style={{
+                    position: 'fixed', left: x1, top: drawCreate.y,
+                    width: Math.max(x2 - x1, 4), height: '30px',
+                    background: color, opacity: 0.5, borderRadius: '5px',
+                    zIndex: 99980, pointerEvents: 'none',
+                    display: 'flex', alignItems: 'center', paddingLeft: '6px',
+                    fontSize: '0.65rem', color: '#fff', fontWeight: 600,
+                    overflow: 'hidden', whiteSpace: 'nowrap',
+                    boxShadow: `0 2px 8px ${color}66`,
+                }}>
+                    {s !== e ? `${s} - ${e}` : s}
+                </div>
+            );
+        })()}
+
+        {/* ===== QUICK TASK POPUP ===== */}
+        {quickTaskPopup && (() => {
+            const proj = projects.find(pr => pr.id === quickTaskPopup.projectId);
+            if (!proj) return null;
+            const color = proj.color || '#3b82f6';
+            const saveTask = () => {
+                const name = quickTaskName.trim();
+                if (!name) return;
+                const newT = {
+                    id: `t${Date.now()}`,
+                    name,
+                    startDate: quickTaskPopup.startDate,
+                    endDate: quickTaskPopup.endDate,
+                    assignedTo: [],
+                    completed: false,
+                };
+                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: [...pr.tasks, newT]
+                }));
+                setQuickTaskPopup(null);
+                setQuickTaskName('');
+            };
+            const px = Math.min(quickTaskPopup.x, window.innerWidth - 300);
+            const py = Math.min(quickTaskPopup.y + 8, window.innerHeight - 160);
+            return (
+                <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 99990 }} onClick={() => setQuickTaskPopup(null)} />
+                    <div style={{
+                        position: 'fixed', left: px, top: py, zIndex: 99995,
+                        background: '#fff', borderRadius: '12px', padding: '14px 16px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: '260px',
+                        border: '1px solid rgba(0,0,0,0.07)',
+                    }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e293b' }}>{proj.name}</span>
+                            <span style={{ fontSize: '0.62rem', color: '#94a3b8', marginLeft: 'auto' }}>
+                                {quickTaskPopup.startDate === quickTaskPopup.endDate
+                                    ? quickTaskPopup.startDate
+                                    : `${quickTaskPopup.startDate} - ${quickTaskPopup.endDate}`}
+                            </span>
+                        </div>
+                        <input
+                            autoFocus type="text" value={quickTaskName}
+                            onChange={e => setQuickTaskName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveTask(); if (e.key === 'Escape') setQuickTaskPopup(null); }}
+                            placeholder="Naam van de taak..."
+                            style={{
+                                width: '100%', border: `1.5px solid ${color}`, borderRadius: '7px',
+                                padding: '7px 10px', fontSize: '0.8rem', outline: 'none',
+                                color: '#1e293b', marginBottom: '10px', boxSizing: 'border-box',
+                            }}
+                        />
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                            <button onClick={() => setQuickTaskPopup(null)}
+                                style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '0.72rem', cursor: 'pointer' }}>
+                                Annuleer
+                            </button>
+                            <button onClick={saveTask}
+                                style={{ padding: '5px 14px', borderRadius: '6px', border: 'none', background: color, color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
+                                + Taak opslaan
+                            </button>
+                        </div>
+                    </div>
+                </>
+            );
+        })()}
+
+        </>
     );
 }
