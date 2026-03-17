@@ -9,14 +9,26 @@ const BOT_AVATAR = '🤖';
 // App URL voor WhatsApp links (pas aan naar je productie-URL)
 const APP_URL = 'https://schildersapp-katwijk.nl';
 
-const PROJECTS = [
-    { id: '1', name: 'Schilderwerk Familie Bakker' },
-    { id: '2', name: 'Nieuwbouw Villa Wassenaar' },
-    { id: '3', name: 'Onderhoud Rijtjeshuizen Leiden' },
-    { id: '4', name: 'Renovatie Kantoorpand Den Haag' },
-    { id: '5', name: 'Schilderwerk VVE De Branding' },
-    { id: '6', name: 'Werkplaats / Magazijn' },
-];
+// Laad echte projecten uit localStorage — zelfde ID als in de URL (/projecten/[id])
+function loadProjectsFromStorage() {
+    try {
+        const raw = localStorage.getItem('schildersapp_projecten') || localStorage.getItem('schildersapp_projects');
+        if (raw) {
+            const projects = JSON.parse(raw);
+            if (Array.isArray(projects) && projects.length > 0) {
+                // Gebruik p.id exact — dit is dezelfde waarde als in de URL /projecten/[id]
+                return projects.map(p => ({ id: String(p.id), name: p.name || p.projectName || 'Project ' + p.id }));
+            }
+        }
+    } catch {}
+    // Fallback: demo projecten (IDs 1-4, zelfde als INITIAL_PROJECTS)
+    return [
+        { id: '1', name: 'Nieuwbouw Villa Wassenaar' },
+        { id: '2', name: 'Onderhoud Rijtjeshuizen Leiden' },
+        { id: '3', name: 'Kantoorpand Voorschoten' },
+        { id: '4', name: 'Woonhuis Den Haag' },
+    ];
+}
 
 const DAY_LABELS = ['Ma', 'Di', 'Wo', 'Do', 'Vr'];
 
@@ -180,8 +192,10 @@ function ProjectSearch({ items, value, onChange, placeholder = 'Zoek...', accent
 
 // Inline urenstaat mini-form (werknemer)
 function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
+    const PROJECTS = loadProjectsFromStorage(); // laad echte projecten
     const types = allowedTypes && allowedTypes.length > 0 ? allowedTypes : UREN_TYPES.filter(t => ['normaal', 'meerwerk', 'ziek', 'vrij'].includes(t.id));
     const initialTypeId = types[0]?.id || 'normaal';
+
     const [rows, setRows] = useState([
         { projectId: '1', hours: initialTypeId === 'meerwerk' ? ['','','','',''] : ['8', '8', '8', '8', '8'], typeId: initialTypeId, note: '', photo: null, datum: new Date().toISOString().split('T')[0], materiaal: '', showMateriaal: false, isRecordingNote: false, isRecordingMateriaal: false, meerwerkSoort: 'uren', postBedrag: '' }
     ]);
@@ -299,7 +313,27 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
 
     const handleFileChange = (ri, e) => {
         const file = e.target.files[0];
-        if (file) {
+        if (!file) return;
+        if (file.type.startsWith('image/')) {
+            // Comprimeer foto naar max 400x400 zodat localStorage niet vol raakt
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                    const MAX = 400;
+                    let w = img.width, h = img.height;
+                    if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
+                    else { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    const compressed = canvas.toDataURL('image/jpeg', 0.5); // 50% kwaliteit
+                    setRows(prev => prev.map((r, i) => i === ri ? { ...r, photo: compressed } : r));
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        } else {
             const reader = new FileReader();
             reader.onload = (ev) => {
                 setRows(prev => prev.map((r, i) => i === ri ? { ...r, photo: ev.target.result } : r));
@@ -307,6 +341,7 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
             reader.readAsDataURL(file);
         }
     };
+
 
     const addRow = () => {
         setRows([...rows, { projectId: '', hours: ['', '', '', '', ''], typeId: types[0]?.id || 'normaal', note: '', photo: null, datum: new Date().toISOString().split('T')[0], materiaal: '', showMateriaal: false, isRecordingNote: false, isRecordingMateriaal: false, meerwerkSoort: 'uren', postBedrag: '' }]);
@@ -519,8 +554,14 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
                                     </label>
                                 </div>
                                 {row.photo && (
-                                    <div style={{ marginTop: '-4px', marginBottom: '8px', fontSize: '0.6rem', color: '#16a34a', fontWeight: 600 }}>
-                                        <i className="fa-solid fa-check-circle" style={{ marginRight: '4px' }}></i> Bestand gekoppeld
+                                    <div style={{ marginTop: '-4px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <img src={row.photo} alt="Foto preview" style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #bbf7d0', cursor: 'pointer' }}
+                                            onClick={() => window.open(row.photo, '_blank')} />
+                                        <div>
+                                            <div style={{ fontSize: '0.6rem', color: '#16a34a', fontWeight: 700 }}><i className="fa-solid fa-check-circle" style={{ marginRight: '4px' }} />Foto gekoppeld</div>
+                                            <button onClick={() => setRows(prev => prev.map((r, i) => i === ri ? { ...r, photo: null } : r))}
+                                                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.6rem', cursor: 'pointer', padding: 0, marginTop: '2px', textDecoration: 'underline' }}>Verwijder foto</button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -605,6 +646,7 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
 
 // Inline notitie / planning mini-form
 function InlineNotitie({ onSave, onCancel }) {
+    const PROJECTS = loadProjectsFromStorage(); // laad echte projecten
     const NOTE_TYPES = [
         { id: 'info',     label: 'Info',     color: '#3b82f6', icon: 'fa-circle-info' },
         { id: 'actie',    label: 'Actie',    color: '#f59e0b', icon: 'fa-bolt' },
@@ -1193,11 +1235,18 @@ export default function ChatBot() {
     const [showZZPTemplate, setShowZZPTemplate] = useState(false);
     const [showEmployeePicker, setShowEmployeePicker] = useState(false);
     const [showNotitieForm, setShowNotitieForm] = useState(false);
+    const [PROJECTS, setPROJECTS] = useState(() => loadProjectsFromStorage());
     const messagesEndRef = useRef(null);
     const userName = user?.name?.split(' ')[0] || 'daar';
     const userNameRef = useRef(userName);
     useEffect(() => { userNameRef.current = userName; }, [userName]);
     const allEmployees = getAllUsers ? getAllUsers().filter(u => u.phone && u.id !== user?.id) : [];
+
+    // Laad echte projecten elke keer dat chatbot opengaat
+    useEffect(() => {
+        if (isOpen) setPROJECTS(loadProjectsFromStorage());
+    }, [isOpen]);
+
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

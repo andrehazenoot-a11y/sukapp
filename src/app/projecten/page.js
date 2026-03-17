@@ -132,6 +132,7 @@ export default function ProjectenPage() {
     const [selectedProject, setSelectedProject] = useState(null);
     const [selectedTask, setSelectedTask] = useState(null); // {projectId, taskId} for keyboard movement
     const [expandedProjects, setExpandedProjects] = useState(new Set());
+    const [showCompletedProjects, setShowCompletedProjects] = useState(new Set());
     const [colorPickerProject, setColorPickerProject] = useState(null);
     const [showNewForm, setShowNewForm] = useState(false);
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -148,6 +149,17 @@ export default function ProjectenPage() {
     const moveBarRef = useRef(null);
     const [zoekTerm, setZoekTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('alle');
+    const [selectedTaskId, setSelectedTaskId] = useState(null); // voor timeline highlight
+
+    // Notitie popup per taak
+    const [notePopup, setNotePopup] = useState(null); // { projectId, taskId }
+    const [noteInput, setNoteInput] = useState('');
+    const [noteTab, setNoteTab] = useState('nieuw'); // 'nieuw' | 'koppel'
+    const [noteTooltip, setNoteTooltip] = useState(null); // { notes[], x, y, taskName }
+    const [projectNotesCache, setProjectNotesCache] = useState({}); // { [projectId]: [{...}] }
+    const [projectNotesLoading, setProjectNotesLoading] = useState(false);
+    const [replyingTo, setReplyingTo] = useState(null); // noteId
+    const [replyInput, setReplyInput] = useState('');
 
     // Afwezigheid registratie (vakantie, ziek, vrije dag, dokter)
     const [workerAbsences, setWorkerAbsences] = useState(() => {
@@ -288,20 +300,21 @@ export default function ProjectenPage() {
 
     // ===== ADD TASK =====
     const addTask = (projectId) => {
-        if (!newTask.name || !newTask.startDate || !newTask.endDate) return;
+        if (!newTask.name.trim()) return;
+        // Datum is optioneel — val terug op projectdatum als niet ingevuld
+        const project = projects.find(p => p.id === projectId);
         const task = {
             id: 't' + Date.now(),
-            name: newTask.name,
-            startDate: newTask.startDate,
-            endDate: newTask.endDate,
-            assignedTo: newTask.assignedTo,
+            name: newTask.name.trim(),
+            startDate: newTask.startDate || project?.startDate || formatDate(new Date()),
+            endDate: newTask.endDate || project?.endDate || formatDate(new Date()),
+            assignedTo: newTask.assignedTo || [],
             completed: false
         };
         setProjects(prev => prev.map(p => {
             if (p.id !== projectId) return p;
             return { ...p, tasks: [...p.tasks, task] };
         }));
-        // Update selectedProject too
         setSelectedProject(prev => prev ? { ...prev, tasks: [...prev.tasks, task] } : prev);
         setNewTask({ name: '', startDate: '', endDate: '', assignedTo: [] });
         setShowTaskForm(false);
@@ -314,6 +327,42 @@ export default function ProjectenPage() {
             return { ...p, tasks: p.tasks.filter(t => t.id !== taskId) };
         }));
         setSelectedProject(prev => prev ? { ...prev, tasks: prev.tasks.filter(t => t.id !== taskId) } : prev);
+    };
+
+    // ===== MOVE TASK UP / DOWN =====
+    const moveTaskUp = (projectId, taskId) => {
+        setProjects(prev => prev.map(p => {
+            if (p.id !== projectId) return p;
+            const tasks = [...p.tasks];
+            const idx = tasks.findIndex(t => t.id === taskId);
+            if (idx <= 0) return p;
+            [tasks[idx - 1], tasks[idx]] = [tasks[idx], tasks[idx - 1]];
+            return { ...p, tasks };
+        }));
+    };
+    const moveTaskDown = (projectId, taskId) => {
+        setProjects(prev => prev.map(p => {
+            if (p.id !== projectId) return p;
+            const tasks = [...p.tasks];
+            const idx = tasks.findIndex(t => t.id === taskId);
+            if (idx < 0 || idx >= tasks.length - 1) return p;
+            [tasks[idx], tasks[idx + 1]] = [tasks[idx + 1], tasks[idx]];
+            return { ...p, tasks };
+        }));
+    };
+
+    // ===== DUPLICATE TASK =====
+    const duplicateTask = (projectId, taskId) => {
+        setProjects(prev => prev.map(p => {
+            if (p.id !== projectId) return p;
+            const idx = p.tasks.findIndex(t => t.id === taskId);
+            if (idx < 0) return p;
+            const orig = p.tasks[idx];
+            const copy = { ...orig, id: 't' + Date.now(), name: orig.name + ' (kopie)', completed: false, notes: [] };
+            const tasks = [...p.tasks];
+            tasks.splice(idx + 1, 0, copy);
+            return { ...p, tasks };
+        }));
     };
 
     // ===== MOVE / DRAG BAR =====
@@ -664,95 +713,52 @@ export default function ProjectenPage() {
     return (
         <>
         <div className="content-area" id="view-planning" style={{ maxWidth: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 }}>
-                <div>
-                    <h1 style={{ margin: 0 }}>Planning</h1>
-                    <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.88rem' }}>Project- en personeelsplanning met Gantt overzicht</p>
+            <div className="page-header" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexShrink: 0, flexWrap: 'wrap' }}>
+                <h1 style={{ margin: 0, flexShrink: 0 }}>Planning</h1>
+
+                {/* Inline stats */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, flexWrap: 'wrap' }}>
+                    {[
+                        { icon: 'fa-diagram-project', color: '#3b82f6', bg: 'rgba(59,130,246,0.1)', value: stats.active, label: 'Actief' },
+                        { icon: 'fa-clock', color: 'var(--accent)', bg: 'rgba(250,160,82,0.1)', value: `${stats.totalHours}u`, label: 'Uren' },
+                        { icon: 'fa-list-check', color: '#16a34a', bg: 'rgba(34,197,94,0.1)', value: stats.totalTasks, label: 'Taken' },
+                        { icon: 'fa-users', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', value: allUsers.length, label: 'Pers.' },
+                    ].map((s, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '4px 10px 4px 6px' }}>
+                            <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: s.bg, color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.62rem', flexShrink: 0 }}>
+                                <i className={`fa-solid ${s.icon}`} />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b', lineHeight: 1.1 }}>{s.value}</div>
+                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', lineHeight: 1 }}>{s.label}</div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
-                <button
-                    className="btn btn-primary"
-                    onClick={() => setShowNewForm(!showNewForm)}
-                    style={{ background: 'var(--accent)', border: 'none', borderRadius: '10px', padding: '10px 18px', color: '#fff', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                    <i className={`fa-solid ${showNewForm ? 'fa-xmark' : 'fa-plus'}`}></i>
-                    {showNewForm ? 'Annuleer' : 'Nieuw Project'}
-                </button>
+
+                {/* Opslaan + Nieuw Project knoppen */}
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    <button
+                        onClick={() => { localStorage.setItem('schildersapp_projecten', JSON.stringify(projects)); }}
+                        style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '9px 16px', color: '#475569', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', transition: 'all 0.15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#10b981'; e.currentTarget.style.color = '#10b981'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#475569'; }}>
+                        <i className="fa-solid fa-floppy-disk" />
+                        Opslaan
+                    </button>
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => setShowNewForm(!showNewForm)}
+                        style={{ background: 'var(--accent)', border: 'none', borderRadius: '10px', padding: '9px 18px', color: '#fff', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <i className={`fa-solid ${showNewForm ? 'fa-xmark' : 'fa-plus'}`} />
+                        {showNewForm ? 'Annuleer' : 'Nieuw Project'}
+                    </button>
+                </div>
             </div>
 
-            {/* Zoekbalk + statusfilter */}
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', alignItems: 'center' }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                    <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.82rem', pointerEvents: 'none' }}></i>
-                    <input
-                        value={zoekTerm}
-                        onChange={e => setZoekTerm(e.target.value)}
-                        placeholder="Zoek op projectnaam, klant of adres..."
-                        style={{ width: '100%', padding: '9px 12px 9px 36px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '0.85rem', background: '#fff', color: '#1e293b', outline: 'none' }}
-                    />
-                    {zoekTerm && (
-                        <button onClick={() => setZoekTerm('')} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.9rem', padding: '2px' }}>
-                            <i className="fa-solid fa-xmark"></i>
-                        </button>
-                    )}
-                </div>
-                <select
-                    value={filterStatus}
-                    onChange={e => setFilterStatus(e.target.value)}
-                    style={{ padding: '9px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '0.82rem', background: '#fff', color: '#1e293b', fontWeight: 600, cursor: 'pointer', minWidth: '130px' }}
-                >
-                    <option value="alle">Alle statussen</option>
-                    <option value="active">Actief</option>
-                    <option value="planning">In planning</option>
-                    <option value="completed">Afgerond</option>
-                </select>
-                {(zoekTerm || filterStatus !== 'alle') && (
-                    <span style={{ fontSize: '0.78rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                        {filteredProjects.length} van {projects.length} projecten
-                    </span>
-                )}
-            </div>
-
-            {/* Stats */}
-            <div className="planning-stats">
-                <div className="planning-stat">
-                    <div className="planning-stat-icon" style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6' }}>
-                        <i className="fa-solid fa-diagram-project"></i>
-                    </div>
-                    <div>
-                        <div className="planning-stat-value">{stats.active}</div>
-                        <div className="planning-stat-label">Actieve projecten</div>
-                    </div>
-                </div>
-                <div className="planning-stat">
-                    <div className="planning-stat-icon" style={{ background: 'rgba(250,160,82,0.1)', color: 'var(--accent)' }}>
-                        <i className="fa-solid fa-clock"></i>
-                    </div>
-                    <div>
-                        <div className="planning-stat-value">{stats.totalHours}u</div>
-                        <div className="planning-stat-label">Totaal uren</div>
-                    </div>
-                </div>
-                <div className="planning-stat">
-                    <div className="planning-stat-icon" style={{ background: 'rgba(34,197,94,0.1)', color: '#16a34a' }}>
-                        <i className="fa-solid fa-list-check"></i>
-                    </div>
-                    <div>
-                        <div className="planning-stat-value">{stats.totalTasks}</div>
-                        <div className="planning-stat-label">Taken</div>
-                    </div>
-                </div>
-                <div className="planning-stat">
-                    <div className="planning-stat-icon" style={{ background: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>
-                        <i className="fa-solid fa-users"></i>
-                    </div>
-                    <div>
-                        <div className="planning-stat-value">{allUsers.length}</div>
-                        <div className="planning-stat-label">Medewerkers</div>
-                    </div>
-                </div>
-            </div>
 
             {/* New Project Form */}
+
             {showNewForm && (
                 <div className="project-detail-panel" style={{ marginBottom: '16px' }}>
                     <h3 style={{ margin: '0 0 12px', fontSize: '0.95rem', color: '#1e293b' }}>
@@ -794,60 +800,98 @@ export default function ProjectenPage() {
                 </div>
             )}
 
-            {/* Tabs */}
-            <div className="planning-tabs">
-                <button className={`planning-tab ${tab === 'project' ? 'active' : ''}`} onClick={() => setTab('project')}>
-                    <i className="fa-solid fa-diagram-project"></i> Projectplanning
-                </button>
-                <button className={`planning-tab ${tab === 'personeel' ? 'active' : ''}`} onClick={() => setTab('personeel')}>
-                    <i className="fa-solid fa-users"></i> Personeelsplanning
-                </button>
-                <button className={`planning-tab ${tab === 'jaar' ? 'active' : ''}`} onClick={() => setTab('jaar')}>
-                    <i className="fa-solid fa-calendar"></i> Jaarplanning
-                </button>
-                <button className={`planning-tab ${tab === 'mappen' ? 'active' : ''}`} onClick={() => setTab('mappen')}>
-                    <i className="fa-solid fa-folder-open"></i> Projectmappen
-                </button>
+            {/* ===== NAVIGATIEBALK: Tabs + Zoek + Filter ===== */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '4px 8px', flexWrap: 'wrap' }}>
+                {/* Tabs */}
+                {[
+                    { id: 'project', icon: 'fa-diagram-project', label: 'Projectplanning' },
+                    { id: 'personeel', icon: 'fa-users', label: 'Personeelsplanning' },
+                    { id: 'jaar', icon: 'fa-calendar', label: 'Jaarplanning' },
+                    { id: 'mappen', icon: 'fa-folder-open', label: 'Projectmappen' },
+                ].map(t => (
+                    <button key={t.id} onClick={() => setTab(t.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px', borderRadius: '7px', border: 'none', background: tab === t.id ? 'var(--accent)' : 'transparent', color: tab === t.id ? '#fff' : '#64748b', fontWeight: tab === t.id ? 700 : 500, fontSize: '0.78rem', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
+                        onMouseEnter={e => { if (tab !== t.id) e.currentTarget.style.background = '#f1f5f9'; }}
+                        onMouseLeave={e => { if (tab !== t.id) e.currentTarget.style.background = 'transparent'; }}>
+                        <i className={`fa-solid ${t.icon}`} style={{ fontSize: '0.7rem' }} />
+                        {t.label}
+                    </button>
+                ))}
+
+                {/* Scheidingslijn */}
+                <div style={{ width: '1px', height: '20px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }} />
+
+                {/* Zoekbalk */}
+                <div style={{ position: 'relative', flex: 1, minWidth: '140px' }}>
+                    <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.72rem', pointerEvents: 'none' }} />
+                    <input value={zoekTerm} onChange={e => setZoekTerm(e.target.value)}
+                        placeholder="Zoeken..."
+                        style={{ width: '100%', padding: '5px 26px 5px 26px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.78rem', background: '#f8fafc', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
+                    {zoekTerm && (
+                        <button onClick={() => setZoekTerm('')} style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.8rem', padding: '1px' }}>
+                            <i className="fa-solid fa-xmark" />
+                        </button>
+                    )}
+                </div>
+
+                {/* Status filter */}
+                <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                    style={{ padding: '5px 10px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.75rem', background: '#f8fafc', color: '#1e293b', fontWeight: 600, cursor: 'pointer' }}>
+                    <option value="alle">Alle statussen</option>
+                    <option value="active">Actief</option>
+                    <option value="planning">In planning</option>
+                    <option value="completed">Afgerond</option>
+                </select>
+
+                {(zoekTerm || filterStatus !== 'alle') && (
+                    <span style={{ fontSize: '0.7rem', color: '#94a3b8', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        {filteredProjects.length}/{projects.length}
+                    </span>
+                )}
             </div>
 
             {/* ===== TAB 1: PROJECT PLANNING (GANTT) ===== */}
             {tab === 'project' && (
                 <div>
-                    <div className="planning-toolbar">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <button onClick={() => navigate(-1)} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
-                                <i className="fa-solid fa-chevron-left"></i>
+                    {/* Compacte toolbar: navigatie + view-knoppen + zoom */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button onClick={() => navigate(-1)} style={{ border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#64748b', lineHeight: 1 }}>
+                                <i className="fa-solid fa-chevron-left" style={{ fontSize: '0.72rem' }} />
                             </button>
-                            <span style={{ fontWeight: 700, fontSize: '0.9rem', minWidth: '140px', textAlign: 'center' }}>
+                            <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b', minWidth: '130px', textAlign: 'center' }}>
                                 {`${MONTHS_FULL[currentDate.getMonth()]} — ${MONTHS_FULL[(currentDate.getMonth() + 1) % 12]} ${currentDate.getFullYear()}`}
                             </span>
-                            <button onClick={() => navigate(1)} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
-                                <i className="fa-solid fa-chevron-right"></i>
+                            <button onClick={() => navigate(1)} style={{ border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#64748b', lineHeight: 1 }}>
+                                <i className="fa-solid fa-chevron-right" style={{ fontSize: '0.72rem' }} />
                             </button>
-                            <button onClick={() => setCurrentDate(new Date())} style={{ border: '1px solid var(--border-color)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#64748b' }}>
-                                Vandaag
-                            </button>
+                            <button onClick={() => setCurrentDate(new Date())} style={{ border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '6px', padding: '4px 9px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, color: '#64748b' }}>Vandaag</button>
                         </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <div className="view-btns">
-                                <button className={`view-btn ${planningView === 'gantt' ? 'active' : ''}`} onClick={() => setPlanningView('gantt')}><i className="fa-solid fa-chart-gantt" style={{ marginRight: '4px' }}></i>Gantt</button>
-                                <button className={`view-btn ${planningView === 'grid' ? 'active' : ''}`} onClick={() => setPlanningView('grid')}><i className="fa-solid fa-grid-2" style={{ marginRight: '4px' }}></i>Grid</button>
-                            </div>
-
-                            {planningView === 'gantt' && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#fff', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '2px 4px' }}>
-                                    <button onClick={() => setZoomLevel(z => Math.max(16, z - 4))} title="Uitzoomen"
-                                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '4px 6px', fontSize: '0.85rem', color: '#64748b', borderRadius: '4px' }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>
-                                        <i className="fa-solid fa-magnifying-glass-minus"></i>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {/* Gantt / Grid toggle */}
+                            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '7px', padding: '2px', gap: '2px' }}>
+                                {[['gantt', 'fa-chart-gantt', 'Gantt'], ['grid', 'fa-grid-2', 'Grid']].map(([v, icon, lbl]) => (
+                                    <button key={v} onClick={() => setPlanningView(v)}
+                                        style={{ padding: '3px 10px', borderRadius: '5px', border: 'none', background: planningView === v ? '#fff' : 'transparent', color: planningView === v ? '#1e293b' : '#94a3b8', fontWeight: planningView === v ? 700 : 500, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', boxShadow: planningView === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+                                        <i className={`fa-solid ${icon}`} style={{ fontSize: '0.65rem' }} />{lbl}
                                     </button>
-                                    <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, minWidth: '30px', textAlign: 'center' }}>{Math.round(zoomLevel / 32 * 100)}%</span>
-                                    <button onClick={() => setZoomLevel(z => Math.min(64, z + 4))} title="Inzoomen"
-                                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '4px 6px', fontSize: '0.85rem', color: '#64748b', borderRadius: '4px' }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>
-                                        <i className="fa-solid fa-magnifying-glass-plus"></i>
+                                ))}
+                            </div>
+                            {/* Zoom */}
+                            {planningView === 'gantt' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px', background: '#f1f5f9', borderRadius: '7px', padding: '2px 4px' }}>
+                                    <button onClick={() => setZoomLevel(z => Math.max(16, z - 4))}
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '3px 6px', fontSize: '0.8rem', color: '#64748b', borderRadius: '4px' }}
+                                        onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                                        <i className="fa-solid fa-magnifying-glass-minus" />
+                                    </button>
+                                    <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, minWidth: '28px', textAlign: 'center' }}>{Math.round(zoomLevel / 32 * 100)}%</span>
+                                    <button onClick={() => setZoomLevel(z => Math.min(64, z + 4))}
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '3px 6px', fontSize: '0.8rem', color: '#64748b', borderRadius: '4px' }}
+                                        onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                                        <i className="fa-solid fa-magnifying-glass-plus" />
                                     </button>
                                 </div>
                             )}
@@ -1136,21 +1180,50 @@ export default function ProjectenPage() {
                                             {/* Weekend overlays removed */}
                                         </div>
                                     </div>
-                                    {/* Inline task rows when expanded */}
-                                    {expandedProjects.has(p.id) && p.tasks.map(t => (
+                                    {/* Inline task rows when expanded — ALLEEN ACTIEVE taken */}
+                                    {expandedProjects.has(p.id) && p.tasks.filter(t => !t.completed).map(t => {
+                                        const noTeam = (t.assignedTo || []).length === 0;
+                                        return (
                                         <div key={t.id} className="gantt-row" onClick={() => onTaskRowClick(p.id, t.id)}
-                                            style={{ background: selectedTask?.taskId === t.id ? 'rgba(250,160,82,0.08)' : 'rgba(0,0,0,0.015)', cursor: 'pointer', boxShadow: selectedTask?.taskId === t.id ? 'inset 3px 0 0 var(--accent)' : 'none' }}>
-                                            <div className="gantt-row-label" style={{ paddingLeft: '36px', flexDirection: 'column', alignItems: 'stretch', gap: '2px', padding: '4px 10px 4px 36px' }}>
+                                            style={{
+                                                background: selectedTask?.taskId === t.id ? 'rgba(245,133,10,0.06)' : '#fff',
+                                                cursor: 'pointer',
+                                                boxShadow: selectedTask?.taskId === t.id ? 'inset 3px 0 0 var(--accent)' : 'none',
+                                                borderBottom: '1px solid #f1f5f9',
+                                            }}>
+                                            <div className="gantt-row-label" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '2px', padding: '5px 8px 5px 32px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <input type="checkbox" checked={t.completed} onChange={() => toggleTask(p.id, t.id)}
-                                                        style={{ width: '14px', height: '14px', accentColor: 'var(--accent)', cursor: 'pointer', flexShrink: 0 }} />
+                                                    <input type="checkbox" checked={false} onChange={() => toggleTask(p.id, t.id)}
+                                                        style={{ width: '13px', height: '13px', accentColor: '#F5850A', cursor: 'pointer', flexShrink: 0 }} />
                                                     <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                                                         <div
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                const bar = document.querySelector(`.gantt-bar[data-project-id="${p.id}"][data-task-id="${t.id}"]`);
-                                                                if (bar) bar.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+                                                                // Markeer de taak als geselecteerd (toggle)
+                                                                setSelectedTaskId(prev => prev === t.id ? null : t.id);
+
+                                                                const scrollToBar = () => {
+                                                                    const bar = document.querySelector(`.gantt-bar[data-project-id="${p.id}"][data-task-id="${t.id}"]`);
+                                                                    if (bar) {
+                                                                        bar.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+                                                                        const origBox = bar.style.boxShadow;
+                                                                        bar.style.boxShadow = `0 0 0 3px #F5850A, 0 0 16px #F5850A88`;
+                                                                        bar.style.transition = 'box-shadow 0.3s';
+                                                                        setTimeout(() => { bar.style.boxShadow = origBox; bar.style.transition = ''; }, 1800);
+                                                                        return true;
+                                                                    }
+                                                                    return false;
+                                                                };
+
+                                                                // Probeer direct te scrollen (balk al zichtbaar)
+                                                                const found = scrollToBar();
+                                                                if (!found && t.startDate) {
+                                                                    // Balk staat buiten het venster → navigeer naar de juiste maand, dan scrollen
+                                                                    setCurrentDate(parseDate(t.startDate));
+                                                                    setTimeout(scrollToBar, 150);
+                                                                }
                                                             }}
+
                                                             onDoubleClick={(e) => {
                                                                 e.stopPropagation();
                                                                 const el = e.currentTarget;
@@ -1171,14 +1244,53 @@ export default function ProjectenPage() {
                                                                     }));
                                                                     setSelectedProject(prev => prev?.id === p.id ? { ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, name: newName }) } : prev);
                                                                 }
-                                                                e.target.style.borderBottomColor = 'transparent';
                                                             }}
                                                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
-                                                            style={{ fontWeight: 500, fontSize: '0.78rem', textDecoration: t.completed ? 'line-through' : 'none', color: t.completed ? '#94a3b8' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', outline: 'none', cursor: 'pointer', borderBottom: '1px dashed transparent' }}
+                                                            style={{ fontWeight: selectedTaskId === t.id ? 700 : 600, fontSize: '0.76rem', color: selectedTaskId === t.id ? '#F5850A' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', outline: 'none', cursor: 'pointer', textDecoration: selectedTaskId === t.id ? 'underline' : 'none', textUnderlineOffset: '2px' }}
                                                         >{t.name}</div>
                                                     </div>
+                                                    {noTeam && (
+                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '0.5rem', fontWeight: 700, color: '#ef4444', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', padding: '1px 4px', flexShrink: 0 }}>
+                                                            <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.42rem' }} /> niet ingepland
+                                                        </span>
+                                                    )}
+                                                    {/* Actie-knoppen: omhoog, omlaag, kopieer, notitie, verwijder */}
+                                                    {[
+                                                        { icon: 'fa-chevron-up',   title: 'Omhoog',     color: '#94a3b8', hoverColor: '#3b82f6', action: e => { e.stopPropagation(); moveTaskUp(p.id, t.id); } },
+                                                        { icon: 'fa-chevron-down', title: 'Omlaag',     color: '#94a3b8', hoverColor: '#3b82f6', action: e => { e.stopPropagation(); moveTaskDown(p.id, t.id); } },
+                                                        { icon: 'fa-copy',         title: 'Kopiëren',   color: '#94a3b8', hoverColor: '#8b5cf6', action: e => { e.stopPropagation(); duplicateTask(p.id, t.id); } },
+                                                    ].map((btn, i) => (
+                                                        <button key={i} onClick={btn.action} title={btn.title}
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: btn.color, flexShrink: 0, fontSize: '0.65rem', transition: 'color 0.15s' }}
+                                                            onMouseEnter={e => e.currentTarget.style.color = btn.hoverColor}
+                                                            onMouseLeave={e => e.currentTarget.style.color = btn.color}>
+                                                            <i className={`fa-solid ${btn.icon}`} />
+                                                        </button>
+                                                    ))}
+                                                    {/* Notitie-knop */}
+                                                    <button onClick={e => { e.stopPropagation(); setNotePopup({ projectId: p.id, taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
+                                                        title={`Notities (${(t.notes || []).length})`}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', position: 'relative', transition: 'color 0.15s' }}
+                                                        onMouseEnter={e => e.currentTarget.style.color = '#f59e0b'}
+                                                        onMouseLeave={e => e.currentTarget.style.color = (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1'}>
+                                                        <i className="fa-solid fa-note-sticky" />
+                                                        {(t.notes || []).length > 0 && (
+                                                            <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#f59e0b', color: '#fff', borderRadius: '50%', fontSize: '0.38rem', width: '10px', height: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}>
+                                                                {(t.notes || []).length}
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                    {/* Verwijder-knop */}
+                                                    <button onClick={(e) => { e.stopPropagation(); deleteTask(p.id, t.id); }}
+                                                        title="Taak verwijderen"
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', flexShrink: 0, borderRadius: '3px', color: '#cbd5e1', fontSize: '0.7rem', transition: 'color 0.15s' }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.color = '#cbd5e1'}>
+                                                        <i className="fa-solid fa-xmark" />
+                                                    </button>
+
                                                 </div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '20px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '19px' }}>
                                                     <input type="date" value={t.startDate}
                                                         onClick={(e) => e.stopPropagation()}
                                                         onChange={(e) => {
@@ -1189,7 +1301,7 @@ export default function ProjectenPage() {
                                                             }));
                                                             setSelectedProject(prev => prev?.id === p.id ? { ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, startDate: newStart }) } : prev);
                                                         }}
-                                                        style={{ width: '95px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', color: '#334155', fontWeight: 500, cursor: 'pointer', outline: 'none' }} />
+                                                        style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
                                                     {(() => {
                                                         const currentDays = diffDays(parseDate(t.startDate), parseDate(t.endDate)) + 1;
                                                         const changeDays = (newDays) => {
@@ -1201,12 +1313,21 @@ export default function ProjectenPage() {
                                                             setSelectedProject(prev => prev?.id === p.id ? { ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: newEnd }) } : prev);
                                                         };
                                                         return (
-                                                            <div style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--accent)', borderRadius: '12px', overflow: 'hidden', width: '62px', justifyContent: 'center', flexShrink: 0 }}>
+                                                            <div style={{ display: 'inline-flex', alignItems: 'center', background: p.color, borderRadius: '10px', overflow: 'hidden', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                                                                 <button onClick={(e) => { e.stopPropagation(); changeDays(currentDays - 1); }}
-                                                                    style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 5px', fontSize: '0.7rem', fontWeight: 700, lineHeight: '18px' }}>−</button>
-                                                                <span style={{ color: '#fff', fontWeight: 700, fontSize: '0.62rem', padding: '0 4px', minWidth: '22px', textAlign: 'center' }}>{currentDays}d</span>
+                                                                    style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 4px', fontSize: '0.6rem', fontWeight: 700, lineHeight: '16px' }}>−</button>
+                                                                <input
+                                                                    type="number" min="1"
+                                                                    defaultValue={currentDays}
+                                                                    key={currentDays}
+                                                                    onClick={e => e.stopPropagation()}
+                                                                    onFocus={e => e.target.select()}
+                                                                    onBlur={e => { const v = parseInt(e.target.value); if (v > 0) changeDays(v); }}
+                                                                    onKeyDown={e => { if (e.key === 'Enter') { const v = parseInt(e.target.value); if (v > 0) { changeDays(v); e.target.blur(); } } e.stopPropagation(); }}
+                                                                    style={{ width: '24px', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontWeight: 700, fontSize: '0.56rem', textAlign: 'center', padding: '0', MozAppearance: 'textfield' }}
+                                                                />
                                                                 <button onClick={(e) => { e.stopPropagation(); changeDays(currentDays + 1); }}
-                                                                    style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 5px', fontSize: '0.7rem', fontWeight: 700, lineHeight: '18px' }}>+</button>
+                                                                    style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 4px', fontSize: '0.6rem', fontWeight: 700, lineHeight: '16px' }}>+</button>
                                                             </div>
                                                         );
                                                     })()}
@@ -1220,55 +1341,38 @@ export default function ProjectenPage() {
                                                             }));
                                                             setSelectedProject(prev => prev?.id === p.id ? { ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: newEnd }) } : prev);
                                                         }}
-                                                        style={{ width: '95px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', color: '#334155', fontWeight: 500, cursor: 'pointer', outline: 'none' }} />
-                                                    <button onClick={(e) => { e.stopPropagation(); deleteTask(p.id, t.id); }}
-                                                        title="Taak verwijderen"
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', flexShrink: 0, borderRadius: '4px', marginLeft: 'auto' }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>
-                                                        <i className="fa-solid fa-xmark" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
-                                                    </button>
+                                                        style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
                                                 </div>
                                             </div>
                                             {/* ===== TEAM KOLOM (taak) ===== */}
-                                            <div className="gantt-team-col" style={{ background: 'rgba(0,0,0,0.015)' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                    {(t.assignedTo || []).slice(0, 3).map((uid, idx) => {
+                                            <div className="gantt-team-col" style={{ background: noTeam ? '#fef2f2' : '#f8fafc', borderLeft: noTeam ? '2px solid #fecaca' : '1px solid #e2e8f0' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
+                                                    {(t.assignedTo || []).slice(0, 4).map((uid, idx) => {
                                                         const user = allUsers.find(u => u.id === uid);
                                                         if (!user) return null;
                                                         const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
                                                         return (
                                                             <div key={uid} className="gantt-worker-avatar"
-                                                                style={{ width: '16px', height: '16px', fontSize: '0.4rem', background: p.color + 'cc', color: '#fff', marginLeft: idx > 0 ? '-4px' : '0', border: '2px solid #fff', pointerEvents: 'auto' }}
+                                                                style={{ width: '18px', height: '18px', fontSize: '0.42rem', fontWeight: 700, background: p.color, color: '#fff', marginLeft: idx > 0 ? '-5px' : '0', border: '2px solid #fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto', flexShrink: 0 }}
                                                                 onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setWorkerTooltip({ name: user.name || user.email, x: r.left + r.width / 2, y: r.top }); }}
                                                                 onMouseLeave={() => setWorkerTooltip(null)}>
                                                                 {initials}
                                                             </div>
                                                         );
                                                     })}
-                                                    {(t.assignedTo || []).length === 0 && (
-                                                        <span title="Geen medewerkers ingepland" style={{
-                                                            display: 'inline-flex', alignItems: 'center', gap: '3px',
-                                                            fontSize: '0.55rem', fontWeight: 700,
-                                                            color: '#ef4444',
-                                                            background: '#fee2e2',
-                                                            border: '1px solid #fca5a5',
-                                                            borderRadius: '5px',
-                                                            padding: '1px 5px',
-                                                            whiteSpace: 'nowrap',
-                                                        }}>
-                                                            <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.45rem' }} />
-                                                            niet ingepland
-                                                        </span>
+                                                    {(t.assignedTo || []).length > 4 && (
+                                                        <div style={{ width: '18px', height: '18px', fontSize: '0.38rem', fontWeight: 700, background: '#e2e8f0', color: '#64748b', marginLeft: '-5px', border: '2px solid #fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                            +{(t.assignedTo || []).length - 4}
+                                                        </div>
                                                     )}
                                                 </div>
                                                 {/* + knop voor taak */}
                                                 <button
                                                     onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ projectId: p.id, taskId: t.id, x: r.left, y: r.bottom }); }}
                                                     title="Personeel inplannen op taak"
-                                                    style={{ width: '14px', height: '14px', borderRadius: '50%', border: '1.5px solid #d1d5db', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#94a3b8', fontSize: '0.45rem', transition: 'all 0.15s', outline: 'none', pointerEvents: 'auto' }}
-                                                    onMouseEnter={e => { e.currentTarget.style.borderColor = p.color; e.currentTarget.style.color = p.color; e.currentTarget.style.background = `${p.color}14`; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = '#fff'; }}>
+                                                    style={{ width: '18px', height: '18px', borderRadius: '50%', border: `1.5px solid ${noTeam ? '#ef4444' : '#d1d5db'}`, background: noTeam ? '#ef4444' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: noTeam ? '#fff' : '#94a3b8', fontSize: '0.5rem', transition: 'all 0.15s', outline: 'none', pointerEvents: 'auto' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.borderColor = p.color; e.currentTarget.style.color = '#fff'; e.currentTarget.style.background = p.color; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.borderColor = noTeam ? '#ef4444' : '#d1d5db'; e.currentTarget.style.color = noTeam ? '#fff' : '#94a3b8'; e.currentTarget.style.background = noTeam ? '#ef4444' : '#fff'; }}>
                                                     <i className="fa-solid fa-plus"></i>
                                                 </button>
                                             </div>
@@ -1281,6 +1385,8 @@ export default function ProjectenPage() {
                                                     const noTeam = (t.assignedTo || []).length === 0;
                                                     const barColor = noTeam ? '#ef444488' : p.color + 'bb';
                                                     const segs = getBarSegments(t.startDate, t.endDate, barColor);
+                                                    const isSelected = selectedTaskId === t.id;
+                                                    const hasNotes = (t.notes || []).length > 0;
                                                     return segs.map((segStyle, si) => (
                                                         <div key={si} className="gantt-bar" data-project-id={p.id} data-task-id={t.id}
                                                             style={{
@@ -1293,28 +1399,48 @@ export default function ProjectenPage() {
                                                                     border: '1.5px dashed #ef4444',
                                                                     boxShadow: 'none',
                                                                 }),
+                                                                ...(isSelected && !noTeam && {
+                                                                    boxShadow: `0 0 0 2.5px #F5850A, 0 0 12px #F5850A66`,
+                                                                    filter: 'brightness(1.15)',
+                                                                }),
                                                             }}>
-                                                            {si === 0 && <div className="resize-handle resize-handle-left"></div>}
+                                                            {si === 0 && <div className="resize-handle resize-handle-left" />}
                                                             {si === 0 && (
-                                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px', flex: 1 }}>
                                                                     {noTeam && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
                                                                     <span style={{ color: noTeam ? '#ef4444' : undefined, fontWeight: noTeam ? 700 : undefined }}>{t.name}</span>
                                                                 </span>
                                                             )}
-                                                            {si === segs.length - 1 && <div className="resize-handle resize-handle-right"></div>}
+                                                            {/* 📝 Notitie badge — toont als de taak notities heeft */}
+                                                            {si === 0 && hasNotes && (
+                                                                <span
+                                                                    onClick={e => { e.stopPropagation(); setNotePopup({ projectId: p.id, taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
+                                                                    onMouseEnter={e => {
+                                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                                        setNoteTooltip({ notes: t.notes, x: rect.left, y: rect.bottom + 6, taskName: t.name });
+                                                                    }}
+                                                                    onMouseLeave={() => setNoteTooltip(null)}
+                                                                    style={{ pointerEvents: 'all', display: 'inline-flex', alignItems: 'center', gap: '2px', background: 'rgba(255,255,255,0.9)', borderRadius: '4px', padding: '0 4px', fontSize: '0.52rem', color: '#92400e', fontWeight: 700, flexShrink: 0, cursor: 'pointer', lineHeight: '14px', marginLeft: 'auto', userSelect: 'none' }}>
+                                                                    <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.5rem' }} />
+                                                                    {(t.notes || []).length > 1 && <span>{(t.notes || []).length}</span>}
+                                                                </span>
+                                                            )}
+                                                            {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
                                                         </div>
                                                     ));
                                                 })()}
                                                 {/* Weekend cell backgrounds provide the gap indicator */}
                                             </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
+
                                     {/* Inline new task row - only when expanded */}
                                     {expandedProjects.has(p.id) && (
-                                        <div className="gantt-row" style={{ background: 'rgba(0,0,0,0.01)' }}>
+                                        <div className="gantt-row" style={{ background: '#fff8f0', borderTop: '1px dashed #fed7aa' }}>
                                             <div className="gantt-row-label" style={{ paddingLeft: '36px' }}>
-                                                <i className="fa-solid fa-plus" style={{ fontSize: '0.55rem', color: '#94a3b8', width: '14px', flexShrink: 0 }}></i>
-                                                <input type="text" placeholder="Nieuwe taak..."
+                                                <i className="fa-solid fa-plus" style={{ fontSize: '0.55rem', color: '#F5850A', width: '14px', flexShrink: 0 }}></i>
+                                                <input type="text" placeholder="+ Nieuwe taak toevoegen..."
                                                     onClick={(e) => e.stopPropagation()}
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter' && e.target.value.trim()) {
@@ -1325,16 +1451,92 @@ export default function ProjectenPage() {
                                                             e.target.value = '';
                                                         }
                                                     }}
-                                                    style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: '0.68rem', color: '#94a3b8', padding: '2px 4px', fontStyle: 'italic' }} />
+                                                    style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: '0.68rem', color: '#F5850A', padding: '2px 4px', fontStyle: 'italic', fontWeight: 500 }}
+                                                    onFocus={e => e.currentTarget.parentElement.parentElement.style.background = '#fff3e0'}
+                                                    onBlur={e => e.currentTarget.parentElement.parentElement.style.background = '#fff8f0'}
+                                                />
                                             </div>
                                             {/* Lege team-kolom voor uitlijning */}
-                                            <div className="gantt-team-col" style={{ background: 'rgba(0,0,0,0.01)' }}></div>
+                                            <div className="gantt-team-col" style={{ background: '#fff8f0' }}></div>
                                             <div className="gantt-row-timeline">
                                                 {timelineDates.map((d, i) => (
                                                     <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''}`}></div>
                                                 ))}
                                             </div>
                                         </div>
+                                    )}
+
+                                    {/* ===== VOLTOOIDE TAKEN PER PROJECT ===== */}
+                                    {expandedProjects.has(p.id) && p.tasks.some(t => t.completed) && (
+                                        <>
+                                            {/* Scheidingslijn + toggle knop */}
+                                            <div
+                                                onClick={e => { e.stopPropagation(); setShowCompletedProjects(prev => { const s = new Set(prev); s.has(p.id) ? s.delete(p.id) : s.add(p.id); return s; }); }}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 16px', cursor: 'pointer', background: '#f8fafc', borderTop: '1px solid #e2e8f0', userSelect: 'none' }}
+                                                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                                                onMouseLeave={e => e.currentTarget.style.background = '#f8fafc'}>
+                                                <i className={`fa-solid ${showCompletedProjects.has(p.id) ? 'fa-chevron-down' : 'fa-chevron-right'}`} style={{ fontSize: '0.48rem', color: '#10b981' }} />
+                                                <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.68rem' }} />
+                                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#10b981', flex: 1 }}>
+                                                    Voltooide taken ({p.tasks.filter(t => t.completed).length})
+                                                </span>
+                                                <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>
+                                                    {showCompletedProjects.has(p.id) ? 'Verbergen' : 'Tonen'}
+                                                </span>
+                                            </div>
+
+                                            {/* Voltooide taak rijen */}
+                                            {showCompletedProjects.has(p.id) && p.tasks.filter(t => t.completed).map(t => (
+                                                <div key={t.id} className="gantt-row"
+                                                    style={{ background: '#fafafa', borderBottom: '1px solid #f1f5f9', opacity: 0.75 }}>
+                                                    <div className="gantt-row-label" style={{ paddingLeft: '36px', flexDirection: 'column', alignItems: 'stretch', gap: '1px', padding: '4px 10px 4px 36px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <input type="checkbox" checked={true} onChange={() => toggleTask(p.id, t.id)}
+                                                                style={{ width: '13px', height: '13px', accentColor: '#10b981', cursor: 'pointer', flexShrink: 0 }} />
+                                                            <div style={{ flex: 1, fontWeight: 500, fontSize: '0.74rem', color: '#94a3b8', textDecoration: 'line-through', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                {t.name}
+                                                            </div>
+                                                            <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.65rem', flexShrink: 0 }} />
+                                                            <button onClick={e => { e.stopPropagation(); deleteTask(p.id, t.id); }}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', transition: 'color 0.15s' }}
+                                                                onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                                                onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
+                                                                <i className="fa-solid fa-xmark" />
+                                                            </button>
+                                                        </div>
+                                                        <div style={{ fontSize: '0.57rem', color: '#94a3b8', paddingLeft: '20px' }}>
+                                                            {t.startDate} → {t.endDate}
+                                                        </div>
+                                                    </div>
+                                                    {/* Team kolom voltooide taak */}
+                                                    <div className="gantt-team-col" style={{ background: '#f1f5f9', justifyContent: 'center' }}>
+                                                        <i className="fa-solid fa-check" style={{ color: '#10b981', fontSize: '0.62rem' }} />
+                                                    </div>
+                                                    <div className="gantt-row-timeline">
+                                                        {timelineDates.map((d, i) => (
+                                                            <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''}`} />
+                                                        ))}
+                                                        {t.startDate && t.endDate && (() => {
+                                                            const segs = getBarSegments(t.startDate, t.endDate, '#10b981');
+                                                            return segs.map((segStyle, si) => (
+                                                                <div key={si} className="gantt-bar"
+                                                                    style={{
+                                                                        ...segStyle, height: '16px', top: '7px',
+                                                                        opacity: 0.45, background: '#10b981aa', cursor: 'default',
+                                                                        borderRadius: si === 0 && segs.length === 1 ? '4px' : si === 0 ? '4px 0 0 4px' : si === segs.length - 1 ? '0 4px 4px 0' : '0',
+                                                                    }}>
+                                                                    {si === 0 && (
+                                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', paddingLeft: '4px', textDecoration: 'line-through' }}>
+                                                                            <span style={{ color: '#fff', fontSize: '0.58rem' }}>{t.name}</span>
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ));
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </>
                                     )}
                                 </React.Fragment>
                             ))}
@@ -1793,16 +1995,26 @@ export default function ProjectenPage() {
                                             <div style={{ gridColumn: '1 / -1' }}>
                                                 <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>Taaknaam *</label>
                                                 <input placeholder="bijv. Buitenschilderwerk" value={newTask.name} onChange={e => setNewTask({ ...newTask, name: e.target.value })}
+                                                    autoFocus
+                                                    onKeyDown={e => { if (e.key === 'Enter') addTask(selectedProject.id); if (e.key === 'Escape') { setShowTaskForm(false); setNewTask({ name: '', startDate: '', endDate: '', assignedTo: [] }); } }}
                                                     style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                                             </div>
                                             <div>
-                                                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>Startdatum *</label>
-                                                <input type="date" value={newTask.startDate} onChange={e => setNewTask({ ...newTask, startDate: e.target.value })}
+                                                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
+                                                    Startdatum <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optioneel)</span>
+                                                </label>
+                                                <input type="date"
+                                                    value={newTask.startDate || selectedProject?.startDate || ''}
+                                                    onChange={e => setNewTask({ ...newTask, startDate: e.target.value })}
                                                     style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                                             </div>
                                             <div>
-                                                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>Einddatum *</label>
-                                                <input type="date" value={newTask.endDate} onChange={e => setNewTask({ ...newTask, endDate: e.target.value })}
+                                                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '2px' }}>
+                                                    Einddatum <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optioneel)</span>
+                                                </label>
+                                                <input type="date"
+                                                    value={newTask.endDate || selectedProject?.endDate || ''}
+                                                    onChange={e => setNewTask({ ...newTask, endDate: e.target.value })}
                                                     style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                                             </div>
                                             <div style={{ gridColumn: '1 / -1' }}>
@@ -2711,6 +2923,317 @@ export default function ProjectenPage() {
                                 + Taak opslaan
                             </button>
                         </div>
+                    </div>
+                </>
+            );
+        })()}
+
+        {/* ===== NOTITIE HOVER TOOLTIP OP TIJDLIJN ===== */}
+        {noteTooltip && (
+            <div onMouseEnter={() => {}} onMouseLeave={() => setNoteTooltip(null)}
+                style={{
+                    position: 'fixed',
+                    left: Math.min(noteTooltip.x, window.innerWidth - 300),
+                    top: noteTooltip.y,
+                    zIndex: 2000,
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    boxShadow: '0 8px 24px rgba(15,23,42,0.15)',
+                    padding: '10px 14px',
+                    maxWidth: '280px',
+                    minWidth: '200px',
+                    pointerEvents: 'none',
+                }}>
+                <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b' }} />
+                    {noteTooltip.taskName} — {noteTooltip.notes.length} notiti{noteTooltip.notes.length === 1 ? 'e' : 'es'}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {noteTooltip.notes.slice(0, 4).map((n, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '7px', alignItems: 'flex-start' }}>
+                            <i className={`fa-solid ${n.isLinked ? 'fa-link' : 'fa-note-sticky'}`}
+                                style={{ color: n.isLinked ? '#10b981' : '#f59e0b', fontSize: '0.58rem', marginTop: '2px', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ margin: 0, fontSize: '0.72rem', color: '#1e293b', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.text}</p>
+                                <span style={{ fontSize: '0.55rem', color: '#94a3b8' }}>{n.isLinked ? '🔗 ' : ''}{n.date}</span>
+                            </div>
+                        </div>
+                    ))}
+                    {noteTooltip.notes.length > 4 && (
+                        <span style={{ fontSize: '0.62rem', color: '#94a3b8', fontStyle: 'italic' }}>+ {noteTooltip.notes.length - 4} meer...</span>
+                    )}
+                </div>
+                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #f1f5f9', fontSize: '0.6rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                    Klik op 📝 om notities te beheren
+                </div>
+            </div>
+        )}
+
+        {/* ===== TAAKNOTITIE POPUP ===== */}
+        {notePopup && (() => {
+            const proj = projects.find(p => p.id === notePopup.projectId);
+            const task = proj?.tasks?.find(t => t.id === notePopup.taskId);
+            if (!proj || !task) return null;
+            const notes = task.notes || [];
+
+            // Projectnotities laden via API (zelfde als Notities-tabblad in /projecten/[id])
+            const projectNotes = projectNotesCache[proj.id] || [];
+            // Laad als nog niet beschikbaar of als we naar Koppel-tab switchen
+            if (noteTab === 'koppel' && !projectNotesCache[proj.id] && !projectNotesLoading) {
+                setProjectNotesLoading(true);
+                fetch(`/api/notes?projectId=${proj.id}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            // DB geeft 'content' en 'created_at' terug, wij verwachten 'text' en 'date'
+                            const mapped = (data.notes || []).map(n => ({
+                                id: n.id,
+                                text: n.content || n.text || '',
+                                author: n.author || 'Onbekend',
+                                type: n.type || 'info',
+                                date: n.date ? new Date(n.date).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' })
+                                    : n.created_at ? new Date(n.created_at).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+                            }));
+                            setProjectNotesCache(prev => ({ ...prev, [proj.id]: mapped }));
+                        } else setProjectNotesCache(prev => ({ ...prev, [proj.id]: [] }));
+                    })
+                    .catch(() => setProjectNotesCache(prev => ({ ...prev, [proj.id]: [] })))
+                    .finally(() => setProjectNotesLoading(false));
+
+            }
+            const NOTE_TYPE_COLORS = { info: '#3b82f6', actie: '#f59e0b', probleem: '#ef4444', klant: '#10b981', planning: '#8b5cf6' };
+
+            const addNote = () => {
+                const txt = noteInput.trim();
+                if (!txt) return;
+                const newNote = { id: Date.now(), text: txt, type: 'nieuw', date: new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
+                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: [...(tk.notes || []), newNote] })
+                }));
+                setNoteInput('');
+            };
+            const linkNote = (pn) => {
+                // Koppel projectnotitie als referentie (voorkom duplicaten)
+                if (notes.some(n => n.linkedId === pn.id)) return;
+                const ref = { id: Date.now(), linkedId: pn.id, text: pn.text, type: pn.type || 'info', author: pn.author, date: pn.date, isLinked: true };
+                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: [...(tk.notes || []), ref] })
+                }));
+            };
+            const addReply = (noteId, replyText) => {
+                const txt = replyText.trim();
+                if (!txt) return;
+                const author = user?.name || 'Jan Modaal';
+                const dateStr = new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const reply = { id: Date.now(), text: txt, author, date: dateStr };
+                // Optimistisch toevoegen aan lokale state
+                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : {
+                        ...tk, notes: (tk.notes || []).map(n => n.id !== noteId ? n : { ...n, replies: [...(n.replies || []), reply] })
+                    })
+                }));
+                setReplyInput('');
+                setReplyingTo(null);
+                // Opslaan via API (synchronisatie)
+                if (String(noteId).length > 10 === false) { // alleen echte DB IDs (niet temp IDs)
+                    fetch(`/api/notes/${noteId}/replies`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ author, content: txt })
+                    }).catch(err => console.error('Kon reactie niet opslaan:', err));
+                }
+            };
+
+            const deleteNote = (nid) => {
+                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: (tk.notes || []).filter(n => n.id !== nid) })
+                }));
+            };
+
+            return (
+                <>
+                    <div onClick={() => setNotePopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 1099, background: 'rgba(15,23,42,0.25)' }} />
+                    <div style={{ position: 'fixed', right: 0, top: 0, bottom: 0, width: '360px', zIndex: 1100, background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '-4px 0 24px rgba(15,23,42,0.15)', borderLeft: '1px solid #e2e8f0' }}>
+                        {/* Header */}
+                        <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b', fontSize: '0.9rem' }} />
+                                    <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b' }}>Taaknotities</span>
+                                </div>
+                                <button onClick={() => setNotePopup(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.9rem', padding: '4px' }}>
+                                    <i className="fa-solid fa-xmark" />
+                                </button>
+                            </div>
+                            {/* Breadcrumb */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '10px' }}>
+                                <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: proj.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{proj.name}</span>
+                                <i className="fa-solid fa-chevron-right" style={{ fontSize: '0.48rem', color: '#cbd5e1' }} />
+                                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>{task.name}</span>
+                            </div>
+                            {/* Tabs */}
+                            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '3px', gap: '3px' }}>
+                                {[['nieuw', 'fa-plus', 'Nieuwe notitie'], ['koppel', 'fa-link', 'Koppel project-notitie']].map(([v, icon, lbl]) => (
+                                    <button key={v} onClick={() => {
+                                        setNoteTab(v);
+                                        // Bij klikken op "Koppel": reset cache voor dit project zodat we fresh data ophalen
+                                        if (v === 'koppel') setProjectNotesCache(prev => ({ ...prev, [proj.id]: undefined }));
+                                    }}
+                                        style={{ flex: 1, padding: '5px 8px', borderRadius: '6px', border: 'none', background: noteTab === v ? '#fff' : 'transparent', color: noteTab === v ? '#1e293b' : '#94a3b8', fontWeight: noteTab === v ? 700 : 500, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', boxShadow: noteTab === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+                                        <i className={`fa-solid ${icon}`} style={{ fontSize: '0.6rem' }} />{lbl}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Bestaande taaknotities */}
+                        {notes.length > 0 && (
+                            <div style={{ padding: '10px 16px 0', flexShrink: 0 }}>
+                                <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Gekoppeld aan deze taak ({notes.length})</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
+                                    {notes.map(n => (
+                                        <div key={n.id} style={{ background: n.isLinked ? '#f0fdf4' : '#fffbeb', border: `1px solid ${n.isLinked ? '#bbf7d0' : '#fde68a'}`, borderRadius: '8px', padding: '10px 12px', position: 'relative' }}>
+                                            {/* Auteur + type balk */}
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <i className={`fa-solid ${n.isLinked ? 'fa-link' : 'fa-note-sticky'}`} style={{ color: n.isLinked ? '#10b981' : '#f59e0b', fontSize: '0.6rem' }} />
+                                                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: n.isLinked ? '#10b981' : '#92400e' }}>
+                                                        {n.author || 'Onbekend'}{n.isLinked ? ' · project-notitie' : ''}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <button onClick={() => { setReplyingTo(replyingTo === n.id ? null : n.id); setReplyInput(''); }}
+                                                        title="Reageer op deze notitie"
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: replyingTo === n.id ? '#f59e0b' : '#cbd5e1', fontSize: '0.65rem', padding: '1px 3px', flexShrink: 0, transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                        onMouseEnter={e => e.currentTarget.style.color = '#f59e0b'}
+                                                        onMouseLeave={e => e.currentTarget.style.color = replyingTo === n.id ? '#f59e0b' : '#cbd5e1'}>
+                                                        <i className="fa-solid fa-reply" />
+                                                        {(n.replies || []).length > 0 && <span style={{ fontSize: '0.52rem', fontWeight: 700 }}>{n.replies.length}</span>}
+                                                    </button>
+                                                    <button onClick={() => deleteNote(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: '0.65rem', padding: '1px', flexShrink: 0, transition: 'color 0.15s' }}
+                                                        onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                                        onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
+                                                        <i className="fa-solid fa-xmark" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            {/* Volledige tekst */}
+                                            <p style={{ margin: 0, fontSize: '0.78rem', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{n.text}</p>
+                                            <span style={{ fontSize: '0.58rem', color: '#94a3b8', marginTop: '4px', display: 'block' }}>{n.date}</span>
+                                            {/* Reacties */}
+                                            {(n.replies || []).length > 0 && (
+                                                <div style={{ marginTop: '8px', paddingLeft: '10px', borderLeft: '2px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    {n.replies.map(r => (
+                                                        <div key={r.id}>
+                                                            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                <i className="fa-solid fa-reply" style={{ color: '#94a3b8', fontSize: '0.5rem', transform: 'scaleX(-1)' }} />
+                                                                {r.author}
+                                                            </div>
+                                                            <p style={{ margin: 0, fontSize: '0.74rem', color: '#334155', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{r.text}</p>
+                                                            <span style={{ fontSize: '0.55rem', color: '#94a3b8' }}>{r.date}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {/* Inline reply invoer */}
+                                            {replyingTo === n.id && (
+                                                <div style={{ marginTop: '8px', paddingLeft: '10px', borderLeft: '2px solid #f59e0b' }}>
+                                                    <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#f59e0b', marginBottom: '4px' }}>Jouw reactie als {user?.name || 'Jan Modaal'}</div>
+                                                    <textarea
+                                                        autoFocus
+                                                        value={replyInput}
+                                                        onChange={e => setReplyInput(e.target.value)}
+                                                        onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addReply(n.id, replyInput); if (e.key === 'Escape') { setReplyingTo(null); setReplyInput(''); } }}
+                                                        placeholder="Typ je reactie... (Ctrl+Enter om op te slaan, Esc om te annuleren)"
+                                                        rows={2}
+                                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid #fde68a', fontSize: '0.74rem', color: '#1e293b', outline: 'none', resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fffbeb' }}
+                                                    />
+                                                    <div style={{ display: 'flex', gap: '6px', marginTop: '5px', justifyContent: 'flex-end' }}>
+                                                        <button onClick={() => { setReplyingTo(null); setReplyInput(''); }}
+                                                            style={{ padding: '3px 10px', background: 'none', border: '1px solid #e2e8f0', borderRadius: '5px', cursor: 'pointer', fontSize: '0.65rem', color: '#94a3b8' }}>Annuleer</button>
+                                                        <button onClick={() => addReply(n.id, replyInput)} disabled={!replyInput.trim()}
+                                                            style={{ padding: '3px 10px', background: replyInput.trim() ? '#f59e0b' : '#e2e8f0', border: 'none', borderRadius: '5px', cursor: replyInput.trim() ? 'pointer' : 'not-allowed', fontSize: '0.65rem', fontWeight: 700, color: replyInput.trim() ? '#fff' : '#94a3b8' }}>
+                                                            <i className="fa-solid fa-reply" style={{ marginRight: '3px' }} />Verstuur
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={{ height: '1px', background: '#f1f5f9', margin: '10px 0 0' }} />
+                            </div>
+                        )}
+
+
+                        {/* Tab inhoud */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+                            {noteTab === 'nieuw' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {notes.filter(n => !n.isLinked).length === 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px', color: '#94a3b8' }}>
+                                            <i className="fa-regular fa-note-sticky" style={{ fontSize: '1.8rem', opacity: 0.35 }} />
+                                            <span style={{ fontSize: '0.75rem', fontStyle: 'italic' }}>Schrijf hieronder een nieuwe notitie</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                // Koppel tab — bestaande projectnotities
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {projectNotesLoading && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '20px', color: '#94a3b8', justifyContent: 'center' }}>
+                                            <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '1rem' }} />
+                                            <span style={{ fontSize: '0.75rem' }}>Projectnotities laden...</span>
+                                        </div>
+                                    )}
+                                    {!projectNotesLoading && projectNotes.length === 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '24px 16px', color: '#94a3b8' }}>
+                                            <i className="fa-solid fa-folder-open" style={{ fontSize: '1.8rem', opacity: 0.3 }} />
+                                            <span style={{ fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>Geen projectnotities gevonden.<br/>Ga naar het <strong>Notities-tabblad</strong> van dit project om er een te maken.</span>
+                                        </div>
+                                    )}
+                                    {projectNotes.map(pn => {
+                                        const isAlreadyLinked = notes.some(n => n.linkedId === pn.id);
+                                        const typeColor = NOTE_TYPE_COLORS[pn.type] || '#3b82f6';
+                                        return (
+                                            <div key={pn.id} style={{ background: isAlreadyLinked ? '#f0fdf4' : '#f8fafc', border: `1px solid ${isAlreadyLinked ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: '8px', padding: '10px 12px', display: 'flex', gap: '10px', alignItems: 'flex-start', opacity: isAlreadyLinked ? 0.8 : 1 }}>
+                                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: typeColor, flexShrink: 0, marginTop: '4px' }} />
+                                                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                                    <p style={{ margin: '0 0 4px', fontSize: '0.76rem', color: '#1e293b', lineHeight: 1.4, wordBreak: 'break-word', overflow: 'hidden' }}>{pn.text}</p>
+                                                    <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{pn.author} · {pn.date}</span>
+                                                </div>
+                                                <button onClick={() => !isAlreadyLinked && linkNote(pn)}
+                                                    title={isAlreadyLinked ? 'Al gekoppeld' : 'Koppel aan taak'}
+                                                    style={{ background: isAlreadyLinked ? '#dcfce7' : 'var(--accent)', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: isAlreadyLinked ? 'default' : 'pointer', color: isAlreadyLinked ? '#16a34a' : '#fff', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                                                    <i className={`fa-solid ${isAlreadyLinked ? 'fa-check' : 'fa-link'}`} />
+                                                    {isAlreadyLinked ? 'Gekoppeld' : 'Koppel'}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Nieuwe notitie invoer (alleen in nieuw-tab) */}
+                        {noteTab === 'nieuw' && (
+                            <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', flexShrink: 0, background: '#fafafa' }}>
+                                <textarea value={noteInput} onChange={e => setNoteInput(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote(); }}
+                                    placeholder="Schrijf een notitie... (Ctrl+Enter om op te slaan)"
+                                    rows={3}
+                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.8rem', color: '#1e293b', outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff' }}
+                                    autoFocus />
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                                    <button onClick={addNote} disabled={!noteInput.trim()}
+                                        style={{ padding: '7px 16px', background: noteInput.trim() ? '#f59e0b' : '#e2e8f0', color: noteInput.trim() ? '#fff' : '#94a3b8', border: 'none', borderRadius: '7px', cursor: noteInput.trim() ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}>
+                                        <i className="fa-solid fa-plus" /> Notitie toevoegen
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </>
             );

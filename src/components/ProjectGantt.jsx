@@ -91,7 +91,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         // Start bij de projectstartdatum
         try { return parseDate(project.startDate); } catch { return new Date(); }
     });
-    const [expandedTasks, setExpandedTasks] = useState(true); // toon taken altijd open
+    const [expandedTasks, setExpandedTasks] = useState(true);
+    const [showCompleted, setShowCompleted] = useState(false);
     const [colorPickerPos, setColorPickerPos] = useState(null);
     const [selectedTaskId, setSelectedTaskId] = useState(null);
 
@@ -102,6 +103,14 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     // Team popup
     const [teamPopup, setTeamPopup] = useState(null); // { taskId, x, y }
     const [workerTooltip, setWorkerTooltip] = useState(null); // { name, x, y }
+
+    // Notitie popup per taak
+    const [notePopup, setNotePopup] = useState(null); // { taskId }
+    const [noteInput, setNoteInput] = useState('');
+    const [noteTab, setNoteTab] = useState('nieuw'); // 'nieuw' | 'koppel'
+    const [projectNotesCache, setProjectNotesCache] = useState(null); // geladen project-notities
+    const [projectNotesLoading, setProjectNotesLoading] = useState(false);
+    const [noteTooltip, setNoteTooltip] = useState(null); // { notes[], x, y, taskName }
 
     // Taak toevoegen
     const [showAddTask, setShowAddTask] = useState(false);
@@ -374,6 +383,29 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     };
     const deleteTask = (tid) => updateProj(prev => ({ ...prev, tasks: prev.tasks.filter(t => t.id !== tid) }));
     const toggleTask = (tid) => updateProj(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === tid ? { ...t, completed: !t.completed } : t) }));
+    const moveTaskUp = (tid) => updateProj(prev => {
+        const tasks = [...prev.tasks];
+        const idx = tasks.findIndex(t => t.id === tid);
+        if (idx <= 0) return prev;
+        [tasks[idx - 1], tasks[idx]] = [tasks[idx], tasks[idx - 1]];
+        return { ...prev, tasks };
+    });
+    const moveTaskDown = (tid) => updateProj(prev => {
+        const tasks = [...prev.tasks];
+        const idx = tasks.findIndex(t => t.id === tid);
+        if (idx < 0 || idx >= tasks.length - 1) return prev;
+        [tasks[idx], tasks[idx + 1]] = [tasks[idx + 1], tasks[idx]];
+        return { ...prev, tasks };
+    });
+    const duplicateTask = (tid) => updateProj(prev => {
+        const idx = prev.tasks.findIndex(t => t.id === tid);
+        if (idx < 0) return prev;
+        const orig = prev.tasks[idx];
+        const copy = { ...orig, id: 't' + Date.now(), name: orig.name + ' (kopie)', completed: false, notes: [] };
+        const tasks = [...prev.tasks];
+        tasks.splice(idx + 1, 0, copy);
+        return { ...prev, tasks };
+    });
 
     // --- Maand header spans ---
     const { monthSpans, yearSpans } = useMemo(() => {
@@ -619,80 +651,133 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                     </div>
                 </div>
 
-                {/* Taak rijen */}
-                {expandedTasks && proj.tasks.map(t => {
+                {/* Taak rijen — alleen ACTIEVE taken */}
+                {expandedTasks && proj.tasks.filter(t => !t.completed).map(t => {
                     const noTeam = (t.assignedTo || []).length === 0;
                     return (
                     <div key={t.id} className="gantt-row"
                         onClick={() => { if (!justDraggedRef.current) setSelectedTaskId(prev => prev === t.id ? null : t.id); }}
-                        style={{ background: selectedTaskId === t.id ? 'rgba(250,160,82,0.08)' : 'rgba(0,0,0,0.015)', cursor: 'pointer', boxShadow: selectedTaskId === t.id ? 'inset 3px 0 0 var(--accent,#F5850A)' : 'none' }}>
-                        <div className="gantt-row-label" style={{ paddingLeft: '36px', flexDirection: 'column', alignItems: 'stretch', gap: '2px', padding: '4px 10px 4px 36px' }}>
+                        style={{
+                            background: selectedTaskId === t.id ? 'rgba(245,133,10,0.06)' : '#fff',
+                            cursor: 'pointer',
+                            boxShadow: selectedTaskId === t.id ? 'inset 3px 0 0 #F5850A' : 'none',
+                            borderBottom: '1px solid #f1f5f9',
+                        }}>
+                        <div className="gantt-row-label" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '2px', padding: '5px 8px 5px 32px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <input type="checkbox" checked={t.completed} onChange={e => { e.stopPropagation(); toggleTask(t.id); }}
-                                    style={{ width: '14px', height: '14px', accentColor: 'var(--accent,#F5850A)', cursor: 'pointer', flexShrink: 0 }} />
+                                <input type="checkbox" checked={false} onChange={e => { e.stopPropagation(); toggleTask(t.id); }}
+                                    style={{ width: '13px', height: '13px', accentColor: '#F5850A', cursor: 'pointer', flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                                     <div
                                         onDoubleClick={e => { e.stopPropagation(); const el = e.currentTarget; el.contentEditable = 'true'; el.focus(); const r = document.createRange(); r.selectNodeContents(el); window.getSelection().removeAllRanges(); window.getSelection().addRange(r); }}
                                         onBlur={e => { e.target.contentEditable = 'false'; const n = e.target.textContent.trim(); if (n && n !== t.name) updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, name: n }) })); }}
                                         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
-                                        style={{ fontWeight: 500, fontSize: '0.78rem', textDecoration: t.completed ? 'line-through' : 'none', color: t.completed ? '#94a3b8' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', outline: 'none', cursor: 'pointer', borderBottom: '1px dashed transparent' }}
+                                        style={{ fontWeight: 600, fontSize: '0.76rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', outline: 'none', cursor: 'pointer' }}
                                     >{t.name}</div>
                                 </div>
+                                {noTeam && (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '0.5rem', fontWeight: 700, color: '#ef4444', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', padding: '1px 4px', flexShrink: 0 }}>
+                                        <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.42rem' }} /> niet ingepland
+                                    </span>
+                                )}
+                                {/* Actie-knoppen: omhoog, omlaag, kopieer, notitie, verwijder */}
+                                {[
+                                    { icon: 'fa-chevron-up',   title: 'Omhoog',   color: '#94a3b8', hover: '#3b82f6', action: e => { e.stopPropagation(); moveTaskUp(t.id); } },
+                                    { icon: 'fa-chevron-down', title: 'Omlaag',   color: '#94a3b8', hover: '#3b82f6', action: e => { e.stopPropagation(); moveTaskDown(t.id); } },
+                                    { icon: 'fa-copy',         title: 'Kopiëren', color: '#94a3b8', hover: '#8b5cf6', action: e => { e.stopPropagation(); duplicateTask(t.id); } },
+                                ].map((btn, i) => (
+                                    <button key={i} onClick={btn.action} title={btn.title}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: btn.color, flexShrink: 0, fontSize: '0.65rem', transition: 'color 0.15s' }}
+                                        onMouseEnter={e => e.currentTarget.style.color = btn.hover}
+                                        onMouseLeave={e => e.currentTarget.style.color = btn.color}>
+                                        <i className={`fa-solid ${btn.icon}`} />
+                                    </button>
+                                ))}
+                                {/* Notitie-knop */}
+                                <button onClick={e => { e.stopPropagation(); setNotePopup({ taskId: t.id }); setNoteInput(''); }}
+                                    title={`Notities (${(t.notes || []).length})`}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', position: 'relative', transition: 'color 0.15s' }}
+                                    onMouseEnter={e => e.currentTarget.style.color = '#f59e0b'}
+                                    onMouseLeave={e => e.currentTarget.style.color = (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1'}>
+                                    <i className="fa-solid fa-note-sticky" />
+                                    {(t.notes || []).length > 0 && (
+                                        <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#f59e0b', color: '#fff', borderRadius: '50%', fontSize: '0.38rem', width: '10px', height: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}>
+                                            {(t.notes || []).length}
+                                        </span>
+                                    )}
+                                </button>
+                                {/* Verwijder-knop */}
                                 <button onClick={e => { e.stopPropagation(); deleteTask(t.id); }}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', color: '#ef4444', flexShrink: 0, fontSize: '0.72rem' }}
-                                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
-                                    onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', transition: 'color 0.15s' }}
+                                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                    onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
                                     <i className="fa-solid fa-xmark" />
                                 </button>
+
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '19px' }}>
                                 <input type="date" value={t.startDate} onClick={e => e.stopPropagation()}
                                     onChange={e => { if (e.target.value) updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, startDate: e.target.value }) })); }}
-                                    style={{ width: '95px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', color: '#334155', cursor: 'pointer', outline: 'none' }} />
-                                <span style={{ fontSize: '0.58rem', fontWeight: 700, color: '#fff', background: '#F5850A', borderRadius: '8px', padding: '0 5px', lineHeight: '15px', flexShrink: 0 }}>
-                                    {t.startDate && t.endDate ? `${diffDays(parseDate(t.startDate), parseDate(t.endDate)) + 1}d` : ''}
-                                </span>
+                                    style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
+                                {t.startDate && t.endDate && (() => {
+                                    const currentDays = diffDays(parseDate(t.startDate), parseDate(t.endDate)) + 1;
+                                    const changeDays = (newDays) => {
+                                        if (newDays < 1) return;
+                                        const newEnd = formatDate(addDays(parseDate(t.startDate), newDays - 1));
+                                        updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: newEnd }) }));
+                                    };
+                                    return (
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', background: proj.color, borderRadius: '10px', overflow: 'hidden', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                                            <button onClick={e => { e.stopPropagation(); changeDays(currentDays - 1); }}
+                                                style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 4px', fontSize: '0.6rem', fontWeight: 700, lineHeight: '16px' }}>−</button>
+                                            <input
+                                                type="number" min="1"
+                                                defaultValue={currentDays}
+                                                key={currentDays}
+                                                onClick={e => e.stopPropagation()}
+                                                onFocus={e => e.target.select()}
+                                                onBlur={e => { const v = parseInt(e.target.value); if (v > 0) changeDays(v); }}
+                                                onKeyDown={e => { if (e.key === 'Enter') { const v = parseInt(e.target.value); if (v > 0) { changeDays(v); e.target.blur(); } } e.stopPropagation(); }}
+                                                style={{ width: '24px', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontWeight: 700, fontSize: '0.56rem', textAlign: 'center', padding: '0', MozAppearance: 'textfield' }}
+                                            />
+                                            <button onClick={e => { e.stopPropagation(); changeDays(currentDays + 1); }}
+                                                style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 4px', fontSize: '0.6rem', fontWeight: 700, lineHeight: '16px' }}>+</button>
+                                        </div>
+                                    );
+                                })()}
                                 <input type="date" value={t.endDate} onClick={e => e.stopPropagation()}
                                     onChange={e => { if (e.target.value) updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: e.target.value }) })); }}
-                                    style={{ width: '95px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', color: '#334155', cursor: 'pointer', outline: 'none' }} />
+                                    style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
                             </div>
                         </div>
-                        {/* ===== TEAM KOLOM ===== */}
-                        <div className="gantt-team-col" style={{ background: 'rgba(0,0,0,0.015)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                {(t.assignedTo || []).slice(0, 3).map((uid, idx) => {
+                        {/* TEAM KOLOM */}
+                        <div className="gantt-team-col" style={{ background: noTeam ? '#fef2f2' : '#f8fafc', borderLeft: noTeam ? '2px solid #fecaca' : '1px solid #e2e8f0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
+                                {(t.assignedTo || []).slice(0, 4).map((uid, idx) => {
                                     const u = allUsers.find(x => x.id === uid);
                                     if (!u) return null;
                                     const initials = u.name ? u.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
                                     return (
                                         <div key={uid} className="gantt-worker-avatar"
-                                            style={{ width: '16px', height: '16px', fontSize: '0.4rem', background: proj.color + 'cc', color: '#fff', marginLeft: idx > 0 ? '-4px' : '0', border: '2px solid #fff', pointerEvents: 'auto' }}
+                                            style={{ width: '18px', height: '18px', fontSize: '0.42rem', fontWeight: 700, background: proj.color, color: '#fff', marginLeft: idx > 0 ? '-5px' : '0', border: '2px solid #fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto', flexShrink: 0 }}
                                             onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setWorkerTooltip({ name: u.name || u.email, x: r.left + r.width / 2, y: r.top }); }}
                                             onMouseLeave={() => setWorkerTooltip(null)}>
                                             {initials}
                                         </div>
                                     );
                                 })}
-                                {noTeam && !t.completed && (
-                                    <span title="Geen medewerkers ingepland" style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: '3px',
-                                        fontSize: '0.55rem', fontWeight: 700,
-                                        color: '#ef4444', background: '#fee2e2',
-                                        border: '1px solid #fca5a5', borderRadius: '5px',
-                                        padding: '1px 5px', whiteSpace: 'nowrap',
-                                    }}>
-                                        <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.45rem' }} />
-                                        niet ingepland
-                                    </span>
+                                {(t.assignedTo || []).length > 4 && (
+                                    <div style={{ width: '18px', height: '18px', fontSize: '0.38rem', fontWeight: 700, background: '#e2e8f0', color: '#64748b', marginLeft: '-5px', border: '2px solid #fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        +{(t.assignedTo || []).length - 4}
+                                    </div>
                                 )}
                             </div>
-                            {/* + knop voor teamtoewijzing */}
                             <button
                                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ taskId: t.id, x: r.left, y: r.bottom }); }}
                                 title="Personeel inplannen"
-                                style={{ width: '14px', height: '14px', borderRadius: '50%', border: `1.5px solid ${noTeam ? '#fca5a5' : '#d1d5db'}`, background: noTeam ? '#fee2e2' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: noTeam ? '#ef4444' : '#94a3b8', fontSize: '0.45rem', transition: 'all 0.15s', outline: 'none', pointerEvents: 'auto' }}
-                                onMouseEnter={e => { e.currentTarget.style.borderColor = proj.color; e.currentTarget.style.color = proj.color; e.currentTarget.style.background = `${proj.color}14`; }}
-                                onMouseLeave={e => { e.currentTarget.style.borderColor = noTeam ? '#fca5a5' : '#d1d5db'; e.currentTarget.style.color = noTeam ? '#ef4444' : '#94a3b8'; e.currentTarget.style.background = noTeam ? '#fee2e2' : '#fff'; }}>
+                                style={{ width: '18px', height: '18px', borderRadius: '50%', border: `1.5px solid ${noTeam ? '#ef4444' : '#d1d5db'}`, background: noTeam ? '#ef4444' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: noTeam ? '#fff' : '#94a3b8', fontSize: '0.5rem', transition: 'all 0.15s', outline: 'none', pointerEvents: 'auto' }}
+                                onMouseEnter={e => { e.currentTarget.style.borderColor = proj.color; e.currentTarget.style.color = '#fff'; e.currentTarget.style.background = proj.color; }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = noTeam ? '#ef4444' : '#d1d5db'; e.currentTarget.style.color = noTeam ? '#fff' : '#94a3b8'; e.currentTarget.style.background = noTeam ? '#ef4444' : '#fff'; }}>
                                 <i className="fa-solid fa-plus" />
                             </button>
                         </div>
@@ -701,41 +786,41 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${todayStr === formatDate(d) ? 'today' : ''}`} />
                             ))}
                             {t.startDate && t.endDate && (() => {
-                                const barColor = noTeam ? '#ef444488' : proj.color + 'bb';
-                                const segs = getBarSegments(t.startDate, t.endDate, barColor);
+                                const segs = getBarSegments(t.startDate, t.endDate, proj.color + 'cc');
                                 if (!segs.length) return null;
                                 return segs.map((segStyle, si) => (
                                     <div key={si} className="gantt-bar" data-project-id={proj.id} data-task-id={t.id}
                                         style={{
                                             ...segStyle,
-                                            cursor: 'grab', opacity: t.completed ? 0.4 : 1,
-                                            borderRadius: si === 0 && segs.length === 1 ? '5px' : si === 0 ? '5px 0 0 5px' : si === segs.length - 1 ? '0 5px 5px 0' : '0',
-                                            ...(noTeam && !t.completed && {
-                                                background: `repeating-linear-gradient(45deg, #ef444455, #ef444455 4px, #ef444422 4px, #ef444422 8px)`,
+                                            cursor: 'grab', height: '20px', top: '5px',
+                                            borderRadius: si === 0 && segs.length === 1 ? '6px' : si === 0 ? '6px 0 0 6px' : si === segs.length - 1 ? '0 6px 6px 0' : '0',
+                                            ...(noTeam && {
+                                                background: `repeating-linear-gradient(45deg, #ef444450, #ef444450 4px, #ef444418 4px, #ef444418 8px)`,
                                                 border: '1.5px dashed #ef4444',
                                                 boxShadow: 'none',
                                             }),
                                         }}>
                                         {si === 0 && <div className="resize-handle resize-handle-left" />}
-                                        {si === 0 && (editingBarId === t.id ? (
-                                            <input
-                                                autoFocus
-                                                value={editingBarName}
-                                                onChange={e => setEditingBarName(e.target.value)}
-                                                onBlur={() => {
-                                                    if (editingBarName.trim()) updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, name: editingBarName.trim() }) }));
-                                                    setEditingBarId(null);
-                                                }}
-                                                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEditingBarId(null); }}
-                                                onMouseDown={e => e.stopPropagation()}
-                                                style={{ flex: 1, background: 'rgba(255,255,255,0.25)', border: 'none', borderBottom: '2px solid #fff', outline: 'none', color: '#fff', fontWeight: 700, fontSize: '0.75rem', borderRadius: '2px', padding: '0 2px', minWidth: 0 }}
-                                            />
-                                        ) : (
-                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                                {noTeam && !t.completed && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
-                                                <span style={{ color: noTeam && !t.completed ? '#ef4444' : undefined }}>{t.name}</span>
+                                        {si === 0 && (
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '4px', flex: 1 }}>
+                                                {noTeam && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
+                                                <span style={{ color: noTeam ? '#ef4444' : '#fff', fontWeight: 600, fontSize: '0.62rem' }}>{t.name}</span>
                                             </span>
-                                        ))}
+                                        )}
+                                        {/* 📝 Notitie badge op balk */}
+                                        {si === 0 && (t.notes || []).length > 0 && (
+                                            <span
+                                                onClick={e => { e.stopPropagation(); setNotePopup({ taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
+                                                onMouseEnter={e => {
+                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                    setNoteTooltip({ notes: t.notes, x: rect.left, y: rect.bottom + 6, taskName: t.name });
+                                                }}
+                                                onMouseLeave={() => setNoteTooltip(null)}
+                                                style={{ pointerEvents: 'all', display: 'inline-flex', alignItems: 'center', gap: '2px', background: 'rgba(255,255,255,0.9)', borderRadius: '4px', padding: '0 4px', fontSize: '0.52rem', color: '#92400e', fontWeight: 700, flexShrink: 0, cursor: 'pointer', lineHeight: '14px', marginLeft: 'auto', userSelect: 'none' }}>
+                                                <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.5rem' }} />
+                                                {(t.notes || []).length > 1 && <span>{(t.notes || []).length}</span>}
+                                            </span>
+                                        )}
                                         {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
                                     </div>
                                 ));
@@ -744,6 +829,93 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                     </div>
                     );
                 })}
+
+                {/* ===== VOLTOOIDE TAKEN SECTIE ===== */}
+                {proj.tasks.some(t => t.completed) && (
+                    <>
+                        {/* Scheidingslijn met knop */}
+                        <div
+                            onClick={() => setShowCompleted(v => !v)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                padding: '6px 16px', cursor: 'pointer',
+                                background: '#f8fafc', borderTop: '1px solid #e2e8f0',
+                                borderBottom: showCompleted ? '1px solid #e2e8f0' : 'none',
+                                userSelect: 'none',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                            onMouseLeave={e => e.currentTarget.style.background = '#f8fafc'}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                <i className={`fa-solid ${showCompleted ? 'fa-chevron-down' : 'fa-chevron-right'}`}
+                                    style={{ fontSize: '0.5rem', color: '#10b981', transition: 'transform 0.2s' }} />
+                                <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.72rem' }} />
+                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#10b981' }}>
+                                    Voltooide taken ({proj.tasks.filter(t => t.completed).length})
+                                </span>
+                            </div>
+                            <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                                {showCompleted ? 'Verbergen' : 'Tonen'}
+                            </span>
+                        </div>
+
+                        {/* Voltooide rijen */}
+                        {showCompleted && proj.tasks.filter(t => t.completed).map(t => (
+                            <div key={t.id} className="gantt-row"
+                                style={{ background: '#fafafa', borderBottom: '1px solid #f1f5f9', opacity: 0.75 }}>
+                                <div className="gantt-row-label" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '1px', padding: '4px 8px 4px 32px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <input type="checkbox" checked={true} onChange={e => { e.stopPropagation(); toggleTask(t.id); }}
+                                            style={{ width: '13px', height: '13px', accentColor: '#10b981', cursor: 'pointer', flexShrink: 0 }} />
+                                        <div style={{ flex: 1, fontWeight: 500, fontSize: '0.74rem', color: '#94a3b8', textDecoration: 'line-through', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {t.name}
+                                        </div>
+                                        <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.65rem', flexShrink: 0 }} />
+                                        <button onClick={e => { e.stopPropagation(); deleteTask(t.id); }}
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', transition: 'color 0.15s' }}
+                                            onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                            onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
+                                            <i className="fa-solid fa-xmark" />
+                                        </button>
+                                    </div>
+                                    <div style={{ fontSize: '0.57rem', color: '#94a3b8', paddingLeft: '19px' }}>
+                                        {t.startDate} → {t.endDate}
+                                    </div>
+                                </div>
+                                {/* Lege team kolom voor voltooide taken */}
+                                <div className="gantt-team-col" style={{ background: '#f1f5f9', justifyContent: 'center' }}>
+                                    <span style={{ fontSize: '0.55rem', color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                        <i className="fa-solid fa-check" />
+                                    </span>
+                                </div>
+                                <div className="gantt-row-timeline">
+                                    {timelineDates.map((d, i) => (
+                                        <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''}`} />
+                                    ))}
+                                    {t.startDate && t.endDate && (() => {
+                                        const segs = getBarSegments(t.startDate, t.endDate, '#10b981');
+                                        if (!segs.length) return null;
+                                        return segs.map((segStyle, si) => (
+                                            <div key={si} className="gantt-bar"
+                                                style={{
+                                                    ...segStyle,
+                                                    height: '16px', top: '7px', opacity: 0.5,
+                                                    background: '#10b981aa',
+                                                    borderRadius: si === 0 && segs.length === 1 ? '4px' : si === 0 ? '4px 0 0 4px' : si === segs.length - 1 ? '0 4px 4px 0' : '0',
+                                                    cursor: 'default',
+                                                }}>
+                                                {si === 0 && (
+                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '4px', textDecoration: 'line-through' }}>
+                                                        <span style={{ color: '#fff', fontSize: '0.58rem' }}>{t.name}</span>
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ));
+                                    })()}
+                                </div>
+                            </div>
+                        ))}
+                    </>
+                )}
 
                 {/* Lege staat */}
                 {proj.tasks.length === 0 && (
@@ -847,6 +1019,237 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic', padding: '4px' }}>Geen medewerkers gevonden</span>
                             )}
                         </div>
+                    </div>
+                </>
+            );
+        })()}
+
+        {/* ===== NOTITIE HOVER TOOLTIP ===== */}
+        {noteTooltip && (
+            <div onMouseLeave={() => setNoteTooltip(null)}
+                style={{
+                    position: 'fixed',
+                    left: Math.min(noteTooltip.x, window.innerWidth - 300),
+                    top: noteTooltip.y,
+                    zIndex: 2000,
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    boxShadow: '0 8px 24px rgba(15,23,42,0.15)',
+                    padding: '10px 14px',
+                    maxWidth: '280px',
+                    minWidth: '200px',
+                    pointerEvents: 'none',
+                }}>
+                <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b' }} />
+                    {noteTooltip.taskName} — {noteTooltip.notes.length} notiti{noteTooltip.notes.length === 1 ? 'e' : 'es'}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {noteTooltip.notes.slice(0, 4).map((n, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '7px', alignItems: 'flex-start' }}>
+                            <i className={`fa-solid ${n.isLinked ? 'fa-link' : 'fa-note-sticky'}`}
+                                style={{ color: n.isLinked ? '#10b981' : '#f59e0b', fontSize: '0.58rem', marginTop: '2px', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: n.isLinked ? '#10b981' : '#92400e', marginBottom: '1px' }}>{n.author || 'Onbekend'}</div>
+                                <p style={{ margin: 0, fontSize: '0.72rem', color: '#1e293b', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.text}</p>
+                                <span style={{ fontSize: '0.55rem', color: '#94a3b8' }}>{n.date}</span>
+                            </div>
+                        </div>
+                    ))}
+                    {noteTooltip.notes.length > 4 && (
+                        <span style={{ fontSize: '0.62rem', color: '#94a3b8', fontStyle: 'italic' }}>+ {noteTooltip.notes.length - 4} meer...</span>
+                    )}
+                </div>
+                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #f1f5f9', fontSize: '0.6rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                    Klik op 📝 om notities te beheren
+                </div>
+            </div>
+        )}
+
+        {/* ===== NOTITIE POPUP ===== */}
+
+        {notePopup && (() => {
+            const task = proj.tasks.find(t => t.id === notePopup.taskId);
+            if (!task) return null;
+            const notes = task.notes || [];
+
+            // Laad project-notities via API wanneer Koppel-tab actief is
+            const pNotes = projectNotesCache || [];
+            if (noteTab === 'koppel' && !projectNotesCache && !projectNotesLoading) {
+                setProjectNotesLoading(true);
+                fetch(`/api/notes?projectId=${proj.id}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            const mapped = (data.notes || []).map(n => ({
+                                id: n.id,
+                                text: n.content || n.text || '',
+                                author: n.author || 'Onbekend',
+                                type: n.type || 'info',
+                                date: n.date ? new Date(n.date).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' })
+                                    : n.created_at ? new Date(n.created_at).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+                            }));
+                            setProjectNotesCache(mapped);
+                        } else setProjectNotesCache([]);
+                    })
+                    .catch(() => setProjectNotesCache([]))
+                    .finally(() => setProjectNotesLoading(false));
+
+            }
+
+            const addNote = () => {
+                const txt = noteInput.trim();
+                if (!txt) return;
+                const newNote = { id: Date.now(), text: txt, type: 'nieuw', date: new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
+                updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: [...(tk.notes || []), newNote] }) }));
+                setNoteInput('');
+            };
+            const linkNote = (pn) => {
+                if (notes.some(n => n.linkedId === pn.id)) return;
+                const ref = { id: Date.now(), linkedId: pn.id, text: pn.text, type: pn.type || 'info', author: pn.author, date: pn.date, isLinked: true };
+                updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: [...(tk.notes || []), ref] }) }));
+            };
+            const deleteNote = (nid) => {
+                updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: (tk.notes || []).filter(n => n.id !== nid) }) }));
+            };
+            const NOTE_TYPE_COLORS = { info: '#3b82f6', actie: '#f59e0b', probleem: '#ef4444', klant: '#10b981', planning: '#8b5cf6' };
+
+            return (
+                <>
+                    {/* Overlay */}
+                    <div onClick={() => setNotePopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 1099, background: 'rgba(15,23,42,0.25)' }} />
+                    {/* Paneel */}
+                    <div style={{ position: 'fixed', right: 0, top: 0, bottom: 0, width: '360px', zIndex: 1100, background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '-4px 0 24px rgba(15,23,42,0.15)', borderLeft: '1px solid #e2e8f0' }}>
+                        {/* Header */}
+                        <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b', fontSize: '0.9rem' }} />
+                                    <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b' }}>Taaknotities</span>
+                                    {notes.length > 0 && <span style={{ background: '#f59e0b', color: '#fff', borderRadius: '10px', fontSize: '0.6rem', fontWeight: 700, padding: '1px 7px' }}>{notes.length}</span>}
+                                </div>
+                                <button onClick={() => setNotePopup(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.9rem', padding: '4px' }}>
+                                    <i className="fa-solid fa-xmark" />
+                                </button>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '10px' }}>
+                                <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: proj.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{proj.name}</span>
+                                <i className="fa-solid fa-chevron-right" style={{ fontSize: '0.48rem', color: '#cbd5e1' }} />
+                                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>{task.name}</span>
+                            </div>
+                            {/* Tabs: Nieuw / Koppel */}
+                            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '3px', gap: '3px' }}>
+                                {[['nieuw', 'fa-plus', 'Nieuwe notitie'], ['koppel', 'fa-link', 'Koppel project-notitie']].map(([v, icon, lbl]) => (
+                                    <button key={v} onClick={() => {
+                                        setNoteTab(v);
+                                        if (v === 'koppel') setProjectNotesCache(null);
+                                    }}
+                                        style={{ flex: 1, padding: '5px 8px', borderRadius: '6px', border: 'none', background: noteTab === v ? '#fff' : 'transparent', color: noteTab === v ? '#1e293b' : '#94a3b8', fontWeight: noteTab === v ? 700 : 500, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', boxShadow: noteTab === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+                                        <i className={`fa-solid ${icon}`} style={{ fontSize: '0.6rem' }} />{lbl}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Tab-inhoud */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {/* Gekoppelde/eigen notities bovenaan */}
+                            {notes.length > 0 && (
+                                <div style={{ marginBottom: '8px' }}>
+                                    <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Gekoppeld aan deze taak ({notes.length})</div>
+                                    {notes.map(n => (
+                                        <div key={n.id} style={{ background: n.isLinked ? '#f0fdf4' : '#fffbeb', border: `1px solid ${n.isLinked ? '#bbf7d0' : '#fde68a'}`, borderRadius: '8px', padding: '10px 12px', position: 'relative', marginBottom: '6px' }}>
+                                            {/* Auteur + verwijder knop */}
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <i className={`fa-solid ${n.isLinked ? 'fa-link' : 'fa-note-sticky'}`} style={{ color: n.isLinked ? '#10b981' : '#f59e0b', fontSize: '0.6rem' }} />
+                                                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: n.isLinked ? '#10b981' : '#92400e' }}>
+                                                        {n.author || 'Onbekend'}{n.isLinked ? ' · project-notitie' : ''}
+                                                    </span>
+                                                </div>
+                                                <button onClick={() => deleteNote(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.7rem', padding: '1px', flexShrink: 0, transition: 'color 0.15s' }}
+                                                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                                    onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
+                                                    <i className="fa-solid fa-trash" />
+                                                </button>
+                                            </div>
+                                            {/* Volledige tekst */}
+                                            <p style={{ margin: 0, fontSize: '0.78rem', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{n.text}</p>
+                                            <span style={{ fontSize: '0.58rem', color: '#94a3b8', marginTop: '4px', display: 'block' }}>{n.date}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+
+                            {noteTab === 'nieuw' ? (
+                                notes.length === 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', color: '#94a3b8', gap: '8px' }}>
+                                        <i className="fa-regular fa-note-sticky" style={{ fontSize: '1.8rem', opacity: 0.35 }} />
+                                        <span style={{ fontSize: '0.75rem', fontStyle: 'italic' }}>Schrijf hieronder een nieuwe notitie</span>
+                                    </div>
+                                )
+                            ) : (
+                                // Koppel tab
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Projectnotities om te koppelen</div>
+                                    {projectNotesLoading && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '20px', color: '#94a3b8', justifyContent: 'center' }}>
+                                            <i className="fa-solid fa-spinner fa-spin" />
+                                            <span style={{ fontSize: '0.75rem' }}>Notities laden...</span>
+                                        </div>
+                                    )}
+                                    {!projectNotesLoading && pNotes.length === 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '20px', color: '#94a3b8' }}>
+                                            <i className="fa-solid fa-folder-open" style={{ fontSize: '1.5rem', opacity: 0.3 }} />
+                                            <span style={{ fontSize: '0.73rem', fontStyle: 'italic', textAlign: 'center' }}>Geen projectnotities gevonden.<br/>Voeg ze toe via het <strong>Notities-tabblad</strong>.</span>
+                                        </div>
+                                    )}
+                                    {pNotes.map(pn => {
+                                        const isLinked = notes.some(n => n.linkedId === pn.id);
+                                        const typeColor = NOTE_TYPE_COLORS[pn.type] || '#3b82f6';
+                                        return (
+                                            <div key={pn.id} style={{ background: isLinked ? '#f0fdf4' : '#f8fafc', border: `1px solid ${isLinked ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: '8px', padding: '10px 12px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: typeColor, flexShrink: 0, marginTop: '4px' }} />
+                                                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                                    <p style={{ margin: '0 0 4px', fontSize: '0.76rem', color: '#1e293b', lineHeight: 1.4, wordBreak: 'break-word', overflow: 'hidden' }}>{pn.text}</p>
+                                                    <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{pn.author} · {pn.date}</span>
+                                                </div>
+                                                <button onClick={() => !isLinked && linkNote(pn)}
+                                                    title={isLinked ? 'Al gekoppeld' : 'Koppel aan taak'}
+                                                    style={{ background: isLinked ? '#dcfce7' : '#F5850A', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: isLinked ? 'default' : 'pointer', color: isLinked ? '#16a34a' : '#fff', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                                                    <i className={`fa-solid ${isLinked ? 'fa-check' : 'fa-link'}`} />
+                                                    {isLinked ? 'Gekoppeld' : 'Koppel'}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Nieuw notitie invoer — alleen bij 'nieuw' tab */}
+                        {noteTab === 'nieuw' && (
+                            <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', flexShrink: 0, background: '#fafafa' }}>
+                                <textarea
+                                    value={noteInput}
+                                    onChange={e => setNoteInput(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote(); }}
+                                    placeholder="Schrijf een notitie... (Ctrl+Enter om op te slaan)"
+                                    rows={3}
+                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.8rem', color: '#1e293b', outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff' }}
+                                    autoFocus
+                                />
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                                    <button onClick={addNote} disabled={!noteInput.trim()}
+                                        style={{ padding: '7px 16px', background: noteInput.trim() ? '#f59e0b' : '#e2e8f0', color: noteInput.trim() ? '#fff' : '#94a3b8', border: 'none', borderRadius: '7px', cursor: noteInput.trim() ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}>
+                                        <i className="fa-solid fa-plus" /> Notitie toevoegen
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </>
             );

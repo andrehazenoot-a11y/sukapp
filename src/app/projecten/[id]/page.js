@@ -213,6 +213,8 @@ export default function ProjectDossierPage() {
     const [newNote, setNewNote] = useState('');
     const [noteType, setNoteType] = useState('info');
     const [notifyUserId, setNotifyUserId] = useState('');
+    const [replyingToNote, setReplyingToNote] = useState(null); // note.id
+    const [noteReplyInput, setNoteReplyInput] = useState('');
     const [termijnen, setTermijnen] = useState(DEMO_TERMIJNEN);
     const [offerteBedrag, setOfferteBedrag] = useState('');
     const [showAddTask, setShowAddTask] = useState(false);
@@ -418,80 +420,71 @@ export default function ProjectDossierPage() {
         setScanResult([]);
     };
 
-    const handleFileUpload = (taskId, files) => {
+    const handleFileUpload = async (taskId, files) => {
         const fileArr = Array.from(files);
-        let loaded = 0;
         const results = [];
-        const checkDone = () => {
-            loaded++;
-            if (loaded === fileArr.length) {
-                const updated = {
-                    ...project,
-                    tasks: project.tasks.map(t => t.id === taskId
-                        ? { ...t, attachments: [...(t.attachments || []), ...results] }
-                        : t)
-                };
-                saveProject(updated);
-            }
-        };
-        fileArr.forEach(file => {
+
+        for (const file of fileArr) {
             const isEml = file.name.toLowerCase().endsWith('.eml') || file.type === 'message/rfc822';
             const isMsg = file.name.toLowerCase().endsWith('.msg');
+
             if (isEml) {
-                // Lees als tekst voor parsing, en als base64 voor download
-                const textReader = new FileReader();
-                const b64Reader = new FileReader();
-                let rawText = null, dataUrl = null;
-                const tryPush = () => {
-                    if (rawText !== null && dataUrl !== null) {
-                        results.push({ name: file.name, type: 'message/rfc822', size: file.size, rawText, data: dataUrl });
-                        checkDone();
-                    }
-                };
-                textReader.onload = e => { rawText = e.target.result; tryPush(); };
-                b64Reader.onload = e => { dataUrl = e.target.result; tryPush(); };
-                textReader.readAsText(file);
-                b64Reader.readAsDataURL(file);
+                // .eml blijft lokaal parseren (base64 voor download)
+                const [rawText, dataUrl] = await Promise.all([
+                    new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsText(file); }),
+                    new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file); }),
+                ]);
+                results.push({ name: file.name, type: 'message/rfc822', size: file.size, rawText, data: dataUrl });
             } else if (isMsg) {
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    try {
-                        const MsgReader = (await import('@kenjiuno/msgreader')).default;
-                        const msgReader = new MsgReader(e.target.result);
-                        const info = msgReader.getFileData();
-                        const parsedMsg = {
-                            subject: info.subject || '(geen onderwerp)',
-                            from: info.senderName ? `${info.senderName} <${info.senderEmail || ''}>` : (info.senderEmail || ''),
-                            to: (info.recipients || []).map(r => r.name || r.email || '').join(', '),
-                            cc: '',
-                            date: '',
-                            body: info.body || '',
-                            bodyHtml: info.bodyHtml || info.body || '',
-                            bodyIsHtml: !!info.bodyHtml,
-                        };
-                        // Converteer ArrayBuffer naar base64 data-URL voor download
-                        const bytes = new Uint8Array(e.target.result);
-                        let binary = '';
-                        bytes.forEach(b => binary += String.fromCharCode(b));
-                        const dataUrl = 'data:application/vnd.ms-outlook;base64,' + btoa(binary);
-                        results.push({ name: file.name, type: 'application/vnd.ms-outlook', size: file.size, parsedMsg, data: dataUrl });
-                    } catch (err) {
-                        console.warn('MSG parse error:', err);
-                        results.push({ name: file.name, type: 'application/vnd.ms-outlook', size: file.size, data: null, parseError: true });
-                    }
-                    checkDone();
-                };
-                reader.readAsArrayBuffer(file);
+                // .msg blijft lokaal parseren
+                const buffer = await new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsArrayBuffer(file); });
+                try {
+                    const MsgReader = (await import('@kenjiuno/msgreader')).default;
+                    const msgReader = new MsgReader(buffer);
+                    const info = msgReader.getFileData();
+                    const bytes = new Uint8Array(buffer);
+                    let binary = ''; bytes.forEach(b => binary += String.fromCharCode(b));
+                    const dataUrl = 'data:application/vnd.ms-outlook;base64,' + btoa(binary);
+                    results.push({ name: file.name, type: 'application/vnd.ms-outlook', size: file.size,
+                        parsedMsg: { subject: info.subject || '(geen onderwerp)', from: info.senderName ? `${info.senderName} <${info.senderEmail || ''}>` : (info.senderEmail || ''), to: (info.recipients || []).map(r => r.name || r.email || '').join(', '), cc: '', date: '', body: info.body || '', bodyHtml: info.bodyHtml || info.body || '', bodyIsHtml: !!info.bodyHtml },
+                        data: dataUrl });
+                } catch (err) {
+                    console.warn('MSG parse error:', err);
+                    results.push({ name: file.name, type: 'application/vnd.ms-outlook', size: file.size, data: null, parseError: true });
+                }
             } else {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: e.target.result });
-                    checkDone();
-                };
-                reader.readAsDataURL(file);
+                // ✅ Alle andere bestanden → upload naar Synology
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('projectId', id);
+                    formData.append('category', 'taken');
+                    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                    const uploadResult = await res.json();
+                    if (uploadResult.success) {
+                        results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, url: uploadResult.url, data: null });
+                    } else {
+                        // Fallback naar base64 als upload mislukt
+                        const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file); });
+                        results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: dataUrl });
+                    }
+                } catch {
+                    // Fallback bij netwerkfout
+                    const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file); });
+                    results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: dataUrl });
+                }
             }
-        });
+        }
+
+        const updated = {
+            ...project,
+            tasks: project.tasks.map(t => t.id === taskId
+                ? { ...t, attachments: [...(t.attachments || []), ...results] }
+                : t)
+        };
+        saveProject(updated);
     };
+
     const removeAttachment = (taskId, attachIdx) => {
         const updated = {
             ...project,
@@ -510,6 +503,29 @@ export default function ProjectDossierPage() {
         try { const s = localStorage.getItem(`schildersapp_meerwerk_${id}`); return s ? JSON.parse(s) : []; } catch { return []; }
     });
     const [showAddMeerwerk, setShowAddMeerwerk] = useState(false);
+
+    // Auto-refresh meerwerk als de chatbot (of ander tabblad) iets opslaat
+    useEffect(() => {
+        const key = `schildersapp_meerwerk_${id}`;
+        const handleStorage = (e) => {
+            if (e.key === key || !e.key) { // e.key=null bij localStorage.setItem in zelfde tab (custom event)
+                try { const s = localStorage.getItem(key); if (s) setMeerwerk(JSON.parse(s)); } catch {}
+            }
+        };
+        window.addEventListener('storage', handleStorage);
+        // Poll elke 2 seconden als fallback (storage event werkt niet altijd in zelfde tab)
+        const poll = setInterval(() => {
+            try {
+                const s = localStorage.getItem(key);
+                if (s) {
+                    const parsed = JSON.parse(s);
+                    setMeerwerk(prev => prev.length !== parsed.length ? parsed : prev);
+                }
+            } catch {}
+        }, 2000);
+        return () => { window.removeEventListener('storage', handleStorage); clearInterval(poll); };
+    }, [id]);
+
 
     // Selectie helpers (na meerwerk state, zodat meerwerk beschikbaar is)
     const toggleMeerwerkSelectie = (id) => setMeerwerkSelectie(prev =>
@@ -1509,7 +1525,7 @@ export default function ProjectDossierPage() {
                                                                         <div key={ai} style={{ position: 'relative', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#f8fafc' }}>
                                                                             {isImage ? (
                                                                                 <button onClick={() => setPreviewAtt(att)} style={{ border: 'none', padding: 0, background: 'none', cursor: 'zoom-in', display: 'block' }}>
-                                                                                    <img src={att.data} alt={att.name} style={{ width: '72px', height: '72px', objectFit: 'cover', display: 'block' }} />
+                                                                                    <img src={att.url || att.data} alt={att.name} style={{ width: '72px', height: '72px', objectFit: 'cover', display: 'block' }} />
                                                                                 </button>
                                                                             ) : (
                                                                                 <button onClick={() => setPreviewAtt(att)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '72px', height: '72px', border: 'none', background: 'none', cursor: 'pointer', gap: '4px' }}>
@@ -1676,12 +1692,81 @@ export default function ProjectDossierPage() {
                                                 </button>
                                             </div>
                                         )}
+                                        {/* Reacties */}
+                                        {(note.replies || []).length > 0 && (
+                                            <div style={{ marginTop: '10px', paddingLeft: '12px', borderLeft: '2px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                {note.replies.map(r => (
+                                                    <div key={r.id}>
+                                                        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                            <i className="fa-solid fa-reply" style={{ color: '#94a3b8', fontSize: '0.55rem', transform: 'scaleX(-1)' }} />
+                                                            {r.author}
+                                                        </div>
+                                                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#334155', lineHeight: 1.4 }}>{r.text}</p>
+                                                        <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>{r.date}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {/* Inline reply invoer */}
+                                        {replyingToNote === note.id && (
+                                            <div style={{ marginTop: '10px', paddingLeft: '12px', borderLeft: '2px solid #F5850A' }}>
+                                                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#F5850A', marginBottom: '5px' }}>Reageer als {user?.name || 'Jan Modaal'}</div>
+                                                <textarea
+                                                    autoFocus
+                                                    value={noteReplyInput}
+                                                    onChange={e => setNoteReplyInput(e.target.value)}
+                                                    onKeyDown={async e => {
+                                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                                            const txt = noteReplyInput.trim();
+                                                            if (!txt) return;
+                                                            const author = user?.name || 'Jan Modaal';
+                                                            const reply = { id: Date.now(), text: txt, author, date: new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
+                                                            setNotes(prev => prev.map(n => n.id !== note.id ? n : { ...n, replies: [...(n.replies || []), reply] }));
+                                                            setNoteReplyInput('');
+                                                            setReplyingToNote(null);
+                                                            fetch(`/api/notes/${note.id}/replies`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author, content: txt }) }).catch(console.error);
+                                                        }
+                                                        if (e.key === 'Escape') { setReplyingToNote(null); setNoteReplyInput(''); }
+                                                    }}
+                                                    placeholder="Typ je reactie... (Ctrl+Enter om op te slaan)"
+                                                    rows={2}
+                                                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #fed7aa', fontSize: '0.82rem', color: '#1e293b', outline: 'none', resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff7ed' }}
+                                                />
+                                                <div style={{ display: 'flex', gap: '6px', marginTop: '6px', justifyContent: 'flex-end' }}>
+                                                    <button onClick={() => { setReplyingToNote(null); setNoteReplyInput(''); }}
+                                                        style={{ padding: '4px 12px', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', color: '#94a3b8' }}>Annuleer</button>
+                                                    <button onClick={async () => {
+                                                        const txt = noteReplyInput.trim();
+                                                        if (!txt) return;
+                                                        const author = user?.name || 'Jan Modaal';
+                                                        const reply = { id: Date.now(), text: txt, author, date: new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
+                                                        setNotes(prev => prev.map(n => n.id !== note.id ? n : { ...n, replies: [...(n.replies || []), reply] }));
+                                                        setNoteReplyInput('');
+                                                        setReplyingToNote(null);
+                                                        fetch(`/api/notes/${note.id}/replies`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author, content: txt }) }).catch(console.error);
+                                                    }} disabled={!noteReplyInput.trim()}
+                                                        style={{ padding: '4px 14px', background: noteReplyInput.trim() ? '#F5850A' : '#e2e8f0', border: 'none', borderRadius: '6px', cursor: noteReplyInput.trim() ? 'pointer' : 'not-allowed', fontSize: '0.75rem', fontWeight: 700, color: noteReplyInput.trim() ? '#fff' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <i className="fa-solid fa-reply" />Verstuur
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                    <button onClick={() => deleteNote(note.id)} style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '4px', fontSize: '0.85rem', alignSelf: 'flex-start', borderRadius: '6px', transition: 'color 0.15s' }}
-                                        onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                                        onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
-                                        <i className="fa-solid fa-trash" />
-                                    </button>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+                                        <button onClick={() => deleteNote(note.id)} style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '4px', fontSize: '0.85rem', borderRadius: '6px', transition: 'color 0.15s' }}
+                                            onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                            onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
+                                            <i className="fa-solid fa-trash" />
+                                        </button>
+                                        <button onClick={() => { setReplyingToNote(replyingToNote === note.id ? null : note.id); setNoteReplyInput(''); }}
+                                            title="Reageer op deze notitie"
+                                            style={{ background: 'none', border: 'none', color: replyingToNote === note.id ? '#F5850A' : '#cbd5e1', cursor: 'pointer', padding: '4px', fontSize: '0.85rem', borderRadius: '6px', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                            onMouseEnter={e => e.currentTarget.style.color = '#F5850A'}
+                                            onMouseLeave={e => e.currentTarget.style.color = replyingToNote === note.id ? '#F5850A' : '#cbd5e1'}>
+                                            <i className="fa-solid fa-reply" />
+                                            {(note.replies || []).length > 0 && <span style={{ fontSize: '0.65rem', fontWeight: 700 }}>{note.replies.length}</span>}
+                                        </button>
+                                    </div>
                                 </div>
                             );
                         })}
@@ -2020,7 +2105,16 @@ export default function ProjectDossierPage() {
                                                     style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#F5850A' }}
                                                 />
                                             </div>
-                                            <div>
+                                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                                {/* 📸 Foto miniatuur direct naast tekst */}
+                                                {m.foto && (
+                                                    <button onClick={() => setPreviewAtt({ data: m.foto, name: 'Meerwerk bewijs', type: 'image/jpeg' })}
+                                                        style={{ flexShrink: 0, border: '2px solid #bfdbfe', borderRadius: '8px', overflow: 'hidden', cursor: 'zoom-in', padding: 0, background: 'none', display: 'block' }}
+                                                        title="Klik om te vergroten">
+                                                        <img src={m.foto} alt="Meerwerk foto" style={{ width: '60px', height: '60px', objectFit: 'cover', display: 'block' }} />
+                                                    </button>
+                                                )}
+                                                <div style={{ flex: 1 }}>
                                                 <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{m.omschrijving}</div>
                                                 {m.toelichting && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>{m.toelichting}</div>}
                                                 <div style={{ fontSize: '0.68rem', color: '#cbd5e1', marginTop: '2px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
@@ -2030,10 +2124,11 @@ export default function ProjectDossierPage() {
                                                     {m.foto && (
                                                         <button onClick={() => setPreviewAtt({ data: m.foto, name: 'Meerwerk bewijs', type: 'image/jpeg' })} 
                                                             style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '1px 6px', fontSize: '0.65rem', cursor: 'pointer', transition: 'all 0.15s' }}>
-                                                            <i className="fa-solid fa-image" /> Foto openen
+                                                            <i className="fa-solid fa-expand" /> Vergroot
                                                         </button>
                                                     )}
                                                 </div>
+                                                </div>{/* /flex inner */}
                                             </div>
                                             <div style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>
                                                 {m.uren > 0 ? `${m.uren}u` : '—'}
