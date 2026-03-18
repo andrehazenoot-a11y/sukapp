@@ -43,6 +43,10 @@
     max-width: 100%;
 }
 
+.gantt-wrapper > div {
+    min-width: max-content;
+}
+
 .gantt-table {
     display: grid;
     min-width: 100%;
@@ -230,7 +234,6 @@
     display: flex;
     position: relative;
     min-height: 30px;
-    overflow: hidden;
 }
 
 .gantt-cell {
