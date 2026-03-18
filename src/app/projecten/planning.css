@@ -45,6 +45,7 @@
 
 .gantt-wrapper > div {
     min-width: max-content;
+    width: max-content;
 }
 
 .gantt-table {
@@ -59,6 +60,8 @@
     top: 0;
     z-index: 2;
     background: #f5f6f8;
+    width: max-content;
+    min-width: 100%;
 }
 
 .gantt-header-row.year-row {
@@ -194,6 +197,8 @@
     border-bottom: 1px solid #e8eaed;
     min-height: 30px;
     transition: background 0.1s;
+    width: max-content;
+    min-width: 100%;
 }
 
 .gantt-row:hover {
@@ -230,10 +235,11 @@
 }
 
 .gantt-row-timeline {
-    flex: 1;
+    flex: 1 0 auto;
     display: flex;
     position: relative;
     min-height: 30px;
+    width: max-content;
     min-width: max-content;
 }
 
