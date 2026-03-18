@@ -150,6 +150,12 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         setCurrentDate(d);
     };
 
+    const navigateWeek = (dir) => {
+        const d = new Date(currentDate);
+        d.setDate(d.getDate() + dir * 7);
+        setCurrentDate(d);
+    };
+
     // --- Weekday segments helper ---
     const getWorkdaySegments = useCallback((start, end, tStart, tEnd, totalDays) => {
         const segments = [];
@@ -356,7 +362,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         };
         wrapper.addEventListener('mousedown', handleMouseDown, true);
         return () => wrapper.removeEventListener('mousedown', handleMouseDown, true);
-    });
+    }, [moveBar, resizeBar]);
 
     // --- Keyboards: pijltjes verplaatsen geselecteerde balk ---
     const selectedTaskIdRef = useRef(selectedTaskId);
@@ -454,16 +460,26 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             {/* Toolbar */}
             <div className="planning-toolbar" style={{ flexWrap: 'wrap', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button onClick={() => navigate(-1)} style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
-                        <i className="fa-solid fa-chevron-left" />
-                    </button>
+                    <div style={{ display: 'flex', gap: '2px' }}>
+                        <button onClick={() => navigate(-1)} title="1 maand terug" style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '8px 2px 2px 8px', padding: '6px 10px', cursor: 'pointer', color: '#64748b' }}>
+                            <i className="fa-solid fa-angles-left" style={{ fontSize: '0.65rem' }} />
+                        </button>
+                        <button onClick={() => navigateWeek(-1)} title="1 week terug" style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '2px 8px 8px 2px', padding: '6px 10px', cursor: 'pointer', color: '#64748b' }}>
+                            <i className="fa-solid fa-angle-left" />
+                        </button>
+                    </div>
                     <span style={{ fontWeight: 700, fontSize: '0.9rem', minWidth: '155px', textAlign: 'center' }}>
                         {`${MONTHS_FULL[currentDate.getMonth()]} — ${MONTHS_FULL[(currentDate.getMonth() + 1) % 12]} ${currentDate.getFullYear()}`}
                     </span>
-                    <button onClick={() => navigate(1)} style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
-                        <i className="fa-solid fa-chevron-right" />
-                    </button>
-                    <button onClick={() => setCurrentDate(new Date())} style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#64748b' }}>Vandaag</button>
+                    <div style={{ display: 'flex', gap: '2px' }}>
+                        <button onClick={() => navigateWeek(1)} title="1 week vooruit" style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '8px 2px 2px 8px', padding: '6px 10px', cursor: 'pointer', color: '#64748b' }}>
+                            <i className="fa-solid fa-angle-right" />
+                        </button>
+                        <button onClick={() => navigate(1)} title="1 maand vooruit" style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '2px 8px 8px 2px', padding: '6px 10px', cursor: 'pointer', color: '#64748b' }}>
+                            <i className="fa-solid fa-angles-right" style={{ fontSize: '0.65rem' }} />
+                        </button>
+                    </div>
+                    <button onClick={() => setCurrentDate(new Date())} style={{ border: '1px solid var(--border-color,#e2e8f0)', background: '#fff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', marginLeft: '2px' }}>Vandaag</button>
                     {!projInView && (
                         <button onClick={() => setCurrentDate(parseDate(proj.startDate))} style={{ border: '1px solid #dbeafe', background: '#eff6ff', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, color: '#3b82f6' }}>
                             <i className="fa-solid fa-crosshairs" style={{ marginRight: 4 }} />Project tonen
@@ -583,7 +599,12 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                     <div className="gantt-row-label">
                         <i className={expandedTasks ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'}
                             style={{ fontSize: '0.55rem', color: '#94a3b8', width: '14px', textAlign: 'center', flexShrink: 0 }} />
-                        <div style={{ flexShrink: 0 }}>
+                        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            {(() => {
+                                const activeTasks = (proj.tasks || []).filter(t => !t.completed);
+                                const hasUnassigned = activeTasks.length > 0 && activeTasks.some(t => (t.assignedTo || []).length === 0);
+                                return hasUnassigned && <i className="fa-solid fa-circle-exclamation" style={{ color: '#ef4444', fontSize: '0.65rem' }} title="Niet alle actieve taken hebben personeel toegewezen"></i>;
+                            })()}
                             <div className="project-dot"
                                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setColorPickerPos(prev => prev ? null : { x: r.left, y: r.bottom + 4 }); }}
                                 style={{ background: proj.color, cursor: 'pointer', width: '14px', height: '14px', borderRadius: '50%', border: '2px solid rgba(0,0,0,0.1)' }}
@@ -602,21 +623,49 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 </div>
                             )}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flexShrink: 0, justifyContent: 'center' }}>
                             <input type="date" value={proj.startDate} onClick={e => e.stopPropagation()}
                                 onChange={e => { if (e.target.value) updateProj(prev => ({ ...prev, startDate: e.target.value })); }}
-                                style={{ width: '90px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', color: '#334155', cursor: 'pointer', outline: 'none' }} />
-                            <span style={{ fontSize: '0.55rem', color: '#cbd5e1' }}>→</span>
+                                style={{ width: '90px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #10b981', borderRadius: '4px', background: '#d1fae5', color: '#065f46', fontWeight: 600, cursor: 'pointer', outline: 'none' }} />
                             <input type="date" value={proj.endDate} onClick={e => e.stopPropagation()}
                                 onChange={e => { if (e.target.value) updateProj(prev => ({ ...prev, endDate: e.target.value })); }}
-                                style={{ width: '90px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', color: '#334155', cursor: 'pointer', outline: 'none' }} />
-                            <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: 600, minWidth: '26px' }}>
+                                style={{ width: '90px', fontSize: '0.6rem', padding: '1px 3px', border: '1px solid #f43f5e', borderRadius: '4px', background: '#ffe4e6', color: '#9f1239', fontWeight: 600, cursor: 'pointer', outline: 'none' }} />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', minWidth: '26px' }}>
+                            <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: 600, textAlign: 'right', width: '100%' }}>
                                 {proj.startDate && proj.endDate ? `${diffDays(parseDate(proj.startDate), parseDate(proj.endDate)) + 1}d` : ''}
                             </span>
                         </div>
                     </div>
-                    {/* Project-niveau team kolom (leeg — team zit op taak niveau) */}
-                    <div className="gantt-team-col" style={{ justifyContent: 'flex-start', paddingLeft: '4px' }} />
+                    {/* Project-niveau team kolom */}
+                    {(() => {
+                        const taskWorkerIds = [...new Set((proj.tasks || []).filter(t => !t.completed).flatMap(t => t.assignedTo || []))];
+                        const workers = taskWorkerIds.map(id => allUsers.find(u => u.id === id)).filter(Boolean);
+                        const hasWorkers = workers.length > 0;
+                        return (
+                            <div className="gantt-team-col" style={{ background: hasWorkers ? '#f8fafc' : '#fef2f2', borderLeft: hasWorkers ? '1px solid #e2e8f0' : '2px solid #fecaca', justifyContent: 'center' }}>
+                                <div
+                                    title={hasWorkers ? workers.map(u => u.name).join(', ') + ' — klik om projectpersoneel te beheren' : 'Niemand ingepland op project — klik om toe te voegen'}
+                                    onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopupPos({ taskId: null, x: r.left, y: r.bottom }); }}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '4px',
+                                        height: '18px', padding: '0 6px', borderRadius: '8px',
+                                        cursor: 'pointer', transition: 'all 0.15s',
+                                        background: hasWorkers ? proj.color + '22' : 'rgba(239,68,68,0.1)',
+                                        border: `1px solid ${hasWorkers ? proj.color + '55' : '#ef444466'}`,
+                                        color: hasWorkers ? proj.color : '#ef4444',
+                                        pointerEvents: 'auto',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = hasWorkers ? proj.color + '40' : 'rgba(239,68,68,0.2)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = hasWorkers ? proj.color + '22' : 'rgba(239,68,68,0.1)'; }}
+                                >
+                                    <i className={`fa-solid fa-${hasWorkers ? 'users' : 'user-plus'}`} style={{ fontSize: '0.48rem' }} />
+                                    {hasWorkers && <span style={{ fontSize: '0.55rem', fontWeight: 700 }}>{workers.length}</span>}
+                                    {!hasWorkers && <span style={{ fontSize: '0.48rem', fontWeight: 700, textTransform: 'uppercase' }}>Geen</span>}
+                                </div>
+                            </div>
+                        );
+                    })()}
                     <div className="gantt-row-timeline">
                         {timelineDates.map((d, i) => (
                             <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${todayStr === formatDate(d) ? 'today' : ''}`} />
@@ -624,29 +673,46 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         {proj.startDate && proj.endDate && (() => {
                             const segs = getBarSegments(proj.startDate, proj.endDate, proj.color);
                             if (!segs.length) return null;
-                            return segs.map((segStyle, si) => (
-                                <div key={si} className="gantt-bar" data-project-id={proj.id} data-task-id={null}
-                                    style={{ ...segStyle, cursor: 'grab', borderRadius: si === 0 && segs.length === 1 ? '5px' : si === 0 ? '5px 0 0 5px' : si === segs.length - 1 ? '0 5px 5px 0' : '0' }}>
-                                    {si === 0 && <div className="resize-handle resize-handle-left" />}
-                                    {si === 0 && (editingBarId === 'project' ? (
-                                        <input
-                                            autoFocus
-                                            value={editingBarName}
-                                            onChange={e => setEditingBarName(e.target.value)}
-                                            onBlur={() => {
-                                                if (editingBarName.trim()) updateProj(prev => ({ ...prev, name: editingBarName.trim() }));
-                                                setEditingBarId(null);
-                                            }}
-                                            onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEditingBarId(null); }}
-                                            onMouseDown={e => e.stopPropagation()}
-                                            style={{ flex: 1, background: 'rgba(255,255,255,0.25)', border: 'none', borderBottom: '2px solid #fff', outline: 'none', color: '#fff', fontWeight: 700, fontSize: '0.75rem', borderRadius: '2px', padding: '0 2px', minWidth: 0 }}
-                                        />
-                                    ) : (
-                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>{proj.name}</span>
+                            return (
+                                <React.Fragment key={proj.id + '_timeline'}>
+                                    {segs.map((segStyle, si) => (
+                                        <div key={si} className="gantt-bar" data-project-id={proj.id} data-task-id={null}
+                                            style={{
+                                                ...segStyle, cursor: 'grab',
+                                                borderRadius: si === 0 && segs.length === 1 ? '5px' : si === 0 ? '5px 0 0 5px' : si === segs.length - 1 ? '0 5px 5px 0' : '0',
+                                            }}>
+                                            {si === 0 && <div className="resize-handle resize-handle-left" />}
+                                            {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
+                                        </div>
                                     ))}
-                                    {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
-                                </div>
-                            ));
+                                    <div style={{
+                                        position: 'absolute', left: segs[0].left, top: '4px', height: '22px',
+                                        width: `calc(${segs[segs.length - 1].left} + ${segs[segs.length - 1].width} - ${segs[0].left})`,
+                                        pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '5px', paddingLeft: '6px', paddingRight: '6px', zIndex: 3, overflow: 'visible'
+                                    }}>
+                                        {editingBarId === 'project' ? (
+                                            <div style={{ position: 'sticky', left: '4px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                                                <input
+                                                    autoFocus
+                                                    value={editingBarName}
+                                                    onChange={e => setEditingBarName(e.target.value)}
+                                                    onBlur={() => {
+                                                        if (editingBarName.trim()) updateProj(prev => ({ ...prev, name: editingBarName.trim() }));
+                                                        setEditingBarId(null);
+                                                    }}
+                                                    onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEditingBarId(null); }}
+                                                    onMouseDown={e => e.stopPropagation()}
+                                                    style={{ pointerEvents: 'auto', flex: 1, background: 'rgba(255,255,255,0.25)', border: 'none', borderBottom: '2px solid #fff', outline: 'none', color: '#fff', fontWeight: 700, fontSize: '0.75rem', borderRadius: '2px', padding: '0 2px', minWidth: 0 }}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <span style={{ position: 'sticky', left: '6px', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, color: '#fff', textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>
+                                                {proj.name}
+                                            </span>
+                                        )}
+                                    </div>
+                                </React.Fragment>
+                            );
                         })()}
                     </div>
                 </div>
@@ -675,11 +741,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                         style={{ fontWeight: 600, fontSize: '0.76rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', outline: 'none', cursor: 'pointer' }}
                                     >{t.name}</div>
                                 </div>
-                                {noTeam && (
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '0.5rem', fontWeight: 700, color: '#ef4444', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', padding: '1px 4px', flexShrink: 0 }}>
-                                        <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.42rem' }} /> niet ingepland
-                                    </span>
-                                )}
+
                                 {/* Actie-knoppen: omhoog, omlaag, kopieer, notitie, verwijder */}
                                 {[
                                     { icon: 'fa-chevron-up',   title: 'Omhoog',   color: '#94a3b8', hover: '#3b82f6', action: e => { e.stopPropagation(); moveTaskUp(t.id); } },
@@ -771,6 +833,21 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                         +{(t.assignedTo || []).length - 4}
                                     </div>
                                 )}
+                                {(t.assignedTo || []).length === 0 && (
+                                    <span title="Geen medewerkers ingepland" style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '3px',
+                                        fontSize: '0.55rem', fontWeight: 700,
+                                        color: '#ef4444',
+                                        background: '#fee2e2',
+                                        border: '1px solid #fca5a5',
+                                        borderRadius: '5px',
+                                        padding: '1px 5px',
+                                        whiteSpace: 'nowrap',
+                                    }}>
+                                        <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.45rem' }} />
+                                        niet ingepland
+                                    </span>
+                                )}
                             </div>
                             <button
                                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ taskId: t.id, x: r.left, y: r.bottom }); }}
@@ -786,44 +863,55 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${todayStr === formatDate(d) ? 'today' : ''}`} />
                             ))}
                             {t.startDate && t.endDate && (() => {
-                                const segs = getBarSegments(t.startDate, t.endDate, proj.color + 'cc');
+                                const barColor = noTeam ? 'repeating-linear-gradient(45deg, #ef444455, #ef444455 4px, #ef444422 4px, #ef444422 8px)' : proj.color + 'cc';
+                                const segs = getBarSegments(t.startDate, t.endDate, barColor);
                                 if (!segs.length) return null;
-                                return segs.map((segStyle, si) => (
-                                    <div key={si} className="gantt-bar" data-project-id={proj.id} data-task-id={t.id}
-                                        style={{
-                                            ...segStyle,
-                                            cursor: 'grab', height: '20px', top: '5px',
-                                            borderRadius: si === 0 && segs.length === 1 ? '6px' : si === 0 ? '6px 0 0 6px' : si === segs.length - 1 ? '0 6px 6px 0' : '0',
-                                            ...(noTeam && {
-                                                background: `repeating-linear-gradient(45deg, #ef444450, #ef444450 4px, #ef444418 4px, #ef444418 8px)`,
-                                                border: '1.5px dashed #ef4444',
-                                                boxShadow: 'none',
-                                            }),
+                                return (
+                                    <React.Fragment key={t.id + '_timeline'}>
+                                        {segs.map((segStyle, si) => (
+                                            <div key={si} className="gantt-bar" data-project-id={proj.id} data-task-id={t.id}
+                                                style={{
+                                                    ...segStyle,
+                                                    display: 'flex', alignItems: 'center',
+                                                    cursor: 'grab', height: '20px', top: '5px',
+                                                    borderRadius: si === 0 && segs.length === 1 ? '6px' : si === 0 ? '6px 0 0 6px' : si === segs.length - 1 ? '0 6px 6px 0' : '0',
+                                                    border: noTeam ? '1.5px dashed #ef4444' : '1px solid rgba(0,0,0,0.08)',
+                                                    boxSizing: noTeam ? 'border-box' : undefined,
+                                                    boxShadow: noTeam ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+                                                }}>
+                                                {si === 0 && <div className="resize-handle resize-handle-left" />}
+                                                {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
+                                            </div>
+                                        ))}
+                                        <div style={{
+                                            position: 'absolute', left: segs[0].left, top: '5px', height: '20px',
+                                            width: `calc(${segs[segs.length - 1].left} + ${segs[segs.length - 1].width} - ${segs[0].left})`,
+                                            pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '4px', paddingRight: '4px', minWidth: 0, overflow: 'visible', zIndex: 3
                                         }}>
-                                        {si === 0 && <div className="resize-handle resize-handle-left" />}
-                                        {si === 0 && (
-                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '4px', flex: 1 }}>
+                                            <div style={{ position: 'sticky', left: '4px', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
                                                 {noTeam && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
-                                                <span style={{ color: noTeam ? '#ef4444' : '#fff', fontWeight: 600, fontSize: '0.62rem' }}>{t.name}</span>
-                                            </span>
-                                        )}
-                                        {/* 📝 Notitie badge op balk */}
-                                        {si === 0 && (t.notes || []).length > 0 && (
-                                            <span
-                                                onClick={e => { e.stopPropagation(); setNotePopup({ taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
-                                                onMouseEnter={e => {
-                                                    const rect = e.currentTarget.getBoundingClientRect();
-                                                    setNoteTooltip({ notes: t.notes, x: rect.left, y: rect.bottom + 6, taskName: t.name });
-                                                }}
-                                                onMouseLeave={() => setNoteTooltip(null)}
-                                                style={{ pointerEvents: 'all', display: 'inline-flex', alignItems: 'center', gap: '2px', background: 'rgba(255,255,255,0.9)', borderRadius: '4px', padding: '0 4px', fontSize: '0.52rem', color: '#92400e', fontWeight: 700, flexShrink: 0, cursor: 'pointer', lineHeight: '14px', marginLeft: 'auto', userSelect: 'none' }}>
-                                                <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.5rem' }} />
-                                                {(t.notes || []).length > 1 && <span>{(t.notes || []).length}</span>}
-                                            </span>
-                                        )}
-                                        {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
-                                    </div>
-                                ));
+                                                <div style={{ color: noTeam ? '#ef4444' : '#fff', fontWeight: 600, fontSize: '0.62rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>{t.name}</div>
+                                                <div style={{ color: noTeam ? '#ef4444' : 'rgba(255,255,255,0.95)', fontSize: '0.55rem', fontWeight: 700, paddingLeft: '2px', flexShrink: 0, whiteSpace: 'nowrap', textShadow: '0px 0px 3px rgba(0,0,0,0.8)' }}>
+                                                    ({diffWorkdays(parseDate(t.startDate), parseDate(t.endDate))}d)
+                                                </div>
+                                                {/* 📝 Notitie badge op balk */}
+                                                {(t.notes || []).length > 0 && (
+                                                    <span
+                                                        onClick={e => { e.stopPropagation(); setNotePopup({ taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
+                                                        onMouseEnter={e => {
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            setNoteTooltip({ notes: t.notes, x: rect.left, y: rect.bottom + 6, taskName: t.name });
+                                                        }}
+                                                        onMouseLeave={() => setNoteTooltip(null)}
+                                                        style={{ pointerEvents: 'all', display: 'inline-flex', alignItems: 'center', gap: '2px', background: 'rgba(255,255,255,0.9)', borderRadius: '4px', padding: '0 4px', fontSize: '0.52rem', color: '#92400e', fontWeight: 700, flexShrink: 0, cursor: 'pointer', lineHeight: '14px', marginLeft: 'auto', userSelect: 'none' }}>
+                                                        <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.5rem' }} />
+                                                        {(t.notes || []).length > 1 && <span>{(t.notes || []).length}</span>}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </React.Fragment>
+                                );
                             })()}
                         </div>
                     </div>
@@ -894,22 +982,33 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                     {t.startDate && t.endDate && (() => {
                                         const segs = getBarSegments(t.startDate, t.endDate, '#10b981');
                                         if (!segs.length) return null;
-                                        return segs.map((segStyle, si) => (
-                                            <div key={si} className="gantt-bar"
-                                                style={{
-                                                    ...segStyle,
-                                                    height: '16px', top: '7px', opacity: 0.5,
-                                                    background: '#10b981aa',
-                                                    borderRadius: si === 0 && segs.length === 1 ? '4px' : si === 0 ? '4px 0 0 4px' : si === segs.length - 1 ? '0 4px 4px 0' : '0',
-                                                    cursor: 'default',
+                                        return (
+                                            <React.Fragment key={t.id + '_completed'}>
+                                                {segs.map((segStyle, si) => (
+                                                    <div key={si} className="gantt-bar"
+                                                        style={{
+                                                            ...segStyle,
+                                                            height: '16px', top: '7px', opacity: 0.5,
+                                                            background: '#10b981aa',
+                                                            borderRadius: si === 0 && segs.length === 1 ? '4px' : si === 0 ? '4px 0 0 4px' : si === segs.length - 1 ? '0 4px 4px 0' : '0',
+                                                            cursor: 'default',
+                                                        }}>
+                                                    </div>
+                                                ))}
+                                                <div style={{
+                                                    position: 'absolute', left: segs[0].left, top: '7px', height: '16px',
+                                                    width: `calc(${segs[segs.length - 1].left} + ${segs[segs.length - 1].width} - ${segs[0].left})`,
+                                                    pointerEvents: 'none', paddingLeft: '4px', textDecoration: 'line-through', display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0, overflow: 'visible', zIndex: 3
                                                 }}>
-                                                {si === 0 && (
-                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '4px', textDecoration: 'line-through' }}>
-                                                        <span style={{ color: '#fff', fontSize: '0.58rem' }}>{t.name}</span>
-                                                    </span>
-                                                )}
-                                            </div>
-                                        ));
+                                                <div style={{ position: 'sticky', left: '4px', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
+                                                    <div style={{ color: '#fff', fontSize: '0.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>{t.name}</div>
+                                                    <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: '0.55rem', fontWeight: 700, paddingLeft: '2px', flexShrink: 0, whiteSpace: 'nowrap', textShadow: '0px 0px 3px rgba(0,0,0,0.8)' }}>
+                                                        ({diffWorkdays(parseDate(t.startDate), parseDate(t.endDate))}d)
+                                                    </div>
+                                                </div>
+                                                </div>
+                                            </React.Fragment>
+                                        );
                                     })()}
                                 </div>
                             </div>

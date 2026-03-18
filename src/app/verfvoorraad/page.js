@@ -601,6 +601,8 @@ export default function VerfvoorraadPage() {
     const { user, hasAccess } = useAuth();
     const [verfItems, setVerfItems] = useState(INITIAL_VERF);
     const [stap, setStap] = useState('overzicht');
+    useEffect(() => { document.title = 'Verfvoorraad | SchildersApp Katwijk'; }, []);
+
     const [zoek, setZoek] = useState('');
     const [filterCat, setFilterCat] = useState('Alle');
     const [hoeveelheid, setHoeveelheid] = useState(1);

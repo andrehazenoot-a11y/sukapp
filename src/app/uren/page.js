@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useAuth } from '../../components/AuthContext';
 
 // == Datum helpers ==
 const DAY_NAMES = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
@@ -336,6 +337,14 @@ export default function UrenPage() {
     const today = new Date();
     const currentWeekNum = getISOWeekNumber(today);
     const currentYearNum = today.getFullYear();
+    useEffect(() => { document.title = 'Uren & Verlof | SchildersApp Katwijk'; }, []);
+
+    // Ingelogde gebruiker (voor persoonlijke localStorage-sleutels)
+    const { user } = useAuth();
+    const userName = (user?.name || 'Onbekend').replace(/\s/g, '_');
+    // Vakantie-sleutel: gebruikerspecifiek zodat iedere medewerker zijn eigen data heeft
+    // én zodat de bezettingsplanner (die _YEAR_NAME leest) de data direct vindt
+    const vacKey = `schildersapp_vakantie_${currentYearNum}_${userName}`;
 
     // Vandaag-index (0=Ma, 1=Di, ..., 6=Zo) voor huidige week highlight
     const todayDayIdx = today.getDay() === 0 ? 6 : today.getDay() - 1; // JS: 0=Zo, convert to 0=Ma
@@ -356,14 +365,21 @@ export default function UrenPage() {
     const [showSubmitModal, setShowSubmitModal] = useState(false);
     const [showToast, setShowToast] = useState(false);
 
-    // Vakantiedagen state
+    // Vakantiedagen state — gebruikerspecifieke sleutel, met migratie van oude generieke sleutel
     const [selectedVacDays, setSelectedVacDays] = useState(() => {
-        try { return JSON.parse(localStorage.getItem(`schildersapp_vakantie_${currentYearNum}`)) || []; } catch { return []; }
+        try {
+            const userKey = `schildersapp_vakantie_${currentYearNum}_${(localStorage.getItem('schildersapp_user') ? JSON.parse(localStorage.getItem('schildersapp_user') || '{}').name || 'Onbekend' : 'Onbekend').replace(/\s/g, '_')}`;
+            const existing = JSON.parse(localStorage.getItem(userKey));
+            if (existing) return existing;
+            // Migratie: haal generieke data op als nieuwe sleutel leeg is
+            const old = JSON.parse(localStorage.getItem(`schildersapp_vakantie_${currentYearNum}`));
+            return old || [];
+        } catch { return []; }
     });
     const toggleVacDay = (dateStr) => {
         setSelectedVacDays(prev => {
             const next = prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr];
-            localStorage.setItem(`schildersapp_vakantie_${currentYearNum}`, JSON.stringify(next));
+            localStorage.setItem(vacKey, JSON.stringify(next));
             return next;
         });
     };
@@ -514,6 +530,9 @@ export default function UrenPage() {
                 <button className={`tab-btn ${activeTab === 'uren' ? 'active' : ''}`} onClick={() => setActiveTab('uren')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Urenregistratie</button>
                 <button className={`tab-btn ${activeTab === 'verlof' ? 'active' : ''}`} onClick={() => setActiveTab('verlof')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Verlof Aanvragen</button>
                 <button className={`tab-btn ${activeTab === 'planner' ? 'active' : ''}`} onClick={() => setActiveTab('planner')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Personeelsplanner</button>
+                <button className={`tab-btn ${activeTab === 'overzicht' ? 'active' : ''}`} onClick={() => setActiveTab('overzicht')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>
+                    <i className="fa-solid fa-table-list" style={{ marginRight: '6px' }} />Totaal Overzicht
+                </button>
             </div>
 
             {activeTab === 'uren' && (
@@ -1361,6 +1380,211 @@ export default function UrenPage() {
                                 })}
                             </div>
                         </div>
+                    </div>
+                );
+            })()}
+
+            {/* ═══════════════════════════════════════════════════════════ */}
+            {/* ─── TAB 4: TOTAAL OVERZICHT (beheer per medewerker/week) ─── */}
+            {/* ═══════════════════════════════════════════════════════════ */}
+            {activeTab === 'overzicht' && (() => {
+                // Lees alle uren-registraties uit wa_uren_log (medewerker + datum + uren)
+                let urenLog = [];
+                try { urenLog = JSON.parse(localStorage.getItem('wa_uren_log') || '[]'); } catch {}
+
+                // Haal alle medewerkers op via AuthContext
+                const { getAllUsers } = useAuth ? { getAllUsers: undefined } : {};
+                // getAllUsers is al ingeladen bovenaan als `allUsers` — haal via prop
+                // We gebruiken allUsers via de uren component context:
+                // Definieer inline vereiste helpers
+                const parseUrenDate = (dateStr) => {
+                    if (!dateStr) return null;
+                    const d = new Date(dateStr + 'T00:00:00');
+                    return isNaN(d) ? null : d;
+                };
+                const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+                // Bereken ISO-weeknummer voor uren-regels
+                const getWeekKey = (dateStr) => {
+                    const d = parseUrenDate(dateStr);
+                    if (!d) return null;
+                    const copy = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+                    copy.setUTCDate(copy.getUTCDate() + 4 - (copy.getUTCDay() || 7));
+                    const ys = new Date(Date.UTC(copy.getUTCFullYear(), 0, 1));
+                    const wk = Math.ceil(((copy - ys) / 86400000 + 1) / 7);
+                    return `${copy.getUTCFullYear()}-W${String(wk).padStart(2,'0')}`;
+                };
+
+                // Groepeer per week
+                const weekData = {};
+                urenLog.forEach(entry => {
+                    const wk = getWeekKey(entry.datum);
+                    if (!wk) return;
+                    if (!weekData[wk]) weekData[wk] = {};
+                    const naam = entry.medewerkerNaam || 'Onbekend';
+                    if (!weekData[wk][naam]) weekData[wk][naam] = { uren: 0, overuren: 0, entries: [] };
+                    weekData[wk][naam].uren += (entry.uren || 0);
+                    weekData[wk][naam].overuren += (entry.overuren || 0);
+                    weekData[wk][naam].entries.push(entry);
+                });
+
+                // Huidige week-key voor highlight
+                const nowKey = getWeekKey(fmtDate(new Date()));
+                const sortedWeeks = Object.keys(weekData).sort().reverse();
+
+                // Alle medewerkers die ooit uren hebben geregistreerd
+                const allNamen = [...new Set(urenLog.map(e => e.medewerkerNaam || 'Onbekend'))].sort();
+
+                // Kleuren per medewerker (recycled)
+                const COLORS = ['#F5850A', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#f59e0b', '#06b6d4', '#ec4899'];
+                const getColor = (naam) => COLORS[allNamen.indexOf(naam) % COLORS.length];
+                const getInitials = (naam) => naam.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
+
+                const TARGET_WEEK_HOURS = 37.5;
+
+                return (
+                    <div className="panel" style={{ padding: '0', overflow: 'hidden' }}>
+                        {/* Header */}
+                        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(135deg, #fff 0%, #f8fbff 100%)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                                <div>
+                                    <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fa-solid fa-table-list" style={{ color: '#F5850A' }} />
+                                        Totaal Overzicht Urenregistratie
+                                    </h2>
+                                    <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                                        Alle medewerkers · {urenLog.length} registraties · {sortedWeeks.length} weken
+                                    </p>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    {/* Samenvatting badges */}
+                                    {[...new Set(urenLog.map(e => e.medewerkerNaam))].slice(0,4).map(naam => (
+                                        <div key={naam} style={{ width: '32px', height: '32px', borderRadius: '50%', background: getColor(naam), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.62rem', fontWeight: 700, flexShrink: 0, marginLeft: '-6px', border: '2px solid #fff' }}>
+                                            {getInitials(naam)}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {urenLog.length === 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px', gap: '14px' }}>
+                                <i className="fa-solid fa-clock" style={{ fontSize: '3rem', color: '#e2e8f0' }} />
+                                <div style={{ fontWeight: 700, fontSize: '1rem', color: '#94a3b8' }}>Nog geen uren geregistreerd</div>
+                                <div style={{ fontSize: '0.8rem', color: '#cbd5e1', textAlign: 'center', maxWidth: '300px' }}>
+                                    Uren die via WhatsApp worden geregistreerd verschijnen hier automatisch.
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                                {/* Samenvatting per medewerker (totaal ooit) */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+                                    {allNamen.map(naam => {
+                                        const totaalUren = urenLog.filter(e => e.medewerkerNaam === naam).reduce((s, e) => s + (e.uren || 0) + (e.overuren || 0), 0);
+                                        const aantalDagen = new Set(urenLog.filter(e => e.medewerkerNaam === naam).map(e => e.datum)).size;
+                                        const color = getColor(naam);
+                                        return (
+                                            <div key={naam} style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: `1.5px solid ${color}30`, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: `linear-gradient(135deg, ${color}, ${color}bb)`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, flexShrink: 0 }}>
+                                                        {getInitials(naam)}
+                                                    </div>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
+                                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{aantalDagen} werkdagen geregistreerd</div>
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                                    <span style={{ fontSize: '1.6rem', fontWeight: 800, color: color }}>{totaalUren.toFixed(1)}</span>
+                                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>uur totaal</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Per-week-overzicht */}
+                                {sortedWeeks.map(wk => {
+                                    const [wkYear, wkNum] = wk.split('-W').map(Number);
+                                    const isCurrentWk = wk === nowKey;
+                                    const weekEmployees = weekData[wk];
+
+                                    return (
+                                        <div key={wk} style={{
+                                            background: isCurrentWk ? 'linear-gradient(135deg, #fffbf5, #fff)' : '#fff',
+                                            borderRadius: '14px', border: isCurrentWk ? '2px solid #F5850A40' : '1px solid #f1f5f9',
+                                            overflow: 'hidden', boxShadow: isCurrentWk ? '0 4px 16px rgba(245,133,10,0.08)' : '0 1px 4px rgba(0,0,0,0.04)'
+                                        }}>
+                                            {/* Week header */}
+                                            <div style={{
+                                                padding: '10px 16px', background: isCurrentWk ? 'rgba(245,133,10,0.06)' : '#f8fafc',
+                                                borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    {isCurrentWk && <span style={{ background: '#F5850A', color: '#fff', fontSize: '0.6rem', fontWeight: 700, padding: '1px 7px', borderRadius: '10px' }}>HUIDIGE WEEK</span>}
+                                                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Week {wkNum} · {wkYear}</span>
+                                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>·</span>
+                                                    <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{getMondayOfWeek(wkNum, wkYear).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>
+                                                </div>
+                                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                    {Object.values(weekEmployees).reduce((s, e) => s + e.uren + e.overuren, 0).toFixed(1)}u totaal
+                                                </span>
+                                            </div>
+
+                                            {/* Rijen per medewerker */}
+                                            <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                {Object.entries(weekEmployees).map(([naam, data]) => {
+                                                    const totaal = data.uren + data.overuren;
+                                                    const pct = Math.min((totaal / TARGET_WEEK_HOURS) * 100, 100);
+                                                    const color = getColor(naam);
+                                                    const isOk = totaal >= TARGET_WEEK_HOURS;
+                                                    const isPartial = totaal > 0 && totaal < TARGET_WEEK_HOURS;
+                                                    const statusIcon = isOk ? '✅' : isPartial ? '⚠️' : '❌';
+                                                    // Unieke projecten voor deze medewerker deze week
+                                                    const projs = [...new Set(data.entries.map(e => e.projectNaam || '—'))].filter(Boolean);
+
+                                                    return (
+                                                        <div key={naam} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 90px', gap: '12px', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f8fafc' }}>
+                                                            {/* Medewerker */}
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: `linear-gradient(135deg, ${color}, ${color}bb)`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.58rem', fontWeight: 700, flexShrink: 0 }}>
+                                                                    {getInitials(naam)}
+                                                                </div>
+                                                                <div style={{ minWidth: 0 }}>
+                                                                    <div style={{ fontWeight: 600, fontSize: '0.8rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{naam.split(' ')[0]}</div>
+                                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>{data.entries.length} dag{data.entries.length !== 1 ? 'en' : ''}</div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Voortgangsbalk + projecten */}
+                                                            <div>
+                                                                <div style={{ height: '8px', borderRadius: '4px', background: 'rgba(0,0,0,0.06)', overflow: 'hidden', marginBottom: '4px' }}>
+                                                                    <div style={{ height: '100%', width: `${pct}%`, borderRadius: '4px', background: isOk ? 'linear-gradient(90deg, #22c55e, #16a34a)' : isPartial ? 'linear-gradient(90deg, #f59e0b, #d97706)' : 'linear-gradient(90deg, #ef4444, #dc2626)', transition: 'width 0.4s' }} />
+                                                                </div>
+                                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                    {projs.join(' · ')}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Totaal uren */}
+                                                            <div style={{ textAlign: 'right' }}>
+                                                                <span style={{ fontSize: '0.88rem', fontWeight: 700, color: isOk ? '#16a34a' : isPartial ? '#d97706' : '#ef4444' }}>
+                                                                    {statusIcon} {totaal.toFixed(1)}u
+                                                                </span>
+                                                                {data.overuren > 0 && (
+                                                                    <div style={{ fontSize: '0.6rem', color: '#f59e0b', fontWeight: 600 }}>+{data.overuren.toFixed(1)}u over</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 );
             })()}

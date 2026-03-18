@@ -93,6 +93,8 @@ const DEMO_MEDEWERKERS = [
 
 export default function WhatsAppPage() {
     const [activeTab, setActiveTab] = useState('uren');
+    useEffect(() => { document.title = 'WhatsApp Business | SchildersApp Katwijk'; }, []);
+
 
     // Lees ?tab= param eenmalig bij mount (vervangt useSearchParams om render-loops te voorkomen)
     useEffect(() => {

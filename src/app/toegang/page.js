@@ -70,6 +70,9 @@ export default function ToegangPage() {
         }
     }, [user, router]);
 
+    useEffect(() => { document.title = 'Toegangsbeheer | SchildersApp Katwijk'; }, []);
+
+
     // Laad rechten + urentypen als gebruiker geselecteerd wordt
     useEffect(() => {
         if (selectedUser) {
@@ -320,9 +323,8 @@ export default function ToegangPage() {
                                                         `👤 Inlognaam: ${u.username}\n` +
                                                         `🔑 Wachtwoord: ${u.password}\n\n` +
                                                         `📱 Tip: Voeg de link toe aan je startscherm voor snelle toegang!\n\n` +
-                                                        `🎥 Bekijk hier een korte video-uitleg voor ZZP'ers:\n` +
-                                                        `https://youtu.be/JOUW_VIDEO_ID\n\n` +
                                                         `Vragen? Stuur gerust een berichtje! 💬`;
+
                                                     const waUrl = phone
                                                         ? `https://wa.me/31${phone.startsWith('0') ? phone.substring(1) : phone}?text=${encodeURIComponent(msg)}`
                                                         : `https://wa.me/?text=${encodeURIComponent(msg)}`;
