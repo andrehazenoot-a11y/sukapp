@@ -191,6 +191,8 @@ body {
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    width: 100%;
+    min-width: 0;
 }
 
 /* Subtiele gradient achtergrond om het premium te maken */
@@ -302,6 +304,8 @@ body {
     overflow-y: auto;
     flex: 1;
     z-index: 1;
+    width: 100%;
+    min-width: 0;
 }
 
 .content-area.hidden {

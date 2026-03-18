@@ -198,6 +198,8 @@ body {
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    width: 100%;
+    min-width: 0;
 }
 
 /* Subtiele gradient achtergrond */
@@ -317,6 +319,8 @@ body {
     overflow-y: auto;
     flex: 1;
     z-index: 1;
+    width: 100%;
+    min-width: 0;
 }
 
 .content-area.hidden {
