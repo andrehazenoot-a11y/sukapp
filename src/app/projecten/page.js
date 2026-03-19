@@ -87,13 +87,8 @@ function formatDate(d) {
     return `${y}-${m}-${day}`;
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function snapToWorkday(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS_2026[formatDate(r)]) r.setDate(r.getDate() + 1); return r; }
 function diffDays(a, b) { return Math.round((b - a) / (86400000)); }
-// Snap een datum naar de dichtstbijzijnde werkdag (slaat za/zo/feestdag over)
-function snapToWorkday(d) {
-    const r = new Date(d);
-    while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS_2026[formatDate(r)]) r.setDate(r.getDate() + 1);
-    return r;
-}
 // Telt alleen werkdagen (ma-vr) inclusief begin en eind
 function diffWorkdays(a, b) {
     let count = 0;
@@ -469,22 +464,24 @@ export default function ProjectenPage() {
                 };
             }
         }));
+        // Sync selectedProject
         setSelectedProject(prev => {
             if (!prev || prev.id !== projectId) return prev;
+            const updated = prev;
             if (taskId) {
                 return {
-                    ...prev,
-                    tasks: prev.tasks.map(t => {
+                    ...updated,
+                    tasks: updated.tasks.map(t => {
                         if (t.id !== taskId) return t;
                         return { ...t, startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)), endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)) };
                     })
                 };
             } else {
                 return {
-                    ...prev,
-                    startDate: formatDate(addDays(parseDate(prev.startDate), daysDelta)),
-                    endDate: formatDate(addDays(parseDate(prev.endDate), daysDelta)),
-                    tasks: prev.tasks.map(t => ({
+                    ...updated,
+                    startDate: formatDate(addDays(parseDate(updated.startDate), daysDelta)),
+                    endDate: formatDate(addDays(parseDate(updated.endDate), daysDelta)),
+                    tasks: updated.tasks.map(t => ({
                         ...t,
                         startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)),
                         endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)),
@@ -492,40 +489,6 @@ export default function ProjectenPage() {
                 };
             }
         });
-    }, []);
-
-    // ===== SNAP BAR TO WORKDAY (called on mouseUp after drag) =====
-    const snapBar = useCallback((projectId, taskId) => {
-        setProjects(prev => prev.map(p => {
-            if (taskId) {
-                if (p.id !== projectId) return p;
-                return {
-                    ...p,
-                    tasks: p.tasks.map(t => {
-                        if (t.id !== taskId) return t;
-                        const newStart = snapToWorkday(parseDate(t.startDate));
-                        const wdDur = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
-                        let end = new Date(newStart); let needed = wdDur - 1;
-                        while (needed > 0) { end.setDate(end.getDate() + 1); if (end.getDay() !== 0 && end.getDay() !== 6 && !HOLIDAYS_2026[formatDate(end)]) needed--; }
-                        return { ...t, startDate: formatDate(newStart), endDate: formatDate(end) };
-                    })
-                };
-            } else {
-                if (p.id !== projectId) return p;
-                const newStart = snapToWorkday(parseDate(p.startDate));
-                const calDelta = diffDays(parseDate(p.startDate), newStart);
-                return {
-                    ...p,
-                    startDate: formatDate(newStart),
-                    endDate: formatDate(addDays(parseDate(p.endDate), calDelta)),
-                    tasks: p.tasks.map(t => ({
-                        ...t,
-                        startDate: formatDate(addDays(parseDate(t.startDate), calDelta)),
-                        endDate: formatDate(addDays(parseDate(t.endDate), calDelta)),
-                    }))
-                };
-            }
-        }));
     }, []);
 
     // ===== DRAG HANDLER — registered via useEffect for native DOM events =====
@@ -710,16 +673,38 @@ export default function ProjectenPage() {
             const onUp = () => {
                 dragRef.current = null;
                 if (state.animFrame) cancelAnimationFrame(state.animFrame);
+                // Remove ALL listeners (both overlay and document fallback)
                 overlay.removeEventListener('mousemove', onMove);
                 overlay.removeEventListener('mouseup', onUp);
                 document.removeEventListener('mousemove', onMove, true);
                 document.removeEventListener('mouseup', onUp, true);
                 ganttWrapper.removeEventListener('wheel', blockWheel);
                 if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                // Restore wrapper scroll
                 ganttWrapper.style.overflowX = savedOverflow || 'auto';
                 document.body.style.userSelect = '';
-                // Snap naar werkdag na loslaten (niet tijdens slepen)
-                if (!isResizeHandle) snapBar(projectId, taskId);
+                // Snap startdatum naar werkdag (geen weekend/feestdag)
+                if (!isResizeHandle && state.moved !== 0) {
+                    setProjects(prev => prev.map(p => {
+                        if (taskId) {
+                            if (p.id !== projectId) return p;
+                            return { ...p, tasks: p.tasks.map(t => {
+                                if (t.id !== taskId) return t;
+                                const ns = snapToWorkday(parseDate(t.startDate));
+                                const wd = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
+                                let e2 = new Date(ns); let n2 = wd - 1;
+                                while (n2 > 0) { e2.setDate(e2.getDate()+1); if(e2.getDay()!==0&&e2.getDay()!==6&&!HOLIDAYS_2026[formatDate(e2)]) n2--; }
+                                return { ...t, startDate: formatDate(ns), endDate: formatDate(e2) };
+                            })};
+                        } else {
+                            if (p.id !== projectId) return p;
+                            const ns = snapToWorkday(parseDate(p.startDate));
+                            const cd = diffDays(parseDate(p.startDate), ns);
+                            return { ...p, startDate: formatDate(ns), endDate: formatDate(addDays(parseDate(p.endDate), cd)),
+                                tasks: p.tasks.map(t => ({ ...t, startDate: formatDate(addDays(parseDate(t.startDate), cd)), endDate: formatDate(addDays(parseDate(t.endDate), cd)) })) };
+                        }
+                    }));
+                }
                 setTimeout(() => { justDraggedRef.current = false; }, 200);
             };
             // Attach to BOTH overlay and document (document as fallback)
@@ -731,7 +716,7 @@ export default function ProjectenPage() {
 
         ganttWrapper.addEventListener('mousedown', handleMouseDown, true);
         return () => ganttWrapper.removeEventListener('mousedown', handleMouseDown, true);
-    }, [moveBar, resizeBar, snapBar]);
+    }, [moveBar, resizeBar]);
 
     // Ref to keep timelineDates current for the effect
     const timelineDatesRef = useRef(timelineDates);
