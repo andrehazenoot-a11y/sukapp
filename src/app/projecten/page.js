@@ -448,29 +448,23 @@ export default function ProjectenPage() {
                     ...p,
                     tasks: p.tasks.map(t => {
                         if (t.id !== taskId) return t;
-                        const rawStart = addDays(parseDate(t.startDate), daysDelta);
-                        const newStart = snapToWorkday(rawStart);
-                        const wdDur = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
-                        // Bereken newEnd: wdDur werkdagen vanaf newStart
-                        let end = new Date(newStart); let needed = wdDur - 1;
-                        while (needed > 0) { end.setDate(end.getDate() + 1); if (end.getDay() !== 0 && end.getDay() !== 6 && !HOLIDAYS_2026[formatDate(end)]) needed--; }
-                        return { ...t, startDate: formatDate(newStart), endDate: formatDate(end) };
+                        const newStart = addDays(parseDate(t.startDate), daysDelta);
+                        const newEnd = addDays(parseDate(t.endDate), daysDelta);
+                        return { ...t, startDate: formatDate(newStart), endDate: formatDate(newEnd) };
                     })
                 };
             } else {
                 if (p.id !== projectId) return p;
-                const rawStart = addDays(parseDate(p.startDate), daysDelta);
-                const newStart = snapToWorkday(rawStart);
-                const calDelta = diffDays(parseDate(p.startDate), newStart);
-                const newEnd = addDays(parseDate(p.endDate), calDelta);
+                const newStart = addDays(parseDate(p.startDate), daysDelta);
+                const newEnd = addDays(parseDate(p.endDate), daysDelta);
                 return {
                     ...p,
                     startDate: formatDate(newStart),
                     endDate: formatDate(newEnd),
                     tasks: p.tasks.map(t => ({
                         ...t,
-                        startDate: formatDate(addDays(parseDate(t.startDate), calDelta)),
-                        endDate: formatDate(addDays(parseDate(t.endDate), calDelta)),
+                        startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)),
+                        endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)),
                     }))
                 };
             }
@@ -482,8 +476,34 @@ export default function ProjectenPage() {
                     ...prev,
                     tasks: prev.tasks.map(t => {
                         if (t.id !== taskId) return t;
-                        const rawStart = addDays(parseDate(t.startDate), daysDelta);
-                        const newStart = snapToWorkday(rawStart);
+                        return { ...t, startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)), endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)) };
+                    })
+                };
+            } else {
+                return {
+                    ...prev,
+                    startDate: formatDate(addDays(parseDate(prev.startDate), daysDelta)),
+                    endDate: formatDate(addDays(parseDate(prev.endDate), daysDelta)),
+                    tasks: prev.tasks.map(t => ({
+                        ...t,
+                        startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)),
+                        endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)),
+                    }))
+                };
+            }
+        });
+    }, []);
+
+    // ===== SNAP BAR TO WORKDAY (called on mouseUp after drag) =====
+    const snapBar = useCallback((projectId, taskId) => {
+        setProjects(prev => prev.map(p => {
+            if (taskId) {
+                if (p.id !== projectId) return p;
+                return {
+                    ...p,
+                    tasks: p.tasks.map(t => {
+                        if (t.id !== taskId) return t;
+                        const newStart = snapToWorkday(parseDate(t.startDate));
                         const wdDur = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
                         let end = new Date(newStart); let needed = wdDur - 1;
                         while (needed > 0) { end.setDate(end.getDate() + 1); if (end.getDay() !== 0 && end.getDay() !== 6 && !HOLIDAYS_2026[formatDate(end)]) needed--; }
@@ -491,21 +511,21 @@ export default function ProjectenPage() {
                     })
                 };
             } else {
-                const rawStart = addDays(parseDate(prev.startDate), daysDelta);
-                const newStart = snapToWorkday(rawStart);
-                const calDelta = diffDays(parseDate(prev.startDate), newStart);
+                if (p.id !== projectId) return p;
+                const newStart = snapToWorkday(parseDate(p.startDate));
+                const calDelta = diffDays(parseDate(p.startDate), newStart);
                 return {
-                    ...prev,
+                    ...p,
                     startDate: formatDate(newStart),
-                    endDate: formatDate(addDays(parseDate(prev.endDate), calDelta)),
-                    tasks: prev.tasks.map(t => ({
+                    endDate: formatDate(addDays(parseDate(p.endDate), calDelta)),
+                    tasks: p.tasks.map(t => ({
                         ...t,
                         startDate: formatDate(addDays(parseDate(t.startDate), calDelta)),
                         endDate: formatDate(addDays(parseDate(t.endDate), calDelta)),
                     }))
                 };
             }
-        });
+        }));
     }, []);
 
     // ===== DRAG HANDLER — registered via useEffect for native DOM events =====
@@ -690,16 +710,16 @@ export default function ProjectenPage() {
             const onUp = () => {
                 dragRef.current = null;
                 if (state.animFrame) cancelAnimationFrame(state.animFrame);
-                // Remove ALL listeners (both overlay and document fallback)
                 overlay.removeEventListener('mousemove', onMove);
                 overlay.removeEventListener('mouseup', onUp);
                 document.removeEventListener('mousemove', onMove, true);
                 document.removeEventListener('mouseup', onUp, true);
                 ganttWrapper.removeEventListener('wheel', blockWheel);
                 if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-                // Restore wrapper scroll
                 ganttWrapper.style.overflowX = savedOverflow || 'auto';
                 document.body.style.userSelect = '';
+                // Snap naar werkdag na loslaten (niet tijdens slepen)
+                if (!isResizeHandle) snapBar(projectId, taskId);
                 setTimeout(() => { justDraggedRef.current = false; }, 200);
             };
             // Attach to BOTH overlay and document (document as fallback)
@@ -710,42 +730,8 @@ export default function ProjectenPage() {
         };
 
         ganttWrapper.addEventListener('mousedown', handleMouseDown, true);
-
-        // Pan-scroll: klik+sleep op lege plek verschuift de tijdlijn
-        const handlePan = (e) => {
-            if (e.button !== 0) return;
-            if (dragRef.current) return; // balk-sleep is al bezig
-            if (e.target.closest('.gantt-bar') || e.target.closest('.resize-handle') ||
-                e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
-
-            const startX = e.clientX;
-            const startScroll = ganttWrapper.scrollLeft;
-            let panning = false;
-
-            const onMove = (me) => {
-                if (dragRef.current) { cleanup(); return; } // balk-sleep startte alsnog
-                const dx = me.clientX - startX;
-                if (!panning && Math.abs(dx) > 5) {
-                    panning = true;
-                    ganttWrapper.style.cursor = 'grabbing';
-                }
-                if (panning) ganttWrapper.scrollLeft = startScroll - dx;
-            };
-            const cleanup = () => {
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', cleanup);
-                ganttWrapper.style.cursor = '';
-            };
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', cleanup);
-        };
-        ganttWrapper.addEventListener('mousedown', handlePan);
-
-        return () => {
-            ganttWrapper.removeEventListener('mousedown', handleMouseDown, true);
-            ganttWrapper.removeEventListener('mousedown', handlePan);
-        };
-    }, [moveBar, resizeBar]);
+        return () => ganttWrapper.removeEventListener('mousedown', handleMouseDown, true);
+    }, [moveBar, resizeBar, snapBar]);
 
     // Ref to keep timelineDates current for the effect
     const timelineDatesRef = useRef(timelineDates);
