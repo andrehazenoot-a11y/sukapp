@@ -692,7 +692,37 @@ export default function ProjectenPage() {
         };
 
         ganttWrapper.addEventListener('mousedown', handleMouseDown, true);
-        return () => ganttWrapper.removeEventListener('mousedown', handleMouseDown, true);
+
+        // Pan-scroll: klik+sleep op lege plek om tijdlijn te verschuiven
+        const handlePan = (e) => {
+            if (e.button !== 0) return;
+            // Sla over als op een balk, handle, knop of invoerveld geklikt
+            if (e.target.closest('.gantt-bar') || e.target.closest('.resize-handle') ||
+                e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+            const startX = e.clientX;
+            const startScroll = ganttWrapper.scrollLeft;
+            let panning = false;
+            const onMove = (me) => {
+                const dx = me.clientX - startX;
+                if (!panning && Math.abs(dx) > 4) panning = true;
+                if (panning) ganttWrapper.scrollLeft = startScroll - dx;
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                ganttWrapper.style.cursor = '';
+                if (panning) { justDraggedRef.current = true; setTimeout(() => { justDraggedRef.current = false; }, 200); }
+            };
+            if (panning || true) ganttWrapper.style.cursor = 'grab';
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        };
+        ganttWrapper.addEventListener('mousedown', handlePan);
+
+        return () => {
+            ganttWrapper.removeEventListener('mousedown', handleMouseDown, true);
+            ganttWrapper.removeEventListener('mousedown', handlePan);
+        };
     }, [moveBar, resizeBar]);
 
     // Ref to keep timelineDates current for the effect
