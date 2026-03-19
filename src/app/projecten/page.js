@@ -1066,8 +1066,29 @@ export default function ProjectenPage() {
                                 });
                                 const cellW = zoomLevel;
                                 return <>
-                                    {/* Year row */}
-                                    <div className="gantt-header-row year-row">
+                                    {/* Year row — klik+sleep hier om tijdlijn te scrollen */}
+                                    <div className="gantt-header-row year-row" style={{ cursor: 'grab' }}
+                                        onMouseDown={(e) => {
+                                            if (e.button !== 0) return;
+                                            const wrapper = ganttWrapperRef.current;
+                                            if (!wrapper) return;
+                                            const startX = e.clientX;
+                                            const startScroll = wrapper.scrollLeft;
+                                            let panning = false;
+                                            const onMove = (me) => {
+                                                const dx = me.clientX - startX;
+                                                if (!panning && Math.abs(dx) > 3) { panning = true; wrapper.style.cursor = 'grabbing'; }
+                                                if (panning) wrapper.scrollLeft = startScroll - dx;
+                                            };
+                                            const onUp = () => {
+                                                document.removeEventListener('mousemove', onMove);
+                                                document.removeEventListener('mouseup', onUp);
+                                                wrapper.style.cursor = '';
+                                            };
+                                            document.addEventListener('mousemove', onMove);
+                                            document.addEventListener('mouseup', onUp);
+                                        }}
+                                    >
                                         <div className="gantt-header-label">&nbsp;</div>
                                         <div className="gantt-team-col header">&nbsp;</div>
                                         {yearSpans.map((s, i) => (
