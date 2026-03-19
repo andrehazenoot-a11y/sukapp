@@ -259,27 +259,19 @@
     box-shadow: inset -1px 0 0 #b8c2d0;
 }
 
-/* Feestdagen — zelfde grijs als weekend maar met lila tint */
+/* Feestdagen — oranje accenten */
 .gantt-cell.holiday {
-    background: #d4dae5;
-    box-shadow: inset -1px 0 0 #b8c2d0;
+    background: #fff7ed;
+    box-shadow: inset -1px 0 0 #fed7aa;
 }
 
 .gantt-header-cell.holiday {
-    background: repeating-linear-gradient(
-        -45deg,
-        rgba(100,116,139,0.10) 0px,
-        rgba(100,116,139,0.10) 2px,
-        rgba(241,245,249,0.95) 2px,
-        rgba(241,245,249,0.95) 6px
-    );
-    color: #94a3b8;
-    opacity: 0.7;
+    background: #fff7ed;
+    color: #F5850A;
 }
 
-
 .gantt-cell.today {
-    background: rgba(239, 68, 68, 0.04);
+    background: rgba(245, 133, 10, 0.05);
 }
 
 .gantt-cell.today::after {

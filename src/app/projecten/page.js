@@ -1091,13 +1091,17 @@ export default function ProjectenPage() {
                                         <div className="gantt-team-col header">Team</div>
                                         {timelineDates.map((d, i) => {
                                             const dateStr = formatDate(d);
+                                            const holidayName = isHoliday(d);
+                                            const isHol = !!holidayName;
                                             return (
-                                                <div key={i} className={`gantt-header-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === dateStr ? 'today' : ''}`}
-                                                    title={`${d.getDate()} ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`}
+                                                <div key={i} className={`gantt-header-cell ${isWeekend(d) ? 'weekend' : ''} ${isHol ? 'holiday' : ''} ${formatDate(today) === dateStr ? 'today' : ''}`}
+                                                    title={`${d.getDate()} ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}${holidayName ? ` - ${holidayName}` : ''}`}
                                                     style={{ cursor: 'pointer' }}
                                                     onClick={() => { setViewMode('1w'); setCurrentDate(new Date(d)); }}>
-                                                    <div style={{ fontSize: '0.52rem', color: 'inherit', lineHeight: 1, marginBottom: '1px', opacity: 0.75 }}>{DAYS_NL[d.getDay()]}</div>
-                                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, lineHeight: 1 }}>{d.getDate()}</div>
+                                                    <div style={{ fontSize: '0.52rem', color: isHol ? '#F5850A' : 'inherit', lineHeight: 1, marginBottom: '1px', opacity: isHol ? 1 : 0.75, fontWeight: isHol ? 700 : 'normal' }}>
+                                                        {DAYS_NL[d.getDay()]} {isHol && <span style={{ fontSize: '0.45rem', marginLeft: '2px' }} title={holidayName}>★</span>}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, lineHeight: 1, color: isHol ? '#F5850A' : undefined }}>{d.getDate()}</div>
                                                 </div>
                                             );
                                         })}
@@ -1214,9 +1218,9 @@ export default function ProjectenPage() {
                                         })()}
                                         <div className="gantt-row-timeline">
                                             {timelineDates.map((d, i) => (
-                                                <div key={i}
-                                                    className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''} ${isHoliday(d) ? 'holiday' : ''}`}
-                                                    style={{ pointerEvents: 'auto', cursor: isWeekend(d) ? 'default' : 'crosshair' }}
+                                                    <div key={i}
+                                                        className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''} ${isHoliday(d) ? 'holiday' : ''}`}
+                                                        style={{ pointerEvents: 'auto', cursor: isWeekend(d) ? 'default' : 'crosshair' }}
                                                     onMouseDown={isWeekend(d) ? undefined : (e) => {
                                                         if (e.button !== 0) return;
                                                         // Only start draw if clicking on the cell itself, not on a bar
