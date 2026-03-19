@@ -205,6 +205,20 @@ export default function ProjectenPage() {
     const [quickTaskName, setQuickTaskName] = useState('');
     const drawCreateRef = useRef(null);
 
+    // Eenmalige normalisatie bij opstarten: zet alle weekend-datums naar werkdagen
+    useEffect(() => {
+        setProjects(prev => prev.map(p => ({
+            ...p,
+            startDate: formatDate(snapToWorkday(parseDate(p.startDate))),
+            endDate: formatDate(snapToWorkdayBack(parseDate(p.endDate))),
+            tasks: p.tasks.map(t => ({
+                ...t,
+                startDate: formatDate(snapToWorkday(parseDate(t.startDate))),
+                endDate: formatDate(snapToWorkdayBack(parseDate(t.endDate))),
+            }))
+        })));
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Persist projects to localStorage whenever they change
     const _isSavingRef = useRef(false);
     useEffect(() => {
