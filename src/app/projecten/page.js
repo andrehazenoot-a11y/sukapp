@@ -88,6 +88,7 @@ function formatDate(d) {
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function snapToWorkday(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS_2026[formatDate(r)]) r.setDate(r.getDate() + 1); return r; }
+function snapToWorkdayBack(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS_2026[formatDate(r)]) r.setDate(r.getDate() - 1); return r; }
 function diffDays(a, b) { return Math.round((b - a) / (86400000)); }
 // Telt alleen werkdagen (ma-vr) inclusief begin en eind
 function diffWorkdays(a, b) {
@@ -683,7 +684,7 @@ export default function ProjectenPage() {
                 // Restore wrapper scroll
                 ganttWrapper.style.overflowX = savedOverflow || 'auto';
                 document.body.style.userSelect = '';
-                // Snap startdatum naar werkdag (geen weekend/feestdag)
+                // Snap start én einddatum naar werkdag (geen weekend/feestdag)
                 if (!isResizeHandle && state.moved !== 0) {
                     setProjects(prev => prev.map(p => {
                         if (taskId) {
@@ -699,9 +700,10 @@ export default function ProjectenPage() {
                         } else {
                             if (p.id !== projectId) return p;
                             const ns = snapToWorkday(parseDate(p.startDate));
+                            const ne = snapToWorkdayBack(addDays(parseDate(p.endDate), diffDays(parseDate(p.startDate), ns)));
                             const cd = diffDays(parseDate(p.startDate), ns);
-                            return { ...p, startDate: formatDate(ns), endDate: formatDate(addDays(parseDate(p.endDate), cd)),
-                                tasks: p.tasks.map(t => ({ ...t, startDate: formatDate(addDays(parseDate(t.startDate), cd)), endDate: formatDate(addDays(parseDate(t.endDate), cd)) })) };
+                            return { ...p, startDate: formatDate(ns), endDate: formatDate(ne),
+                                tasks: p.tasks.map(t => ({ ...t, startDate: formatDate(addDays(parseDate(t.startDate), cd)), endDate: formatDate(snapToWorkdayBack(addDays(parseDate(t.endDate), cd))) })) };
                         }
                     }));
                 }
@@ -1096,7 +1098,18 @@ export default function ProjectenPage() {
                                         ))}
                                     </div>
                                     {/* Month row */}
-                                    <div className="gantt-header-row month-row">
+                                    <div className="gantt-header-row month-row" style={{ cursor: 'grab' }}
+                                        onMouseDown={(e) => {
+                                            if (e.button !== 0) return;
+                                            const wrapper = ganttWrapperRef.current; if (!wrapper) return;
+                                            const startX = e.clientX, startScroll = wrapper.scrollLeft;
+                                            let panning = false;
+                                            const onMove = (me) => { const dx = me.clientX - startX; if (!panning && Math.abs(dx) > 5) { panning = true; wrapper.style.cursor = 'grabbing'; } if (panning) wrapper.scrollLeft = startScroll - dx; };
+                                            const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); wrapper.style.cursor = ''; if (panning) { const suppress = (ev) => { ev.stopPropagation(); ev.preventDefault(); document.removeEventListener('click', suppress, true); }; document.addEventListener('click', suppress, true); } };
+                                            document.addEventListener('mousemove', onMove);
+                                            document.addEventListener('mouseup', onUp);
+                                        }}
+                                    >
                                         <div className="gantt-header-label">&nbsp;</div>
                                         <div className="gantt-team-col header">&nbsp;</div>
                                         {monthSpans.map((s, i) => (
@@ -1106,7 +1119,18 @@ export default function ProjectenPage() {
                                         ))}
                                     </div>
                                     {/* Week number row */}
-                                    <div className="gantt-header-row week-row">
+                                    <div className="gantt-header-row week-row" style={{ cursor: 'grab' }}
+                                        onMouseDown={(e) => {
+                                            if (e.button !== 0) return;
+                                            const wrapper = ganttWrapperRef.current; if (!wrapper) return;
+                                            const startX = e.clientX, startScroll = wrapper.scrollLeft;
+                                            let panning = false;
+                                            const onMove = (me) => { const dx = me.clientX - startX; if (!panning && Math.abs(dx) > 5) { panning = true; wrapper.style.cursor = 'grabbing'; } if (panning) wrapper.scrollLeft = startScroll - dx; };
+                                            const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); wrapper.style.cursor = ''; if (panning) { const suppress = (ev) => { ev.stopPropagation(); ev.preventDefault(); document.removeEventListener('click', suppress, true); }; document.addEventListener('click', suppress, true); } };
+                                            document.addEventListener('mousemove', onMove);
+                                            document.addEventListener('mouseup', onUp);
+                                        }}
+                                    >
                                         <div className="gantt-header-label" style={{ fontSize: '0.6rem', color: '#94a3b8' }}>Week</div>
                                         <div className="gantt-team-col header">&nbsp;</div>
                                         {(() => {
