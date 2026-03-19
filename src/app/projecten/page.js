@@ -1267,8 +1267,11 @@ export default function ProjectenPage() {
                                                         style={{ pointerEvents: 'auto', cursor: isWeekend(d) ? 'default' : 'crosshair' }}
                                                     onMouseDown={isWeekend(d) ? undefined : (e) => {
                                                         if (e.button !== 0) return;
-                                                        // Only start draw if clicking on the cell itself, not on a bar
-                                                        if (e.target.closest('.gantt-bar') || e.target.closest('.resize-handle')) return;
+                                                        // Bail out als balk-sleep al actief is (capture handler ging voor)
+                                                        if (dragRef.current) return;
+                                                        // Controleer het volledige event-pad (ook voor tekst boven de balk)
+                                                        const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
+                                                        if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
                                                         e.preventDefault();
                                                         e.stopPropagation();
                                                         const dateStr = formatDate(d);
