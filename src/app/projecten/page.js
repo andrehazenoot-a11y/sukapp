@@ -88,6 +88,12 @@ function formatDate(d) {
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function diffDays(a, b) { return Math.round((b - a) / (86400000)); }
+// Snap een datum naar de dichtstbijzijnde werkdag (slaat za/zo/feestdag over)
+function snapToWorkday(d) {
+    const r = new Date(d);
+    while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS_2026[formatDate(r)]) r.setDate(r.getDate() + 1);
+    return r;
+}
 // Telt alleen werkdagen (ma-vr) inclusief begin en eind
 function diffWorkdays(a, b) {
     let count = 0;
@@ -442,48 +448,60 @@ export default function ProjectenPage() {
                     ...p,
                     tasks: p.tasks.map(t => {
                         if (t.id !== taskId) return t;
-                        const newStart = addDays(parseDate(t.startDate), daysDelta);
-                        const newEnd = addDays(parseDate(t.endDate), daysDelta);
-                        return { ...t, startDate: formatDate(newStart), endDate: formatDate(newEnd) };
+                        const rawStart = addDays(parseDate(t.startDate), daysDelta);
+                        const newStart = snapToWorkday(rawStart);
+                        const wdDur = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
+                        // Bereken newEnd: wdDur werkdagen vanaf newStart
+                        let end = new Date(newStart); let needed = wdDur - 1;
+                        while (needed > 0) { end.setDate(end.getDate() + 1); if (end.getDay() !== 0 && end.getDay() !== 6 && !HOLIDAYS_2026[formatDate(end)]) needed--; }
+                        return { ...t, startDate: formatDate(newStart), endDate: formatDate(end) };
                     })
                 };
             } else {
                 if (p.id !== projectId) return p;
-                const newStart = addDays(parseDate(p.startDate), daysDelta);
-                const newEnd = addDays(parseDate(p.endDate), daysDelta);
+                const rawStart = addDays(parseDate(p.startDate), daysDelta);
+                const newStart = snapToWorkday(rawStart);
+                const calDelta = diffDays(parseDate(p.startDate), newStart);
+                const newEnd = addDays(parseDate(p.endDate), calDelta);
                 return {
                     ...p,
                     startDate: formatDate(newStart),
                     endDate: formatDate(newEnd),
                     tasks: p.tasks.map(t => ({
                         ...t,
-                        startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)),
-                        endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)),
+                        startDate: formatDate(addDays(parseDate(t.startDate), calDelta)),
+                        endDate: formatDate(addDays(parseDate(t.endDate), calDelta)),
                     }))
                 };
             }
         }));
-        // Sync selectedProject
         setSelectedProject(prev => {
             if (!prev || prev.id !== projectId) return prev;
-            const updated = prev;
             if (taskId) {
                 return {
-                    ...updated,
-                    tasks: updated.tasks.map(t => {
+                    ...prev,
+                    tasks: prev.tasks.map(t => {
                         if (t.id !== taskId) return t;
-                        return { ...t, startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)), endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)) };
+                        const rawStart = addDays(parseDate(t.startDate), daysDelta);
+                        const newStart = snapToWorkday(rawStart);
+                        const wdDur = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
+                        let end = new Date(newStart); let needed = wdDur - 1;
+                        while (needed > 0) { end.setDate(end.getDate() + 1); if (end.getDay() !== 0 && end.getDay() !== 6 && !HOLIDAYS_2026[formatDate(end)]) needed--; }
+                        return { ...t, startDate: formatDate(newStart), endDate: formatDate(end) };
                     })
                 };
             } else {
+                const rawStart = addDays(parseDate(prev.startDate), daysDelta);
+                const newStart = snapToWorkday(rawStart);
+                const calDelta = diffDays(parseDate(prev.startDate), newStart);
                 return {
-                    ...updated,
-                    startDate: formatDate(addDays(parseDate(updated.startDate), daysDelta)),
-                    endDate: formatDate(addDays(parseDate(updated.endDate), daysDelta)),
-                    tasks: updated.tasks.map(t => ({
+                    ...prev,
+                    startDate: formatDate(newStart),
+                    endDate: formatDate(addDays(parseDate(prev.endDate), calDelta)),
+                    tasks: prev.tasks.map(t => ({
                         ...t,
-                        startDate: formatDate(addDays(parseDate(t.startDate), daysDelta)),
-                        endDate: formatDate(addDays(parseDate(t.endDate), daysDelta)),
+                        startDate: formatDate(addDays(parseDate(t.startDate), calDelta)),
+                        endDate: formatDate(addDays(parseDate(t.endDate), calDelta)),
                     }))
                 };
             }
@@ -693,29 +711,33 @@ export default function ProjectenPage() {
 
         ganttWrapper.addEventListener('mousedown', handleMouseDown, true);
 
-        // Pan-scroll: klik+sleep op lege plek om tijdlijn te verschuiven
+        // Pan-scroll: klik+sleep op lege plek verschuift de tijdlijn
         const handlePan = (e) => {
             if (e.button !== 0) return;
-            // Sla over als op een balk, handle, knop of invoerveld geklikt
+            if (dragRef.current) return; // balk-sleep is al bezig
             if (e.target.closest('.gantt-bar') || e.target.closest('.resize-handle') ||
                 e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+
             const startX = e.clientX;
             const startScroll = ganttWrapper.scrollLeft;
             let panning = false;
+
             const onMove = (me) => {
+                if (dragRef.current) { cleanup(); return; } // balk-sleep startte alsnog
                 const dx = me.clientX - startX;
-                if (!panning && Math.abs(dx) > 4) panning = true;
+                if (!panning && Math.abs(dx) > 5) {
+                    panning = true;
+                    ganttWrapper.style.cursor = 'grabbing';
+                }
                 if (panning) ganttWrapper.scrollLeft = startScroll - dx;
             };
-            const onUp = () => {
+            const cleanup = () => {
                 document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
+                document.removeEventListener('mouseup', cleanup);
                 ganttWrapper.style.cursor = '';
-                if (panning) { justDraggedRef.current = true; setTimeout(() => { justDraggedRef.current = false; }, 200); }
             };
-            if (panning || true) ganttWrapper.style.cursor = 'grab';
             document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
+            document.addEventListener('mouseup', cleanup);
         };
         ganttWrapper.addEventListener('mousedown', handlePan);
 
