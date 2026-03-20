@@ -5,18 +5,42 @@ import Link from 'next/link';
 import { useAuth } from '../../components/AuthContext';
 import './planning.css';
 
-// ===== DUTCH HOLIDAYS =====
-const HOLIDAYS_2026 = {
-    '2026-01-01': 'Nieuwjaarsdag',
-    '2026-04-03': 'Goede Vrijdag',
-    '2026-04-06': 'Tweede Paasdag',
-    '2026-04-27': 'Koningsdag',
-    '2026-05-05': 'Bevrijdingsdag',
-    '2026-05-14': 'Hemelvaartsdag',
-    '2026-05-25': 'Tweede Pinksterdag',
-    '2026-12-25': 'Eerste Kerstdag',
-    '2026-12-26': 'Tweede Kerstdag',
-};
+// Berekent Paaszondag voor een gegeven jaar (algoritme van Butcher)
+function _getEaster(year) {
+    const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+    const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(year, month - 1, day);
+}
+function _dutchHolidaysForYear(year) {
+    const e = _getEaster(year);
+    const fmt = (d) => { const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const dd = String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${dd}`; };
+    const add = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+    return {
+        [fmt(new Date(year, 0, 1))]:   'Nieuwjaarsdag',
+        [fmt(add(e, -2))]:             'Goede Vrijdag',
+        [fmt(e)]:                      'Eerste Paasdag',
+        [fmt(add(e, 1))]:              'Tweede Paasdag',
+        [fmt(new Date(year, 3, 27))]:  'Koningsdag',
+        [fmt(new Date(year, 4, 5))]:   'Bevrijdingsdag',
+        [fmt(add(e, 39))]:             'Hemelvaartsdag',
+        [fmt(add(e, 49))]:             'Eerste Pinksterdag',
+        [fmt(add(e, 50))]:             'Tweede Pinksterdag',
+        [fmt(new Date(year, 11, 25))]: 'Eerste Kerstdag',
+        [fmt(new Date(year, 11, 26))]: 'Tweede Kerstdag',
+    };
+}
+// Dynamische feestdagen voor huidige jaar ± 3 jaar — vervangt de hardcoded HOLIDAYS_2026
+const HOLIDAYS_2026 = (() => {
+    const result = {};
+    const cy = new Date().getFullYear();
+    for (let y = cy - 1; y <= cy + 3; y++) Object.assign(result, _dutchHolidaysForYear(y));
+    return result;
+})();
 
 // ===== PROJECT KLEUREN =====
 const PROJECT_COLORS = [
@@ -90,16 +114,27 @@ function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); retu
 function snapToWorkday(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS_2026[formatDate(r)]) r.setDate(r.getDate() + 1); return r; }
 function snapToWorkdayBack(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS_2026[formatDate(r)]) r.setDate(r.getDate() - 1); return r; }
 function diffDays(a, b) { return Math.round((b - a) / (86400000)); }
-// Telt alleen werkdagen (ma-vr) inclusief begin en eind
+// Telt werkdagen (ma-vr, geen feestdagen) inclusief begin en eind
 function diffWorkdays(a, b) {
     let count = 0;
     const cur = new Date(a);
     while (cur <= b) {
         const d = cur.getDay();
-        if (d !== 0 && d !== 6) count++;
+        if (d !== 0 && d !== 6 && !HOLIDAYS_2026[formatDate(cur)]) count++;
         cur.setDate(cur.getDate() + 1);
     }
     return count;
+}
+// Voegt n werkdagen toe (slaat weekenden + feestdagen over)
+function addWorkdays(d, n) {
+    if (n <= 0) return new Date(d);
+    const r = new Date(d);
+    let count = n - 1; // startdag telt als dag 1
+    while (count > 0) {
+        r.setDate(r.getDate() + 1);
+        if (r.getDay() !== 0 && r.getDay() !== 6 && !HOLIDAYS_2026[formatDate(r)]) count--;
+    }
+    return r;
 }
 function getWeekNumber(d) {
     const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -320,6 +355,10 @@ export default function ProjectenPage() {
             // Fallback old 'month' mode = 8 weken
             count = 56;
         }
+
+        // Normaliseer naar middernacht zodat diffDays() exacte integers geeft
+        // (currentDate heeft de huidige tijd, bijv. 15:30, wat anders een dag-afrondingsfout geeft)
+        start.setHours(0, 0, 0, 0);
 
         for (let i = 0; i < count; i++) {
             dates.push(addDays(start, i));
@@ -562,8 +601,8 @@ export default function ProjectenPage() {
         setSelectedTask(prev => (prev?.taskId === taskId ? null : { projectId, taskId }));
     }, []);
 
-    // ===== DRAW-CREATE: sleep op lege cel om nieuwe taak aan te maken =====
-    const handleDrawMouseDown = useCallback((e, projectId, projColor, startDateStr) => {
+    // ===== DRAW-CREATE: sleep op lege cel om nieuwe taak aan te maken of data van taak in te vullen =====
+    const handleDrawMouseDown = useCallback((e, projectId, projColor, startDateStr, taskId = null) => {
         if (e.button !== 0) return;
         if (dragRef.current) return; // balk-drag heeft voorrang
         e.preventDefault();
@@ -609,9 +648,21 @@ export default function ProjectenPage() {
             setDrawCreate(null);
             drawCreateRef.current = null;
             if (!dc2?.startDate || !dc2?.endDate) return;
-            // Toon naam-popup op muispositie
-            setQuickTaskPopup({ projectId: dc2.projectId, startDate: dc2.startDate, endDate: dc2.endDate, x: ue.clientX, y: ue.clientY });
-            setQuickTaskName('');
+
+            if (taskId) {
+                // Update bestaande taak
+                setProjects(prev => prev.map(p => {
+                    if (p.id !== projectId) return p;
+                    return {
+                        ...p,
+                        tasks: p.tasks.map(t => t.id === taskId ? { ...t, startDate: dc2.startDate, endDate: dc2.endDate } : t)
+                    };
+                }));
+            } else {
+                // Toon naam-popup op muispositie
+                setQuickTaskPopup({ projectId: dc2.projectId, startDate: dc2.startDate, endDate: dc2.endDate, x: ue.clientX, y: ue.clientY });
+                setQuickTaskName('');
+            }
         };
 
         document.addEventListener('mousemove', onMove, true);
@@ -696,12 +747,36 @@ export default function ProjectenPage() {
                 if (tId) {
                     return { ...p, tasks: p.tasks.map(t => t.id !== tId ? t : { ...t, startDate: formatDate(newStart), endDate: formatDate(newEnd) }) };
                 } else {
-                    const shift = diffDays(parseDate(p.startDate), newStart);
+                    const oldProjStart = parseDate(p.startDate);
+                    const newProjStart = parseDate(formatDate(newStart));
+                    
+                    // We make sure the project shift preserves relative WORKDAY offsets for all tasks
                     return { ...p, startDate: formatDate(newStart), endDate: formatDate(newEnd),
-                        tasks: p.tasks.map(t => ({ ...t,
-                            startDate: formatDate(addDays(parseDate(t.startDate), shift)),
-                            endDate: formatDate(addDays(parseDate(t.endDate), shift)),
-                        })) };
+                        tasks: p.tasks.map(t => {
+                            // find how many workdays the task started after the old project start
+                            const startOffsetWdays = diffWorkdays(oldProjStart, parseDate(t.startDate)) - 1;
+                            const taskWdays = diffWorkdays(parseDate(t.startDate), parseDate(t.endDate));
+                            
+                            // Apply those workdays starting from the NEW project start
+                            const nStart = computeEnd(newProjStart, Math.max(1, startOffsetWdays + 1));
+                            const nEnd = computeEnd(nStart, Math.max(1, taskWdays));
+                            
+                            // Re-map assignedByDay so personnel planning shifts correctly along with it
+                            let newAssignedByDay = t.assignedByDay;
+                            if (t.assignedByDay) {
+                                newAssignedByDay = {};
+                                Object.keys(t.assignedByDay).forEach(oldDs => {
+                                    const oldD = parseDate(oldDs);
+                                    // calculate relative workdays from old task start
+                                    const diffFromTStart = diffWorkdays(parseDate(t.startDate), oldD) - 1;
+                                    const newD = computeEnd(nStart, Math.max(1, diffFromTStart + 1));
+                                    newAssignedByDay[formatDate(newD)] = t.assignedByDay[oldDs];
+                                });
+                            }
+                            
+                            return { ...t, startDate: formatDate(nStart), endDate: formatDate(nEnd), assignedByDay: newAssignedByDay };
+                        }) 
+                    };
                 }
             }));
         };
@@ -780,14 +855,14 @@ export default function ProjectenPage() {
                         const candidate = addDays(parseDate(origStart), rawDays);
                         const ns = snapToWorkday(candidate);
                         const ne = parseDate(origEnd);
-                        if (ns >= ne) return;
+                        if (ns > ne) return;
                         setStartAbsolute(projectId, taskId, ns);
                         tooltip.textContent = `↔ ${fmtNL(formatDate(ns))} → ${fmtNL(origEnd)}`;
                     } else {
                         const candidate = addDays(parseDate(origEnd), rawDays);
                         const ne = snapToWorkdayBack(candidate);
                         const ns = parseDate(origStart);
-                        if (ne <= ns) return;
+                        if (ne < ns) return;
                         setEndAbsolute(projectId, taskId, ne);
                         tooltip.textContent = `↔ ${fmtNL(origStart)} → ${fmtNL(formatDate(ne))}`;
                     }
@@ -1445,59 +1520,63 @@ export default function ProjectenPage() {
                                         <div className="gantt-row-timeline">
                                             {timelineDates.map((d, i) => (
                                                     <div key={i}
-                                                        className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''} ${isHoliday(d) ? 'holiday' : ''}`}
-                                                        style={{ pointerEvents: 'auto', cursor: isWeekend(d) ? 'default' : 'crosshair' }}
-                                                    onMouseDown={isWeekend(d) ? undefined : (e) => {
-                                                        if (e.button !== 0) return;
-                                                        // Bail out als balk-sleep al actief is (capture handler ging voor)
-                                                        if (dragRef.current) return;
-                                                        // Controleer het volledige event-pad (ook voor tekst boven de balk)
-                                                        const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
-                                                        if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        const dateStr = formatDate(d);
-                                                        const rect = e.currentTarget.getBoundingClientRect();
-                                                        const dc = { projectId: p.id, startDate: dateStr, currentDate: dateStr, startX: rect.left, currentX: rect.right, y: rect.top };
-                                                        drawCreateRef.current = dc;
-                                                        setDrawCreate({ ...dc });
-                                                        // Expand project so user sees tasks
-                                                        setExpandedProjects(prev => new Set([...prev, p.id]));
-
-                                                        const onMove = (me) => {
-                                                            // Find which date the mouse is over
-                                                            const timelineEls = document.querySelectorAll(`[data-draw-project="${p.id}"] .gantt-cell`);
-                                                            let hovDate = null;
-                                                            let hovX = me.clientX;
-                                                            timelineEls.forEach((el, idx) => {
-                                                                const r = el.getBoundingClientRect();
-                                                                if (me.clientX >= r.left && me.clientX <= r.right) {
-                                                                    hovDate = formatDate(timelineDates[idx]);
-                                                                    hovX = r.right;
-                                                                }
-                                                            });
-                                                            if (hovDate && drawCreateRef.current) {
-                                                                const updated = { ...drawCreateRef.current, currentDate: hovDate, currentX: hovX };
-                                                                drawCreateRef.current = updated;
-                                                                setDrawCreate({ ...updated });
-                                                            }
-                                                        };
-                                                        const onUp = (ue) => {
-                                                            document.removeEventListener('mousemove', onMove, true);
-                                                            document.removeEventListener('mouseup', onUp, true);
-                                                            const dc2 = drawCreateRef.current;
-                                                            setDrawCreate(null);
-                                                            drawCreateRef.current = null;
-                                                            if (!dc2) return;
-                                                            const s = dc2.startDate <= dc2.currentDate ? dc2.startDate : dc2.currentDate;
-                                                            const eDate = dc2.startDate <= dc2.currentDate ? dc2.currentDate : dc2.startDate;
-                                                            setQuickTaskPopup({ projectId: dc2.projectId, startDate: s, endDate: eDate, x: ue.clientX, y: ue.clientY });
-                                                            setQuickTaskName('');
-                                                        };
-                                                        document.addEventListener('mousemove', onMove, true);
-                                                        document.addEventListener('mouseup', onUp, true);
-                                                    }}
-                                                ></div>
+                                                        className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''} ${!isWeekend(d) && isHoliday(d) ? 'holiday' : ''}`}
+                                                        style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                    >
+                                                        {!isWeekend(d) && isHoliday(d) && <i className="fa-solid fa-star" style={{ fontSize: '0.4rem', color: '#F5850A', pointerEvents: 'none', zIndex: 1 }} title={isHoliday(d)} />}
+                                                        {/* Draw-zone overlay — zit boven de projectbalk (z-index 5 > balk z-index 2) zodat je altijd kunt slepen om een taak aan te maken */}
+                                                        {!isWeekend(d) && !isHoliday(d) && (
+                                                            <div
+                                                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '13px', zIndex: 5, cursor: 'crosshair', pointerEvents: 'auto' }}
+                                                                onMouseDown={(e) => {
+                                                                    if (e.button !== 0) return;
+                                                                    if (dragRef.current) return;
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    const dateStr = formatDate(d);
+                                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                                    const dc = { projectId: p.id, startDate: dateStr, currentDate: dateStr, startX: rect.left, currentX: rect.right, y: rect.top };
+                                                                    drawCreateRef.current = dc;
+                                                                    setDrawCreate({ ...dc });
+                                                                    setExpandedProjects(prev => new Set([...prev, p.id]));
+                                                                    const onMove = (me) => {
+                                                                        const timelineEls = document.querySelectorAll(`[data-draw-project="${p.id}"] .gantt-cell`);
+                                                                        let hovDate = null;
+                                                                        let hovX = me.clientX;
+                                                                        timelineEls.forEach((el, idx) => {
+                                                                            const r = el.getBoundingClientRect();
+                                                                            if (me.clientX >= r.left && me.clientX <= r.right) {
+                                                                                hovDate = formatDate(timelineDates[idx]);
+                                                                                hovX = r.right;
+                                                                            }
+                                                                        });
+                                                                        if (hovDate && drawCreateRef.current) {
+                                                                            const updated = { ...drawCreateRef.current, currentDate: hovDate, currentX: hovX };
+                                                                            drawCreateRef.current = updated;
+                                                                            setDrawCreate({ ...updated });
+                                                                        }
+                                                                    };
+                                                                    const onUp = (ue) => {
+                                                                        document.removeEventListener('mousemove', onMove, true);
+                                                                        document.removeEventListener('mouseup', onUp, true);
+                                                                        const dc2 = drawCreateRef.current;
+                                                                        setDrawCreate(null);
+                                                                        drawCreateRef.current = null;
+                                                                        if (!dc2) return;
+                                                                        const rawS = dc2.startDate <= dc2.currentDate ? dc2.startDate : dc2.currentDate;
+                                                                        const rawE = dc2.startDate <= dc2.currentDate ? dc2.currentDate : dc2.startDate;
+                                                                        const s = formatDate(snapToWorkday(parseDate(rawS)));
+                                                                        const eSnapped = formatDate(snapToWorkdayBack(parseDate(rawE)));
+                                                                        const eDate = eSnapped < s ? s : eSnapped;
+                                                                        setQuickTaskPopup({ projectId: dc2.projectId, startDate: s, endDate: eDate, x: ue.clientX, y: ue.clientY });
+                                                                        setQuickTaskName('');
+                                                                    };
+                                                                    document.addEventListener('mousemove', onMove, true);
+                                                                    document.addEventListener('mouseup', onUp, true);
+                                                                }}
+                                                            />
+                                                        )}
+                                                    </div>
                                             ))}
                                             {/* Project bar — schoon zonder avatars */}
                                             {(() => {
@@ -1657,10 +1736,10 @@ export default function ProjectenPage() {
                                                         }}
                                                         style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
                                                     {(() => {
-                                                        const currentDays = diffDays(parseDate(t.startDate), parseDate(t.endDate)) + 1;
+                                                        const currentDays = diffWorkdays(parseDate(t.startDate), parseDate(t.endDate));
                                                         const changeDays = (newDays) => {
                                                             if (newDays < 1) return;
-                                                            const newEnd = formatDate(addDays(parseDate(t.startDate), newDays - 1));
+                                                            const newEnd = formatDate(addWorkdays(parseDate(t.startDate), newDays));
                                                             setProjects(prev => prev.map(pr => pr.id !== p.id ? pr : {
                                                                 ...pr, tasks: pr.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: newEnd })
                                                             }));
@@ -1748,13 +1827,15 @@ export default function ProjectenPage() {
                                                             >
                                                                 {/* Bovenste zone: klikbaar voor draw-create */}
                                                                 <div
-                                                                    style={{ height: '26px', flexShrink: 0, cursor: weekend || holiday ? 'default' : 'crosshair' }}
+                                                                    style={{ height: '26px', flexShrink: 0, cursor: weekend || holiday ? 'default' : 'crosshair', pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                                                     onMouseDown={weekend || holiday ? undefined : (e) => {
                                                                         const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
                                                                         if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
-                                                                        handleDrawMouseDown(e, p.id, p.color, ds);
+                                                                        handleDrawMouseDown(e, p.id, p.color, ds, t.id);
                                                                     }}
-                                                                />
+                                                                >
+                                                                    {holiday && <i className="fa-solid fa-star" style={{ fontSize: '0.4rem', color: '#F5850A', pointerEvents: 'none', zIndex: 1 }} title={isHoliday(d)} />}
+                                                                </div>
                                                                 {/* Onderste zone: persoons-chips */}
                                                                 <div style={{
                                                                     height: '24px', display: 'flex', alignItems: 'center',
@@ -1794,7 +1875,7 @@ export default function ProjectenPage() {
                                                         );
                                                     })}
                                                     {/* Preview-balk tijdens draw-create voor dit project */}
-                                                    {drawCreate && drawCreate.projectId === p.id && (() => {
+                                                    {drawCreate && drawCreate.projectId === p.id && drawCreate.taskId === t.id && (() => {
                                                         const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, drawCreate.color || p.color + '88');
                                                         return segs.map((seg, si) => (
                                                             <div key={si} style={{
@@ -2216,9 +2297,9 @@ export default function ProjectenPage() {
                                                                     ? <span style={{ fontSize: '0.38rem', fontWeight: 700, color: projColor, textAlign: 'center', lineHeight: 1.1, padding: '0 1px', overflow: 'hidden', maxWidth: '100%' }}>{userDayTasks[0]?.task.name?.slice(0, 7)}</span>
                                                                     : <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: projColor }} />;
                                                             } else {
-                                                                cellBg = '#fff';
-                                                                cellOutline = '1.5px solid #ef4444';
-                                                                cellContent = <i className="fa-solid fa-plus" style={{ fontSize: '0.4rem', color: '#ef4444', opacity: 0.45 }} />;
+                                                                cellBg = 'rgba(239,68,68,0.04)';
+                                                                cellOutline = '1px solid rgba(239,68,68,0.18)';
+                                                                cellContent = null;
                                                             }
                                                             return (
                                                                 <div key={i}
