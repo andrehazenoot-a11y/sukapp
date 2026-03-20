@@ -562,6 +562,79 @@ export default function ProjectenPage() {
         setSelectedTask(prev => (prev?.taskId === taskId ? null : { projectId, taskId }));
     }, []);
 
+    // ===== DRAW-CREATE: sleep op lege cel om nieuwe taak aan te maken =====
+    const handleDrawMouseDown = useCallback((e, projectId, projColor, startDateStr) => {
+        if (e.button !== 0) return;
+        if (dragRef.current) return; // balk-drag heeft voorrang
+        e.preventDefault();
+        e.stopPropagation();
+
+        // De cel-div zit in de gantt-row-timeline; parentElement is de gantt-row-timeline
+        const timelineEl = e.currentTarget.closest('.gantt-row-timeline');
+        if (!timelineEl) return;
+        const tlRect = timelineEl.getBoundingClientRect();
+        const cellWidth = tlRect.width / timelineDatesRef.current.length;
+
+        // Anker: klikpunt, snap naar werkdag
+        const anchorD = snapToWorkday(parseDate(startDateStr));
+        const anchorStr = formatDate(anchorD);
+
+        const dc = { projectId, startDate: anchorStr, endDate: anchorStr, color: projColor };
+        drawCreateRef.current = dc;
+        setDrawCreate({ ...dc });
+
+        const getDateFromX = (clientX) => {
+            const dx = clientX - tlRect.left;
+            const idx = Math.max(0, Math.min(Math.floor(dx / cellWidth), timelineDatesRef.current.length - 1));
+            return timelineDatesRef.current[idx];
+        };
+
+        const onMove = (me) => {
+            if (!drawCreateRef.current) return;
+            const hoverStr = formatDate(getDateFromX(me.clientX));
+            const s = hoverStr < anchorStr ? hoverStr : anchorStr;
+            const eRaw = hoverStr >= anchorStr ? hoverStr : anchorStr;
+            const ns = snapToWorkday(parseDate(s));
+            const ne = snapToWorkdayBack(parseDate(eRaw));
+            const safeEnd = ne < ns ? ns : ne;
+            const updated = { ...drawCreateRef.current, startDate: formatDate(ns), endDate: formatDate(safeEnd) };
+            drawCreateRef.current = updated;
+            setDrawCreate({ ...updated });
+        };
+
+        const onUp = (ue) => {
+            document.removeEventListener('mousemove', onMove, true);
+            document.removeEventListener('mouseup', onUp, true);
+            const dc2 = drawCreateRef.current;
+            setDrawCreate(null);
+            drawCreateRef.current = null;
+            if (!dc2?.startDate || !dc2?.endDate) return;
+            // Toon naam-popup op muispositie
+            setQuickTaskPopup({ projectId: dc2.projectId, startDate: dc2.startDate, endDate: dc2.endDate, x: ue.clientX, y: ue.clientY });
+            setQuickTaskName('');
+        };
+
+        document.addEventListener('mousemove', onMove, true);
+        document.addEventListener('mouseup', onUp, true);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ===== QUICK TASK BEVESTIGEN (na draw-create popup) =====
+    const confirmQuickTask = useCallback((name) => {
+        if (!name?.trim() || !quickTaskPopup) return;
+        const task = {
+            id: 't' + Date.now(),
+            name: name.trim(),
+            startDate: quickTaskPopup.startDate,
+            endDate: quickTaskPopup.endDate,
+            completed: false,
+            assignedTo: [],
+        };
+        // Voeg toe aan het project — setProjects trigger de useEffect die alles naar localStorage schrijft
+        setProjects(prev => prev.map(p => p.id !== quickTaskPopup.projectId ? p : { ...p, tasks: [...p.tasks, task] }));
+        setQuickTaskPopup(null);
+        setQuickTaskName('');
+    }, [quickTaskPopup]);
+
     // ===== MIRROR STATE TO REFS (for native event handlers) =====
     selectedProjectRef.current = selectedProject;
     selectedTaskRef.current = selectedTask;
@@ -598,6 +671,55 @@ export default function ProjectenPage() {
         const ganttWrapper = ganttWrapperRef.current;
         if (!ganttWrapper) return;
 
+        // Vliegende datum-tooltip — hergebruikt door alle drags
+        const tooltip = document.createElement('div');
+        tooltip.style.cssText = 'position:fixed;z-index:100001;background:#1e293b;color:#fff;font-size:0.72rem;font-weight:700;padding:5px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:0;transition:opacity 0.1s;';
+        document.body.appendChild(tooltip);
+
+        // Helper: bereken werkdagen-end vanuit start + aantal werkdagen
+        const computeEnd = (startD, workdays) => {
+            let e = new Date(startD); let n = workdays - 1;
+            while (n > 0) { e.setDate(e.getDate()+1); if(e.getDay()!==0&&e.getDay()!==6&&!HOLIDAYS_2026[formatDate(e)]) n--; }
+            return e;
+        };
+
+        // Helper: formateer datum Nederlands voor tooltip
+        const fmtNL = (str) => {
+            const d = parseDate(str);
+            return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+        };
+
+        // Helper: absolute set van datums voor een taak of project
+        const setDatesAbsolute = (pId, tId, newStart, newEnd) => {
+            setProjects(prev => prev.map(p => {
+                if (p.id !== pId) return p;
+                if (tId) {
+                    return { ...p, tasks: p.tasks.map(t => t.id !== tId ? t : { ...t, startDate: formatDate(newStart), endDate: formatDate(newEnd) }) };
+                } else {
+                    const shift = diffDays(parseDate(p.startDate), newStart);
+                    return { ...p, startDate: formatDate(newStart), endDate: formatDate(newEnd),
+                        tasks: p.tasks.map(t => ({ ...t,
+                            startDate: formatDate(addDays(parseDate(t.startDate), shift)),
+                            endDate: formatDate(addDays(parseDate(t.endDate), shift)),
+                        })) };
+                }
+            }));
+        };
+        const setStartAbsolute = (pId, tId, newStart) => {
+            setProjects(prev => prev.map(p => {
+                if (p.id !== pId) return p;
+                if (tId) return { ...p, tasks: p.tasks.map(t => t.id !== tId ? t : { ...t, startDate: formatDate(newStart) }) };
+                return { ...p, startDate: formatDate(newStart) };
+            }));
+        };
+        const setEndAbsolute = (pId, tId, newEnd) => {
+            setProjects(prev => prev.map(p => {
+                if (p.id !== pId) return p;
+                if (tId) return { ...p, tasks: p.tasks.map(t => t.id !== tId ? t : { ...t, endDate: formatDate(newEnd) }) };
+                return { ...p, endDate: formatDate(newEnd) };
+            }));
+        };
+
         const handleMouseDown = (e) => {
             // Only left-click
             if (e.button !== 0) return;
@@ -613,6 +735,12 @@ export default function ProjectenPage() {
             const rawTaskId = bar.dataset.taskId;
             const taskId = (rawTaskId && rawTaskId !== 'null' && rawTaskId !== '') ? rawTaskId : null;
             if (!projectId || isNaN(projectId)) return;
+
+            // Lees originele datums uit data-attributen (worden gezet bij render)
+            const origStart = bar.dataset.startDate;
+            const origEnd   = bar.dataset.endDate;
+            if (!origStart || !origEnd) return;
+            const origWorkdays = Math.max(diffWorkdays(parseDate(origStart), parseDate(origEnd)), 1);
 
             e.stopPropagation();
             e.preventDefault();
@@ -637,8 +765,40 @@ export default function ProjectenPage() {
             document.body.appendChild(overlay);
             document.body.style.userSelect = 'none';
 
-            const state = { startX: e.clientX, cellWidth, moved: 0, lastClientX: e.clientX, scrollAccum: 0, animFrame: null };
+            // State: startX is de referentie-positie bij start van de drag
+            // rawDaysMoved bijhoudt het totaal aan verplaatsing (kalender-dagen) incl. scroll
+            const state = { startX: e.clientX, cellWidth, rawDaysMoved: 0, lastClientX: e.clientX, scrollAccum: 0, animFrame: null };
             dragRef.current = state;
+
+            // Toon tooltip
+            tooltip.style.opacity = '1';
+
+            // Herbereken de doeldatums op basis van rawDays en pas de state aan
+            const applyPosition = (rawDays) => {
+                if (isResizeHandle) {
+                    if (isLeftResize) {
+                        const candidate = addDays(parseDate(origStart), rawDays);
+                        const ns = snapToWorkday(candidate);
+                        const ne = parseDate(origEnd);
+                        if (ns >= ne) return;
+                        setStartAbsolute(projectId, taskId, ns);
+                        tooltip.textContent = `↔ ${fmtNL(formatDate(ns))} → ${fmtNL(origEnd)}`;
+                    } else {
+                        const candidate = addDays(parseDate(origEnd), rawDays);
+                        const ne = snapToWorkdayBack(candidate);
+                        const ns = parseDate(origStart);
+                        if (ne <= ns) return;
+                        setEndAbsolute(projectId, taskId, ne);
+                        tooltip.textContent = `↔ ${fmtNL(origStart)} → ${fmtNL(formatDate(ne))}`;
+                    }
+                } else {
+                    const candidate = addDays(parseDate(origStart), rawDays);
+                    const ns = snapToWorkday(candidate);
+                    const ne = computeEnd(ns, origWorkdays);
+                    setDatesAbsolute(projectId, taskId, ns, ne);
+                    tooltip.textContent = `⟷ ${fmtNL(formatDate(ns))} → ${fmtNL(formatDate(ne))}`;
+                }
+            };
 
             // Auto-scroll at edges (only for bar move, not resize)
             if (!isResizeHandle) {
@@ -658,9 +818,13 @@ export default function ProjectenPage() {
                         const scrollDays = Math.round(state.scrollAccum / state.cellWidth);
                         if (scrollDays !== 0) {
                             state.scrollAccum -= scrollDays * state.cellWidth;
+                            // Pas startX aan zodat de absolute berekening correct blijft
                             state.startX -= scrollDays * state.cellWidth;
-                            state.moved += scrollDays;
-                            moveBar(projectId, taskId, scrollDays);
+                            // Herbereken direct zodat balk meebeweegt met scroll
+                            const dx = state.lastClientX - state.startX;
+                            const rawDays = Math.round(dx / state.cellWidth);
+                            state.rawDaysMoved = rawDays;
+                            applyPosition(rawDays);
                         }
                     }
                     // Re-freeze scroll
@@ -673,16 +837,13 @@ export default function ProjectenPage() {
             const onMove = (ev) => {
                 state.lastClientX = ev.clientX;
                 const dx = ev.clientX - state.startX;
-                const daysDelta = Math.round(dx / state.cellWidth);
-                if (daysDelta !== state.moved) {
-                    const delta = daysDelta - state.moved;
-                    state.moved = daysDelta;
-                    if (isResizeHandle) {
-                        const edge = isLeftResize ? 'left' : 'right';
-                        resizeBar(projectId, taskId, edge, delta);
-                    } else {
-                        moveBar(projectId, taskId, delta);
-                    }
+                const rawDays = Math.round(dx / state.cellWidth);
+                // Update tooltip positie
+                tooltip.style.left = (ev.clientX + 14) + 'px';
+                tooltip.style.top  = (ev.clientY - 36) + 'px';
+                if (rawDays !== state.rawDaysMoved) {
+                    state.rawDaysMoved = rawDays;
+                    applyPosition(rawDays);
                 }
             };
             const onUp = () => {
@@ -698,29 +859,9 @@ export default function ProjectenPage() {
                 // Restore wrapper scroll
                 ganttWrapper.style.overflowX = savedOverflow || 'auto';
                 document.body.style.userSelect = '';
-                // Snap start én einddatum naar werkdag (geen weekend/feestdag)
-                if (!isResizeHandle && state.moved !== 0) {
-                    setProjects(prev => prev.map(p => {
-                        if (taskId) {
-                            if (p.id !== projectId) return p;
-                            return { ...p, tasks: p.tasks.map(t => {
-                                if (t.id !== taskId) return t;
-                                const ns = snapToWorkday(parseDate(t.startDate));
-                                const wd = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
-                                let e2 = new Date(ns); let n2 = wd - 1;
-                                while (n2 > 0) { e2.setDate(e2.getDate()+1); if(e2.getDay()!==0&&e2.getDay()!==6&&!HOLIDAYS_2026[formatDate(e2)]) n2--; }
-                                return { ...t, startDate: formatDate(ns), endDate: formatDate(e2) };
-                            })};
-                        } else {
-                            if (p.id !== projectId) return p;
-                            const ns = snapToWorkday(parseDate(p.startDate));
-                            const ne = snapToWorkdayBack(addDays(parseDate(p.endDate), diffDays(parseDate(p.startDate), ns)));
-                            const cd = diffDays(parseDate(p.startDate), ns);
-                            return { ...p, startDate: formatDate(ns), endDate: formatDate(ne),
-                                tasks: p.tasks.map(t => ({ ...t, startDate: formatDate(addDays(parseDate(t.startDate), cd)), endDate: formatDate(snapToWorkdayBack(addDays(parseDate(t.endDate), cd))) })) };
-                        }
-                    }));
-                }
+                // Verberg tooltip
+                tooltip.style.opacity = '0';
+                // Datums zijn al live gesnapped — geen extra snap op onUp nodig
                 setTimeout(() => { justDraggedRef.current = false; }, 200);
             };
             // Attach to BOTH overlay and document (document as fallback)
@@ -731,8 +872,11 @@ export default function ProjectenPage() {
         };
 
         ganttWrapper.addEventListener('mousedown', handleMouseDown, true);
-        return () => ganttWrapper.removeEventListener('mousedown', handleMouseDown, true);
-    }, [moveBar, resizeBar]);
+        return () => {
+            ganttWrapper.removeEventListener('mousedown', handleMouseDown, true);
+            if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+        };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Ref to keep timelineDates current for the effect
     const timelineDatesRef = useRef(timelineDates);
@@ -1363,6 +1507,7 @@ export default function ProjectenPage() {
                                                     <React.Fragment key={p.id}>
                                                         {segs.map((segStyle, si) => (
                                                             <div key={si} className="gantt-bar" data-project-id={p.id} data-task-id={null}
+                                                                data-start-date={p.startDate} data-end-date={p.endDate}
                                                                 style={{
                                                                     ...segStyle,
                                                                     cursor: 'grab',
@@ -1601,8 +1746,15 @@ export default function ProjectenPage() {
                                                                 className={`gantt-cell ${weekend ? 'weekend' : ''} ${holiday ? 'holiday' : ''} ${isToday ? 'today' : ''}`}
                                                                 style={{ display: 'flex', flexDirection: 'column', padding: 0 }}
                                                             >
-                                                                {/* Bovenste zone: ruimte voor de zwevende gantt-balk */}
-                                                                <div style={{ height: '26px', flexShrink: 0 }} />
+                                                                {/* Bovenste zone: klikbaar voor draw-create */}
+                                                                <div
+                                                                    style={{ height: '26px', flexShrink: 0, cursor: weekend || holiday ? 'default' : 'crosshair' }}
+                                                                    onMouseDown={weekend || holiday ? undefined : (e) => {
+                                                                        const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
+                                                                        if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
+                                                                        handleDrawMouseDown(e, p.id, p.color, ds);
+                                                                    }}
+                                                                />
                                                                 {/* Onderste zone: persoons-chips */}
                                                                 <div style={{
                                                                     height: '24px', display: 'flex', alignItems: 'center',
@@ -1641,6 +1793,20 @@ export default function ProjectenPage() {
                                                             </div>
                                                         );
                                                     })}
+                                                    {/* Preview-balk tijdens draw-create voor dit project */}
+                                                    {drawCreate && drawCreate.projectId === p.id && (() => {
+                                                        const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, drawCreate.color || p.color + '88');
+                                                        return segs.map((seg, si) => (
+                                                            <div key={si} style={{
+                                                                ...seg,
+                                                                position: 'absolute', top: '4px', height: '18px',
+                                                                borderRadius: '5px',
+                                                                border: `2px dashed ${p.color}`,
+                                                                background: p.color + '44',
+                                                                pointerEvents: 'none', zIndex: 10,
+                                                            }} />
+                                                        ));
+                                                    })()}
                                                     {/* Task bar — zweeft over de bovenste zone */}
                                                     {(() => {
                                                         const noTeam = (t.assignedTo || []).length === 0;
@@ -1653,6 +1819,7 @@ export default function ProjectenPage() {
                                                             <React.Fragment key={t.id}>
                                                                 {segs.map((segStyle, si) => (
                                                                     <div key={si} className="gantt-bar" data-project-id={p.id} data-task-id={t.id}
+                                                                        data-start-date={t.startDate} data-end-date={t.endDate}
                                                                         style={{
                                                                             ...segStyle,
                                                                             display: 'flex', alignItems: 'center',
@@ -3881,6 +4048,72 @@ export default function ProjectenPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                </>
+            );
+        })()}
+
+        {/* ===== QUICK TASK POPUP NA DRAW-CREATE ===== */}
+        {quickTaskPopup && (() => {
+            const proj = projects.find(p => p.id === quickTaskPopup.projectId);
+            const color = proj?.color || '#3b82f6';
+            const fmtD = (str) => { const d = parseDate(str); return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; };
+            const wdays = diffWorkdays(parseDate(quickTaskPopup.startDate), parseDate(quickTaskPopup.endDate));
+            const px = Math.min(quickTaskPopup.x, window.innerWidth - 320);
+            const py = Math.min(quickTaskPopup.y + 10, window.innerHeight - 190);
+            return (
+                <>
+                    <div onClick={() => { setQuickTaskPopup(null); setQuickTaskName(''); }}
+                        style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(15,23,42,0.15)' }} />
+                    <div style={{
+                        position: 'fixed', left: px, top: py, zIndex: 9999,
+                        background: '#fff', borderRadius: '14px', padding: '18px 20px',
+                        boxShadow: '0 8px 40px rgba(15,23,42,0.22)', border: '1px solid #e2e8f0',
+                        minWidth: '280px', maxWidth: '320px',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: color + '22', border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <i className="fa-solid fa-plus" style={{ fontSize: '0.6rem', color }} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>Nieuwe taak</div>
+                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '1px' }}>
+                                    {fmtD(quickTaskPopup.startDate)} → {fmtD(quickTaskPopup.endDate)}
+                                    <span style={{ marginLeft: 6, background: color + '22', color, borderRadius: '6px', padding: '1px 6px', fontWeight: 700 }}>
+                                        {wdays} werkdag{wdays !== 1 ? 'en' : ''}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <input
+                            autoFocus
+                            type="text"
+                            value={quickTaskName}
+                            onChange={e => setQuickTaskName(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter' && quickTaskName.trim()) confirmQuickTask(quickTaskName);
+                                if (e.key === 'Escape') { setQuickTaskPopup(null); setQuickTaskName(''); }
+                            }}
+                            placeholder="Naam van de taak..."
+                            style={{
+                                width: '100%', boxSizing: 'border-box', padding: '10px 14px',
+                                borderRadius: '9px', border: `2px solid ${color}44`, outline: 'none',
+                                fontSize: '0.88rem', fontWeight: 600, color: '#1e293b',
+                                background: '#f8fafc', fontFamily: 'inherit',
+                            }}
+                            onFocus={e => e.target.style.borderColor = color}
+                            onBlur={e => e.target.style.borderColor = color + '44'}
+                        />
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                            <button onClick={() => confirmQuickTask(quickTaskName)} disabled={!quickTaskName.trim()}
+                                style={{ flex: 1, padding: '9px 0', borderRadius: '9px', border: 'none', background: quickTaskName.trim() ? color : '#e2e8f0', color: quickTaskName.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.82rem', cursor: quickTaskName.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.15s' }}>
+                                <i className="fa-solid fa-check" /> Aanmaken
+                            </button>
+                            <button onClick={() => { setQuickTaskPopup(null); setQuickTaskName(''); }}
+                                style={{ padding: '9px 14px', borderRadius: '9px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
                     </div>
                 </>
             );

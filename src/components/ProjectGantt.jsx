@@ -32,6 +32,9 @@ const HOLIDAYS = {
     '2026-12-25': 'Eerste Kerstdag', '2026-12-26': 'Tweede Kerstdag',
 };
 function isHoliday(d) { return HOLIDAYS[formatDate(d)] || null; }
+function snapToWorkday(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS[formatDate(r)]) r.setDate(r.getDate() + 1); return r; }
+function snapToWorkdayBack(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS[formatDate(r)]) r.setDate(r.getDate() - 1); return r; }
+function diffWorkdays(a, b) { let count = 0; const cur = new Date(a); while (cur <= b) { const d = cur.getDay(); if (d !== 0 && d !== 6) count++; cur.setDate(cur.getDate() + 1); } return count; }
 
 const PROJECT_COLORS = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#6366f1','#14b8a6','#f97316'];
 
@@ -116,6 +119,14 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const [showAddTask, setShowAddTask] = useState(false);
     const [newTask, setNewTask] = useState({ name: '', startDate: '', endDate: '' });
 
+    // Draw-create: sleep om nieuwe taak aan te maken
+    const [drawCreate, setDrawCreate] = useState(null); // { startDate, endDate, leftPx, widthPx }
+    const drawCreateRef = useRef(null);
+
+    // Naam-popup na draw-create
+    const [quickTaskPopup, setQuickTaskPopup] = useState(null); // { startDate, endDate, x, y }
+    const [quickTaskName, setQuickTaskName] = useState('');
+
     // Refs
     const ganttWrapperRef = useRef(null);
     const timelineDatesRef = useRef([]);
@@ -124,6 +135,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const projRef = useRef(proj);
     projRef.current = proj;
     const dblClickRef = useRef({ t: 0, id: null }); // timing voor dubbelklik detectie
+
 
     // --- Timeline dates ---
     const timelineDates = useMemo(() => {
@@ -259,10 +271,43 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         });
     }, []);
 
-    // --- Native DOM drag handler (identiek aan globale planning) ---
+    // --- Native DOM drag handler met live weekend-snapping ---
     useEffect(() => {
         const wrapper = ganttWrapperRef.current;
         if (!wrapper) return;
+
+        // Vliegende datum-tooltip
+        const tooltip = document.createElement('div');
+        tooltip.style.cssText = 'position:fixed;z-index:100001;background:#1e293b;color:#fff;font-size:0.72rem;font-weight:700;padding:5px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:0;transition:opacity 0.1s;';
+        document.body.appendChild(tooltip);
+
+        // Helper: bereken einde op basis van start + werkdagen
+        const computeEnd = (startD, workdays) => {
+            let e = new Date(startD); let n = workdays - 1;
+            while (n > 0) { e.setDate(e.getDate()+1); if(e.getDay()!==0&&e.getDay()!==6&&!HOLIDAYS[formatDate(e)]) n--; }
+            return e;
+        };
+        const fmtNL = (str) => { const d = parseDate(str); return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; };
+
+        // Absolute setters
+        const setStartAbs = (tId, ns) => setProj(prev => {
+            if (tId) return { ...prev, tasks: prev.tasks.map(t => t.id !== tId ? t : { ...t, startDate: formatDate(ns) }) };
+            return { ...prev, startDate: formatDate(ns) };
+        });
+        const setEndAbs = (tId, ne) => setProj(prev => {
+            if (tId) return { ...prev, tasks: prev.tasks.map(t => t.id !== tId ? t : { ...t, endDate: formatDate(ne) }) };
+            return { ...prev, endDate: formatDate(ne) };
+        });
+        const setDatesAbs = (tId, ns, ne) => setProj(prev => {
+            if (tId) return { ...prev, tasks: prev.tasks.map(t => t.id !== tId ? t : { ...t, startDate: formatDate(ns), endDate: formatDate(ne) }) };
+            const shift = diffDays(parseDate(prev.startDate), ns);
+            return { ...prev, startDate: formatDate(ns), endDate: formatDate(ne),
+                tasks: prev.tasks.map(t => ({ ...t,
+                    startDate: formatDate(addDays(parseDate(t.startDate), shift)),
+                    endDate: formatDate(addDays(parseDate(t.endDate), shift)),
+                })) };
+        });
+
         const handleMouseDown = (e) => {
             if (e.button !== 0) return;
             const bar = e.target.closest('.gantt-bar');
@@ -273,21 +318,24 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             const taskId = (rawTaskId && rawTaskId !== 'null' && rawTaskId !== '') ? rawTaskId : null;
             const editId = taskId || 'project';
 
+            // Lees originele datums uit data-attributen
+            const origStart = bar.dataset.startDate;
+            const origEnd   = bar.dataset.endDate;
+            if (!origStart || !origEnd) return;
+            const origWorkdays = Math.max(diffWorkdays(parseDate(origStart), parseDate(origEnd)), 1);
+
             // ── Dubbelklik detectie (binnen 350ms op zelfde balk) ──
             if (!isResizeHandle) {
                 const now = Date.now();
                 if (dblClickRef.current.id === editId && now - dblClickRef.current.t < 350) {
-                    // Dubbelklik gevonden → open inline editor
                     dblClickRef.current = { t: 0, id: null };
                     e.stopPropagation(); e.preventDefault();
-                    const name = taskId
-                        ? projRef.current.tasks.find(t => t.id === taskId)?.name
-                        : projRef.current.name;
+                    const name = taskId ? projRef.current.tasks.find(t => t.id === taskId)?.name : projRef.current.name;
                     setEditingBarId(editId);
                     setEditingBarName(name || '');
                     return;
                 }
-                dblClickRef.current = { t: now, id: editId };
+                dblClickRef.current = { t: Date.now(), id: editId };
             }
 
             e.stopPropagation(); e.preventDefault();
@@ -303,8 +351,32 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;touch-action:none;cursor:' + (isResizeHandle ? 'col-resize' : 'grabbing') + ';';
             document.body.appendChild(overlay);
             document.body.style.userSelect = 'none';
-            const state = { startX: e.clientX, cellWidth, moved: 0, lastClientX: e.clientX, scrollAccum: 0, animFrame: null };
+
+            const state = { startX: e.clientX, cellWidth, rawDaysMoved: 0, lastClientX: e.clientX, scrollAccum: 0, animFrame: null };
             dragRef.current = state;
+            tooltip.style.opacity = '1';
+
+            const applyPosition = (rawDays) => {
+                if (isResizeHandle) {
+                    if (isLeftResize) {
+                        const ns = snapToWorkday(addDays(parseDate(origStart), rawDays));
+                        if (ns >= parseDate(origEnd)) return;
+                        setStartAbs(taskId, ns);
+                        tooltip.textContent = `↔ ${fmtNL(formatDate(ns))} → ${fmtNL(origEnd)}`;
+                    } else {
+                        const ne = snapToWorkdayBack(addDays(parseDate(origEnd), rawDays));
+                        if (ne <= parseDate(origStart)) return;
+                        setEndAbs(taskId, ne);
+                        tooltip.textContent = `↔ ${fmtNL(origStart)} → ${fmtNL(formatDate(ne))}`;
+                    }
+                } else {
+                    const ns = snapToWorkday(addDays(parseDate(origStart), rawDays));
+                    const ne = computeEnd(ns, origWorkdays);
+                    setDatesAbs(taskId, ns, ne);
+                    tooltip.textContent = `⟷ ${fmtNL(formatDate(ns))} → ${fmtNL(formatDate(ne))}`;
+                }
+            };
+
             if (!isResizeHandle) {
                 const EDGE_ZONE = 60, SCROLL_SPEED = 8;
                 const autoScroll = () => {
@@ -322,8 +394,10 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         if (scrollDays !== 0) {
                             state.scrollAccum -= scrollDays * state.cellWidth;
                             state.startX -= scrollDays * state.cellWidth;
-                            state.moved += scrollDays;
-                            moveBar(taskId, scrollDays);
+                            const dx = state.lastClientX - state.startX;
+                            const rawDays = Math.round(dx / state.cellWidth);
+                            state.rawDaysMoved = rawDays;
+                            applyPosition(rawDays);
                         }
                     }
                     wrapper.style.overflowX = 'hidden';
@@ -331,15 +405,16 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 };
                 state.animFrame = requestAnimationFrame(autoScroll);
             }
+
             const onMove = (ev) => {
                 state.lastClientX = ev.clientX;
                 const dx = ev.clientX - state.startX;
-                const daysDelta = Math.round(dx / state.cellWidth);
-                if (daysDelta !== state.moved) {
-                    const delta = daysDelta - state.moved;
-                    state.moved = daysDelta;
-                    if (isResizeHandle) resizeBar(taskId, isLeftResize ? 'left' : 'right', delta);
-                    else moveBar(taskId, delta);
+                const rawDays = Math.round(dx / state.cellWidth);
+                tooltip.style.left = (ev.clientX + 14) + 'px';
+                tooltip.style.top  = (ev.clientY - 36) + 'px';
+                if (rawDays !== state.rawDaysMoved) {
+                    state.rawDaysMoved = rawDays;
+                    applyPosition(rawDays);
                 }
             };
             const onUp = () => {
@@ -353,16 +428,23 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
                 wrapper.style.overflowX = savedOverflow || 'auto';
                 document.body.style.userSelect = '';
+                tooltip.style.opacity = '0';
+                // Datums zijn al live gesnapped — geen extra snap nodig
                 setTimeout(() => { justDraggedRef.current = false; }, 200);
             };
+
             overlay.addEventListener('mousemove', onMove);
             overlay.addEventListener('mouseup', onUp);
             document.addEventListener('mousemove', onMove, true);
             document.addEventListener('mouseup', onUp, true);
         };
         wrapper.addEventListener('mousedown', handleMouseDown, true);
-        return () => wrapper.removeEventListener('mousedown', handleMouseDown, true);
-    }, [moveBar, resizeBar]);
+        return () => {
+            wrapper.removeEventListener('mousedown', handleMouseDown, true);
+            if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+        };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
 
     // --- Keyboards: pijltjes verplaatsen geselecteerde balk ---
     const selectedTaskIdRef = useRef(selectedTaskId);
@@ -412,6 +494,85 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         tasks.splice(idx + 1, 0, copy);
         return { ...prev, tasks };
     });
+
+    // Directe taak aanmaak via draw-create popup
+    const confirmQuickTask = useCallback((name) => {
+        if (!name?.trim() || !quickTaskPopup) return;
+        const task = {
+            id: 't' + Date.now(),
+            name: name.trim(),
+            startDate: quickTaskPopup.startDate,
+            endDate: quickTaskPopup.endDate,
+            completed: false,
+            assignedTo: [],
+        };
+        updateProj(prev => ({ ...prev, tasks: [...prev.tasks, task] }));
+        setQuickTaskPopup(null);
+        setQuickTaskName('');
+    }, [quickTaskPopup, updateProj]);
+
+    // Draw-create: start op mousedown op een lege cel in de projectbalk-rij
+    const handleDrawMouseDown = useCallback((e, startDateStr) => {
+        if (e.button !== 0) return;
+        // Sla over als er al een balk-drag actief is
+        if (dragRef.current) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        // De cel zit DIRECT in de gantt-row-timeline div
+        const timelineEl = e.currentTarget.parentElement;
+        if (!timelineEl) return;
+        const tlRect = timelineEl.getBoundingClientRect();
+        const cellWidth = tlRect.width / timelineDatesRef.current.length;
+
+        // Snap startdatum naar werkdag
+        const startD = snapToWorkday(parseDate(startDateStr));
+
+        const dc = { startDate: formatDate(startD), endDate: formatDate(startD) };
+        drawCreateRef.current = dc;
+        setDrawCreate({ ...dc });
+
+        // Anker: het klik-punt, wijzigt NOOIT (ook niet als je achterwaarts sleept)
+        const anchorDate = formatDate(startD);
+
+        const getDateFromX = (clientX) => {
+            const dx = clientX - tlRect.left;
+            const idx = Math.max(0, Math.min(Math.floor(dx / cellWidth), timelineDatesRef.current.length - 1));
+            return timelineDatesRef.current[idx];
+        };
+
+        const onMove = (me) => {
+            if (!drawCreateRef.current) return;
+            const hoverD = getDateFromX(me.clientX);
+            const hoverStr = formatDate(hoverD);
+            // Bepaal start en einde op basis van het anker
+            const s = hoverStr < anchorDate ? hoverStr : anchorDate;
+            const eRaw = hoverStr >= anchorDate ? hoverStr : anchorDate;
+            // Snap naar werkdagen
+            const ns = snapToWorkday(parseDate(s));
+            const ne = snapToWorkdayBack(parseDate(eRaw));
+            const safeEnd = ne < ns ? ns : ne;
+            const updated = { startDate: formatDate(ns), endDate: formatDate(safeEnd) };
+            drawCreateRef.current = updated;
+            setDrawCreate(updated);
+        };
+
+
+        const onUp = (ue) => {
+            document.removeEventListener('mousemove', onMove, true);
+            document.removeEventListener('mouseup', onUp, true);
+            const dc2 = drawCreateRef.current;
+            setDrawCreate(null);
+            drawCreateRef.current = null;
+            if (!dc2 || !dc2.startDate || !dc2.endDate) return;
+            // Toon naam-popup op muispositie
+            setQuickTaskPopup({ startDate: dc2.startDate, endDate: dc2.endDate, x: ue.clientX, y: ue.clientY });
+            setQuickTaskName('');
+        };
+
+        document.addEventListener('mousemove', onMove, true);
+        document.addEventListener('mouseup', onUp, true);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // --- Maand header spans ---
     const { monthSpans, yearSpans } = useMemo(() => {
@@ -666,10 +827,46 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                             </div>
                         );
                     })()}
-                    <div className="gantt-row-timeline">
-                        {timelineDates.map((d, i) => (
-                            <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${todayStr === formatDate(d) ? 'today' : ''}`} />
-                        ))}
+                    <div className="gantt-row-timeline" data-draw-timeline="project">
+                        {timelineDates.map((d, i) => {
+                            const ds = formatDate(d);
+                            const weekend = isWeekend(d);
+                            const isHol = HOLIDAYS[ds];
+                            return (
+                                <div key={i}
+                                    className={`gantt-cell ${weekend ? 'weekend' : ''} ${todayStr === ds ? 'today' : ''}`}
+                                    style={{ cursor: weekend || isHol ? 'default' : 'crosshair' }}
+                                    onMouseDown={weekend || isHol ? undefined : (e) => {
+                                        // Alleen als er geen bestaande balk wordt geraakt
+                                        const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
+                                        if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
+                                        handleDrawMouseDown(e, ds);
+                                    }}
+                                />
+                            );
+                        })}
+                        {/* Preview-balk tijdens draw-create */}
+                        {drawCreate && (() => {
+                            const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, proj.color + '88');
+                            return segs.map((seg, si) => (
+                                <div key={si} style={{
+                                    ...seg,
+                                    position: 'absolute', top: '4px', height: '22px',
+                                    borderRadius: '5px',
+                                    border: `2px dashed ${proj.color}`,
+                                    pointerEvents: 'none', zIndex: 10,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    overflow: 'hidden',
+                                }}>
+                                    <span style={{ fontSize: '0.62rem', fontWeight: 700, color: proj.color, whiteSpace: 'nowrap', paddingLeft: 4, textShadow: '0 0 4px #fff' }}>
+                                        {drawCreate.startDate !== drawCreate.endDate
+                                            ? `${drawCreate.startDate} → ${drawCreate.endDate}`
+                                            : drawCreate.startDate}
+                                    </span>
+                                </div>
+                            ));
+                        })()}
+
                         {proj.startDate && proj.endDate && (() => {
                             const segs = getBarSegments(proj.startDate, proj.endDate, proj.color);
                             if (!segs.length) return null;
@@ -677,6 +874,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 <React.Fragment key={proj.id + '_timeline'}>
                                     {segs.map((segStyle, si) => (
                                         <div key={si} className="gantt-bar" data-project-id={proj.id} data-task-id={null}
+                                            data-start-date={proj.startDate} data-end-date={proj.endDate}
                                             style={{
                                                 ...segStyle, cursor: 'grab',
                                                 borderRadius: si === 0 && segs.length === 1 ? '5px' : si === 0 ? '5px 0 0 5px' : si === segs.length - 1 ? '0 5px 5px 0' : '0',
@@ -859,17 +1057,47 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                             </button>
                         </div>
                         <div className="gantt-row-timeline">
-                            {timelineDates.map((d, i) => (
-                                <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${todayStr === formatDate(d) ? 'today' : ''}`} />
-                            ))}
+                            {timelineDates.map((d, i) => {
+                                const ds = formatDate(d);
+                                const weekend = isWeekend(d);
+                                const isHol = HOLIDAYS[ds];
+                                return (
+                                    <div key={i}
+                                        className={`gantt-cell ${weekend ? 'weekend' : ''} ${todayStr === ds ? 'today' : ''}`}
+                                        style={{ cursor: weekend || isHol ? 'default' : 'crosshair' }}
+                                        onMouseDown={weekend || isHol ? undefined : (e) => {
+                                            const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
+                                            if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
+                                            handleDrawMouseDown(e, ds);
+                                        }}
+                                    />
+                                );
+                            })}
+
+                            {/* Preview-balk tijdens draw-create */}
+                            {drawCreate && (() => {
+                                const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, proj.color + '88');
+                                return segs.map((seg, si) => (
+                                    <div key={si} style={{
+                                        ...seg,
+                                        position: 'absolute', top: '5px', height: '20px',
+                                        borderRadius: '5px',
+                                        border: `2px dashed ${proj.color}`,
+                                        pointerEvents: 'none', zIndex: 10,
+                                    }} />
+                                ));
+                            })()}
+
                             {t.startDate && t.endDate && (() => {
                                 const barColor = noTeam ? 'repeating-linear-gradient(45deg, #ef444455, #ef444455 4px, #ef444422 4px, #ef444422 8px)' : proj.color + 'cc';
+
                                 const segs = getBarSegments(t.startDate, t.endDate, barColor);
                                 if (!segs.length) return null;
                                 return (
                                     <React.Fragment key={t.id + '_timeline'}>
                                         {segs.map((segStyle, si) => (
                                             <div key={si} className="gantt-bar" data-project-id={proj.id} data-task-id={t.id}
+                                                data-start-date={t.startDate} data-end-date={t.endDate}
                                                 style={{
                                                     ...segStyle,
                                                     display: 'flex', alignItems: 'center',
@@ -976,9 +1204,23 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                     </span>
                                 </div>
                                 <div className="gantt-row-timeline">
-                                    {timelineDates.map((d, i) => (
-                                        <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''}`} />
-                                    ))}
+                                    {timelineDates.map((d, i) => {
+                                        const ds = formatDate(d);
+                                        const weekend = isWeekend(d);
+                                        const isHol = HOLIDAYS[ds];
+                                        return (
+                                            <div key={i}
+                                                className={`gantt-cell ${weekend ? 'weekend' : ''}`}
+                                                style={{ cursor: weekend || isHol ? 'default' : 'crosshair' }}
+                                                onMouseDown={weekend || isHol ? undefined : (e) => {
+                                                    const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
+                                                    if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
+                                                    handleDrawMouseDown(e, ds);
+                                                }}
+                                            />
+                                        );
+                                    })}
+
                                     {t.startDate && t.endDate && (() => {
                                         const segs = getBarSegments(t.startDate, t.endDate, '#10b981');
                                         if (!segs.length) return null;
@@ -1349,6 +1591,83 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 </div>
                             </div>
                         )}
+                    </div>
+                </>
+            );
+        })()}
+        {/* ===== QUICK TASK AANMAKEN POPUP (na draw-create) ===== */}
+        {quickTaskPopup && (() => {
+            const fmtNL = (str) => { const d = parseDate(str); return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; };
+            // Bereken positie: zorg dat popup in viewport blijft
+            const px = Math.min(quickTaskPopup.x, window.innerWidth - 320);
+            const py = Math.min(quickTaskPopup.y + 10, window.innerHeight - 180);
+            return (
+                <>
+                    <div onClick={() => { setQuickTaskPopup(null); setQuickTaskName(''); }}
+                        style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(15,23,42,0.15)' }} />
+                    <div style={{
+                        position: 'fixed', left: px, top: py, zIndex: 9999,
+                        background: '#fff', borderRadius: '14px', padding: '18px 20px',
+                        boxShadow: '0 8px 40px rgba(15,23,42,0.22)', border: '1px solid #e2e8f0',
+                        minWidth: '280px', maxWidth: '320px',
+                    }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: proj.color + '22', border: `2px solid ${proj.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <i className="fa-solid fa-plus" style={{ fontSize: '0.6rem', color: proj.color }} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>Nieuwe taak aanmaken</div>
+                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '1px' }}>
+                                    {fmtNL(quickTaskPopup.startDate)} → {fmtNL(quickTaskPopup.endDate)}
+                                    <span style={{ marginLeft: 6, background: proj.color + '22', color: proj.color, borderRadius: '6px', padding: '1px 6px', fontWeight: 700 }}>
+                                        {diffWorkdays(parseDate(quickTaskPopup.startDate), parseDate(quickTaskPopup.endDate))} werkdag{diffWorkdays(parseDate(quickTaskPopup.startDate), parseDate(quickTaskPopup.endDate)) !== 1 ? 'en' : ''}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        {/* Naam invoer */}
+                        <input
+                            autoFocus
+                            type="text"
+                            value={quickTaskName}
+                            onChange={e => setQuickTaskName(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter' && quickTaskName.trim()) confirmQuickTask(quickTaskName);
+                                if (e.key === 'Escape') { setQuickTaskPopup(null); setQuickTaskName(''); }
+                            }}
+                            placeholder="Naam van de taak..."
+                            style={{
+                                width: '100%', boxSizing: 'border-box', padding: '10px 14px',
+                                borderRadius: '9px', border: `2px solid ${proj.color}44`, outline: 'none',
+                                fontSize: '0.88rem', fontWeight: 600, color: '#1e293b',
+                                background: '#f8fafc', fontFamily: 'inherit',
+                                transition: 'border-color 0.15s',
+                            }}
+                            onFocus={e => e.target.style.borderColor = proj.color}
+                            onBlur={e => e.target.style.borderColor = proj.color + '44'}
+                        />
+                        {/* Knoppen */}
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                            <button
+                                onClick={() => confirmQuickTask(quickTaskName)}
+                                disabled={!quickTaskName.trim()}
+                                style={{
+                                    flex: 1, padding: '9px 0', borderRadius: '9px', border: 'none',
+                                    background: quickTaskName.trim() ? proj.color : '#e2e8f0',
+                                    color: quickTaskName.trim() ? '#fff' : '#94a3b8',
+                                    fontWeight: 700, fontSize: '0.82rem', cursor: quickTaskName.trim() ? 'pointer' : 'not-allowed',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                                    transition: 'all 0.15s',
+                                }}>
+                                <i className="fa-solid fa-check" /> Aanmaken
+                            </button>
+                            <button
+                                onClick={() => { setQuickTaskPopup(null); setQuickTaskName(''); }}
+                                style={{ padding: '9px 14px', borderRadius: '9px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
                     </div>
                 </>
             );
