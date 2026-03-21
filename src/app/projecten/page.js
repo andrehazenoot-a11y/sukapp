@@ -215,6 +215,7 @@ export default function ProjectenPage() {
     const [noteInput, setNoteInput] = useState('');
     const [noteTab, setNoteTab] = useState('nieuw'); // 'nieuw' | 'koppel'
     const [noteTooltip, setNoteTooltip] = useState(null); // { notes[], x, y, taskName }
+    const [taskTooltip, setTaskTooltip] = useState(null); // { name, startDate, endDate, progress, color, x, y }
     const [projectNotesCache, setProjectNotesCache] = useState({}); // { [projectId]: [{...}] }
     const [projectNotesLoading, setProjectNotesLoading] = useState(false);
     const [replyingTo, setReplyingTo] = useState(null); // noteId
@@ -237,6 +238,7 @@ export default function ProjectenPage() {
     // Sleep-om-taak-te-maken
     const [drawCreate, setDrawCreate] = useState(null); // { projectId, startDate, currentDate, x, y, width }
     const [quickTaskPopup, setQuickTaskPopup] = useState(null); // { projectId, startDate, endDate, x, y }
+    const [progressEditPopup, setProgressEditPopup] = useState(null); // { taskId, projectId, x, y }
     const [quickTaskName, setQuickTaskName] = useState('');
     const drawCreateRef = useRef(null);
 
@@ -618,7 +620,7 @@ export default function ProjectenPage() {
         const anchorD = snapToWorkday(parseDate(startDateStr));
         const anchorStr = formatDate(anchorD);
 
-        const dc = { projectId, startDate: anchorStr, endDate: anchorStr, color: projColor };
+        const dc = { projectId, startDate: anchorStr, endDate: anchorStr, color: projColor, taskId };
         drawCreateRef.current = dc;
         setDrawCreate({ ...dc });
 
@@ -679,6 +681,7 @@ export default function ProjectenPage() {
             endDate: quickTaskPopup.endDate,
             completed: false,
             assignedTo: [],
+            progress: 0,
         };
         // Voeg toe aan het project — setProjects trigger de useEffect die alles naar localStorage schrijft
         setProjects(prev => prev.map(p => p.id !== quickTaskPopup.projectId ? p : { ...p, tasks: [...p.tasks, task] }));
@@ -1827,7 +1830,7 @@ export default function ProjectenPage() {
                                                             >
                                                                 {/* Bovenste zone: klikbaar voor draw-create */}
                                                                 <div
-                                                                    style={{ height: '26px', flexShrink: 0, cursor: weekend || holiday ? 'default' : 'crosshair', pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                                    style={{ height: '30px', flexShrink: 0, cursor: weekend || holiday ? 'default' : 'crosshair', pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                                                     onMouseDown={weekend || holiday ? undefined : (e) => {
                                                                         const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
                                                                         if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
@@ -1895,41 +1898,54 @@ export default function ProjectenPage() {
                                                         const segs = getBarSegments(t.startDate, t.endDate, barColor);
                                                         const isSelected = selectedTaskId === t.id;
                                                         const hasNotes = (t.notes || []).length > 0;
+                                                        const taskProgress = t.progress || 0;
                                                         if (!segs.length) return null;
                                                         return (
                                                             <React.Fragment key={t.id}>
                                                                 {segs.map((segStyle, si) => (
                                                                     <div key={si} className="gantt-bar" data-project-id={p.id} data-task-id={t.id}
                                                                         data-start-date={t.startDate} data-end-date={t.endDate}
+                                                                        onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setTaskTooltip({ name: t.name, startDate: t.startDate, endDate: t.endDate, progress: t.progress || 0, color: p.color, x: r.left, y: r.top }); }}
+                                                                        onMouseLeave={() => setTaskTooltip(null)}
                                                                         style={{
                                                                             ...segStyle,
                                                                             display: 'flex', alignItems: 'center',
-                                                                            height: '18px', top: '4px', fontSize: '0.58rem',
+                                                                            height: '24px', top: '3px', fontSize: '0.42rem',
                                                                             opacity: t.completed ? 0.4 : 1, cursor: 'grab',
-                                                                            borderRadius: si === 0 && segs.length === 1 ? '5px' : si === 0 ? '5px 0 0 5px' : si === segs.length - 1 ? '0 5px 5px 0' : '0',
+                                                                            borderRadius: si === 0 && segs.length === 1 ? '7px' : si === 0 ? '7px 0 0 7px' : si === segs.length - 1 ? '0 7px 7px 0' : '0',
                                                                             border: noTeam ? '1.5px dashed #ef4444' : '1px solid rgba(0,0,0,0.08)',
                                                                             boxSizing: noTeam ? 'border-box' : undefined,
-                                                                            boxShadow: noTeam ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
-                                                                            ...(isSelected && !noTeam && {
-                                                                                boxShadow: `0 0 0 2.5px #F5850A, 0 0 12px #F5850A66`,
-                                                                                filter: 'brightness(1.15)',
-                                                                            }),
+                                                                            boxShadow: isSelected && !noTeam
+                                                                                ? `0 0 0 2.5px #F5850A, 0 0 12px #F5850A66`
+                                                                                : noTeam ? 'none'
+                                                                                : '0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.08)',
+                                                                            ...(isSelected && !noTeam && { filter: 'brightness(1.15)' }),
+                                                                            overflow: 'hidden',
                                                                         }}>
+                                                                        {/* Glans-overlay */}
+                                                                        {!noTeam && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.22) 0%, transparent 55%)', borderRadius: 'inherit', pointerEvents: 'none' }} />}
+                                                                        {/* Lichte overlay over hele balk */}
+                                                                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.48)', pointerEvents: 'none' }} />
+                                                                        {/* Voortgang */}
+                                                                        <div style={{ position: 'absolute', bottom: 0, left: 0, width: `${taskProgress}%`, height: '3px', background: '#16a34a', pointerEvents: 'none' }} />
                                                                         {si === 0 && <div className="resize-handle resize-handle-left" />}
                                                                         {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
                                                                     </div>
                                                                 ))}
                                                                 <div style={{
-                                                                    position: 'absolute', left: segs[0].left, top: '4px', height: '18px',
+                                                                    position: 'absolute', left: segs[0].left, top: '3px', height: '24px',
                                                                     width: `calc(${segs[segs.length - 1].left} + ${segs[segs.length - 1].width} - ${segs[0].left})`,
-                                                                    pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '4px', paddingRight: '4px', minWidth: 0, overflow: 'visible', zIndex: 3
+                                                                    pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '5px', paddingRight: '5px', minWidth: 0, overflow: 'visible', zIndex: 3
                                                                 }}>
-                                                                <div style={{ position: 'sticky', left: '4px', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
+                                                                <div style={{ position: 'sticky', left: '5px', display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden' }}>
                                                                     {noTeam && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
                                                                     <div style={{ color: noTeam ? '#ef4444' : '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>{t.name}</div>
-                                                                    <div style={{ color: noTeam ? '#ef4444' : 'rgba(255,255,255,0.95)', fontSize: '0.55rem', fontWeight: 700, paddingLeft: '2px', flexShrink: 0, whiteSpace: 'nowrap', textShadow: '0px 0px 3px rgba(0,0,0,0.8)' }}>
-                                                                        ({diffWorkdays(parseDate(t.startDate), parseDate(t.endDate))}d)
-                                                                    </div>
+                                                                    <span
+                                                                        onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setProgressEditPopup({ taskId: t.id, projectId: p.id, x: rect.left, y: rect.top }); }}
+                                                                        style={{ pointerEvents: 'all', display: 'inline-flex', alignItems: 'center', gap: '2px', background: taskProgress > 0 ? 'rgba(16,185,129,0.85)' : 'rgba(255,255,255,0.25)', borderRadius: '4px', padding: '0 5px', fontSize: '0.5rem', color: '#fff', fontWeight: 700, flexShrink: 0, cursor: 'pointer', lineHeight: '14px', userSelect: 'none' }}>
+                                                                        <i className="fa-solid fa-chart-simple" style={{ fontSize: '0.42rem' }} />
+                                                                        {taskProgress > 0 ? `${taskProgress}%` : '·'}
+                                                                    </span>
                                                                     {hasNotes && (
                                                                         <span
                                                                             onClick={e => { e.stopPropagation(); setNotePopup({ projectId: p.id, taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
@@ -1960,7 +1976,17 @@ export default function ProjectenPage() {
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter' && e.target.value.trim()) {
                                                             const name = e.target.value.trim();
-                                                            const newTask = { id: Date.now(), name, startDate: p.startDate, endDate: p.endDate, completed: false, assignedTo: [] };
+                                                            const nextMondayDate = (() => {
+                                                                const d = new Date(today);
+                                                                d.setHours(0, 0, 0, 0);
+                                                                const dow = d.getDay();
+                                                                const daysUntil = ((8 - dow) % 7) || 7;
+                                                                d.setDate(d.getDate() + daysUntil);
+                                                                return d;
+                                                            })();
+                                                            const defaultStart = formatDate(nextMondayDate);
+                                                            const defaultEnd = formatDate(addWorkdays(nextMondayDate, 4));
+                                                            const newTask = { id: Date.now(), name, startDate: defaultStart, endDate: defaultEnd, completed: false, assignedTo: [], progress: 0 };
                                                             setProjects(prev => prev.map(pr => pr.id !== p.id ? pr : { ...pr, tasks: [...pr.tasks, newTask] }));
                                                             setSelectedProject(prev => prev?.id === p.id ? { ...prev, tasks: [...prev.tasks, newTask] } : prev);
                                                             e.target.value = '';
@@ -1973,10 +1999,29 @@ export default function ProjectenPage() {
                                             </div>
                                             {/* Lege team-kolom voor uitlijning */}
                                             <div className="gantt-team-col" style={{ background: '#fff8f0' }}></div>
-                                            <div className="gantt-row-timeline">
-                                                {timelineDates.map((d, i) => (
-                                                    <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''} ${formatDate(today) === formatDate(d) ? 'today' : ''}`}></div>
-                                                ))}
+                                            <div className="gantt-row-timeline" style={{ position: 'relative' }}>
+                                                {timelineDates.map((d, i) => {
+                                                    const weekend = isWeekend(d);
+                                                    const holiday = !isWeekend(d) && isHoliday(d);
+                                                    const ds = formatDate(d);
+                                                    return (
+                                                        <div key={i}
+                                                            className={`gantt-cell ${weekend ? 'weekend' : ''} ${holiday ? 'holiday' : ''} ${formatDate(today) === ds ? 'today' : ''}`}
+                                                            style={{ pointerEvents: weekend || holiday ? 'none' : 'auto', cursor: weekend || holiday ? 'default' : 'crosshair' }}
+                                                            onMouseDown={weekend || holiday ? undefined : (e) => handleDrawMouseDown(e, p.id, p.color, ds)}
+                                                        />
+                                                    );
+                                                })}
+                                                {drawCreate && drawCreate.projectId === p.id && !drawCreate.taskId && (() => {
+                                                    const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, p.color + '44');
+                                                    return segs.map((seg, si) => (
+                                                        <div key={si} style={{
+                                                            ...seg, position: 'absolute', top: '4px', height: '18px',
+                                                            borderRadius: '5px', border: `2px dashed ${p.color}`,
+                                                            background: p.color + '44', pointerEvents: 'none', zIndex: 10,
+                                                        }} />
+                                                    ));
+                                                })()}
                                             </div>
                                         </div>
                                     )}
@@ -2655,6 +2700,26 @@ export default function ProjectenPage() {
                                                     }}
                                                     style={{ padding: '3px 7px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.72rem', outline: 'none' }} />
                                             </div>
+                                        </div>
+                                        {/* Voortgang */}
+                                        <div style={{ marginBottom: '10px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <i className="fa-solid fa-chart-line" style={{ color: '#10b981' }}></i>
+                                                    Voortgang
+                                                </span>
+                                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#10b981' }}>{task.progress || 0}%</span>
+                                            </div>
+                                            <input type="range" min="0" max="100" step="5"
+                                                value={task.progress || 0}
+                                                onChange={e => {
+                                                    const val = Number(e.target.value);
+                                                    setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                                                        ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, progress: val })
+                                                    }));
+                                                }}
+                                                style={{ width: '100%', accentColor: '#10b981' }}
+                                            />
                                         </div>
                                         {/* Personeel inplannen op taak */}
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -3732,7 +3797,7 @@ export default function ProjectenPage() {
         })()}
 
         {/* ===== DRAW PREVIEW ===== */}
-        {drawCreate && (() => {
+        {drawCreate && drawCreate.startX != null && (() => {
             const proj = projects.find(pr => pr.id === drawCreate.projectId);
             const color = proj?.color || '#3b82f6';
             const x1 = Math.min(drawCreate.startX, drawCreate.currentX);
@@ -3756,6 +3821,41 @@ export default function ProjectenPage() {
         })()}
 
         {/* ===== QUICK TASK POPUP ===== */}
+        {/* ===== VOORTGANG POPUP ===== */}
+        {progressEditPopup && (() => {
+            const proj2 = projects.find(pr => pr.id === progressEditPopup.projectId);
+            const task2 = proj2?.tasks.find(t2 => t2.id === progressEditPopup.taskId);
+            if (!proj2 || !task2) return null;
+            const prog = task2.progress || 0;
+            const px = Math.min(progressEditPopup.x, window.innerWidth - 240);
+            const py = Math.max(progressEditPopup.y - 80, 8);
+            return (
+                <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 99990 }} onClick={() => setProgressEditPopup(null)} />
+                    <div style={{ position: 'fixed', left: px, top: py, zIndex: 99995, background: '#fff', borderRadius: '12px', padding: '14px 16px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: '220px', border: '1px solid #e2e8f0' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fa-solid fa-chart-line" style={{ color: '#10b981' }} />
+                                Voortgang
+                            </span>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#10b981' }}>{prog}%</span>
+                        </div>
+                        <input type="range" min="0" max="100" step="5" value={prog}
+                            onChange={e => {
+                                const val = Number(e.target.value);
+                                setProjects(prev => prev.map(pr => pr.id !== progressEditPopup.projectId ? pr : {
+                                    ...pr, tasks: pr.tasks.map(t2 => t2.id !== progressEditPopup.taskId ? t2 : { ...t2, progress: val })
+                                }));
+                            }}
+                            style={{ width: '100%', accentColor: '#10b981' }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: '#94a3b8', marginTop: '3px' }}>
+                            <span>0%</span><span>50%</span><span>100%</span>
+                        </div>
+                    </div>
+                </>
+            );
+        })()}
         {quickTaskPopup && (() => {
             const proj = projects.find(pr => pr.id === quickTaskPopup.projectId);
             if (!proj) return null;
@@ -3824,6 +3924,18 @@ export default function ProjectenPage() {
         })()}
 
         {/* ===== NOTITIE HOVER TOOLTIP OP TIJDLIJN ===== */}
+        {taskTooltip && (
+            <div style={{ position: 'fixed', left: Math.min(taskTooltip.x, window.innerWidth - 260), top: Math.max(taskTooltip.y - 112, 8), zIndex: 2001, background: '#fff', border: `1.5px solid ${taskTooltip.color}44`, borderRadius: '10px', boxShadow: '0 8px 24px rgba(15,23,42,0.15)', padding: '10px 14px', minWidth: '200px', maxWidth: '260px', pointerEvents: 'none' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#1e293b', marginBottom: '5px', lineHeight: 1.3 }}>{taskTooltip.name}</div>
+                <div style={{ fontSize: '0.62rem', color: '#64748b', marginBottom: '8px' }}>
+                    {taskTooltip.startDate} → {taskTooltip.endDate}{' · '}{diffWorkdays(parseDate(taskTooltip.startDate), parseDate(taskTooltip.endDate))}d
+                </div>
+                <div style={{ background: '#f1f5f9', borderRadius: '4px', height: '6px', overflow: 'hidden' }}>
+                    <div style={{ width: `${taskTooltip.progress}%`, height: '100%', background: '#10b981', borderRadius: '4px' }} />
+                </div>
+                <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 700, marginTop: '3px', textAlign: 'right' }}>{taskTooltip.progress}%</div>
+            </div>
+        )}
         {noteTooltip && (
             <div onMouseEnter={() => {}} onMouseLeave={() => setNoteTooltip(null)}
                 style={{
