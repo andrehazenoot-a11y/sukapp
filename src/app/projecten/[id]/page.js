@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '../../../components/AuthContext';
 import dynamic from 'next/dynamic';
 import ProjectGantt from '../../../components/ProjectGantt';
+import { haalEmailBestandOp, slaEmailBestandOp, verwijderEmailBestand } from '../../../lib/emailFileStore';
 
 
 // ===== PLANNING HELPERS =====
@@ -15,7 +16,31 @@ function pDiffDays(a, b) { return Math.round((b - a) / 86400000); }
 function pIsWeekend(d) { const day = d.getDay(); return day === 0 || day === 6; }
 function pIsToday(d, today) { return d.getFullYear()===today.getFullYear()&&d.getMonth()===today.getMonth()&&d.getDate()===today.getDate(); }
 const P_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Aug','Sep','Okt','Nov','Dec'];
-const P_HOLIDAYS = {'2026-01-01':1,'2026-04-03':1,'2026-04-05':1,'2026-04-06':1,'2026-04-27':1,'2026-05-05':1,'2026-05-14':1,'2026-05-24':1,'2026-05-25':1,'2026-12-25':1,'2026-12-26':1};
+// Dynamische Nederlandse feestdagen (niet hardcoded per jaar)
+function _pGetEaster(year) {
+    const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+    const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(year, month - 1, day);
+}
+const P_HOLIDAYS = (() => {
+    const result = {};
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const add = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+    const cy = new Date().getFullYear();
+    for (let y = cy - 1; y <= cy + 3; y++) {
+        const e = _pGetEaster(y);
+        result[fmt(new Date(y, 0, 1))] = 1; result[fmt(add(e, -2))] = 1; result[fmt(e)] = 1;
+        result[fmt(add(e, 1))] = 1; result[fmt(new Date(y, 3, 27))] = 1; result[fmt(new Date(y, 4, 5))] = 1;
+        result[fmt(add(e, 39))] = 1; result[fmt(add(e, 49))] = 1; result[fmt(add(e, 50))] = 1;
+        result[fmt(new Date(y, 11, 25))] = 1; result[fmt(new Date(y, 11, 26))] = 1;
+    }
+    return result;
+})();
 const CELL_W = 28;
 
 const INITIAL_PROJECTS = [
@@ -50,6 +75,51 @@ const DEMO_TERMIJNEN = [
     { id: 1, omschrijving: 'Aanbetaling bij opdracht', bedrag: 4000, betaald: true,  datum: '2026-03-01', vervaldatum: '2026-03-15', betaaldatum: '2026-03-10', percentage: 25, factuurNr: 'F-2026-001' },
     { id: 2, omschrijving: 'Termijn 1 — helft werk gereed', bedrag: 6000, betaald: false, datum: '2026-03-28', vervaldatum: '2026-04-11', betaaldatum: '', percentage: 37, factuurNr: 'F-2026-002' },
     { id: 3, omschrijving: 'Eindafrekening na oplevering', bedrag: 6600, betaald: false, datum: '2026-04-18', vervaldatum: '2026-05-02', betaaldatum: '', percentage: 38, factuurNr: 'F-2026-003' },
+];
+
+const PLANNER_SJABLONEN = [
+    {
+        id: 'schilderwerk',
+        naam: '🎨 Schilderwerk project',
+        buckets: [
+            { naam: 'Voorbereiding', taken: ['Situatie beoordelen', 'Houtrot & schadecheck', 'Kleurkaarten bevestigen', 'Toegang & sleutels regelen', 'Steiger / hoogwerker bestellen'] },
+            { naam: 'Materiaal & Materieel', taken: ['Verf & materialen bestellen', 'Gereedschap controleren', 'Afplakmateriaal controleren'] },
+            { naam: 'Uitvoering', taken: ['Ondergrond reinigen & schuren', 'Houtrot repareren', 'Grondverf aanbrengen', 'Tussenlaag aanbrengen', 'Aflakken / eindlaag'] },
+            { naam: 'Oplevering', taken: ['Afplakken verwijderen', 'Eindcontrole met klant', 'Correcties verwerken'] },
+            { naam: 'Facturatie', taken: ['Factuur opstellen', 'Factuur versturen', 'Betaling controleren'] },
+        ],
+    },
+    {
+        id: 'onderhoud',
+        naam: '🔧 Onderhoud & renovatie',
+        buckets: [
+            { naam: 'Inspectie', taken: ['Conditiemeting uitvoeren', 'Schaderapporten maken', 'Offerte opstellen'] },
+            { naam: 'Planning', taken: ['Startdatum bevestigen', 'Team inplannen', 'Materialen bestellen'] },
+            { naam: 'Uitvoering', taken: ['Houtrot reparaties', 'Reiniging & ontvetting', 'Schilderwerk uitvoeren'] },
+            { naam: 'Oplevering & Nazorg', taken: ['Oplevering klant', 'Garantiecheck na 2 weken', 'Nazorgfactuur indien nodig'] },
+        ],
+    },
+    {
+        id: 'nieuwbouw',
+        naam: '🏗️ Nieuwbouw',
+        buckets: [
+            { naam: 'Werkvoorbereiding', taken: ['Tekeningen & bestekken doornemen', 'RAL-codes bevestigen', 'Steiger plannen', 'VGM-plan opstellen'] },
+            { naam: 'Ruwbouwfase', taken: ['Grondverf kozijnen', 'Grondverf staal', 'Tussenlaag buiten'] },
+            { naam: 'Afwerkingsfase', taken: ['Latex wanden', 'Aflakken kozijnen & deuren', 'Plafonds schilderen'] },
+            { naam: 'Oplevering', taken: ['Eindcontrole snagginglist', 'Correcties uitvoeren', 'Opleverdocument tekenen'] },
+            { naam: 'Facturatie', taken: ['Termijnfactuur', 'Eindafrekening', 'Meerwerk factureren'] },
+        ],
+    },
+    {
+        id: 'leeg',
+        naam: '📋 Leeg bord',
+        buckets: [
+            { naam: 'Nieuwe taak', taken: [] },
+            { naam: 'To-do', taken: [] },
+            { naam: 'In uitvoering', taken: [] },
+            { naam: 'Klaar', taken: [] },
+        ],
+    },
 ];
 
 const TAAK_TEMPLATES = [
@@ -201,6 +271,141 @@ function parseEml(rawText) {
     };
 }
 
+// ===== EMAIL WEERGAVE COMPONENTEN (module-level: vaste referentie, geen remount bij re-render) =====
+
+function EmailBody({ email }) {
+    const [iframeSrc, setIframeSrc] = React.useState(null);
+    const [bezig, setBezig] = React.useState(!!email.originalFile?.fileId);
+    React.useEffect(() => {
+        if (!email.originalFile?.fileId) return;
+        setBezig(true);
+        let blobUrl;
+        let actief = true;
+        (async () => {
+            try {
+                const b = await haalEmailBestandOp(email.originalFile.fileId);
+                const blob = b?.blob || b;
+                if (!actief || !(blob instanceof Blob)) { setBezig(false); return; }
+                const buf = await blob.arrayBuffer();
+                const MsgReader = (await import('@kenjiuno/msgreader')).default;
+                const msgReader = new MsgReader(buf);
+                const info = msgReader.getFileData();
+                // Decode: kan string of Uint8Array zijn
+                const dec = (v) => { if (!v) return null; if (typeof v === 'string') return v; try { return new TextDecoder('utf-8').decode(v) || null; } catch { return null; } };
+                const toB64 = (bytes) => { let s = ''; const c = 8192; for (let i = 0; i < bytes.length; i += c) s += btoa(String.fromCharCode(...bytes.subarray(i, Math.min(i + c, bytes.length)))); return s; };
+                let html = dec(info.bodyHtml);
+                // cid: vervangen — bytes via msg.getAttachment(), contentId via att.pidContentId
+                if (html?.includes('cid:')) {
+                    for (const att of (info.attachments || [])) {
+                        const cid = (att.pidContentId || att.contentId || '').replace(/[<>]/g, '');
+                        if (!cid) continue;
+                        try {
+                            const attData = msgReader.getAttachment(att);
+                            const raw = attData?.content || attData?.fileData || att.content || att.fileData;
+                            if (!raw) continue;
+                            const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+                            const mime = att.attachMimeTag || att.mimeType || 'image/png';
+                            html = html.split(`cid:${cid}`).join(`data:${mime};base64,${toB64(bytes)}`);
+                        } catch {}
+                    }
+                }
+                if (!html) {
+                    const tekst = dec(info.body);
+                    if (tekst) {
+                        const plaintextNaarHtml = (t) => {
+                            const links = [];
+                            const bewaar = (tag) => { const i = links.length; links.push(tag); return `\x01${i}\x01`; };
+                            let p = t;
+                            // Bewaar links vóór escaping
+                            p = p.replace(/<(https?:\/\/[^\s>]+)>/g, (_, u) => bewaar(`<a href="${u}" target="_blank" style="color:#3b82f6">${u}</a>`));
+                            p = p.replace(/<mailto:([^\s>]+)>/g, (_, e) => bewaar(`<a href="mailto:${e}" style="color:#3b82f6">${e}</a>`));
+                            p = p.replace(/(https?:\/\/[^\s<>"]+)/g, (u) => bewaar(`<a href="${u}" target="_blank" style="color:#3b82f6">${u}</a>`));
+                            // HTML escapen
+                            p = p.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            // Links terugzetten
+                            p = p.replace(/\x01(\d+)\x01/g, (_, i) => links[+i]);
+                            // Meerdere lege regels samenvoegen
+                            p = p.replace(/(\r?\n[ \t]*){3,}/g, '\n\n');
+                            // Regels omzetten naar <br>
+                            return p.replace(/\r?\n/g, '<br>');
+                        };
+                        // Gesplitst op antwoord-scheidingslijn (___) of "Van:"-header
+                        const sepMatch = tekst.match(/_{10,}|^-{10,}/m);
+                        const sepIdx = sepMatch ? tekst.indexOf(sepMatch[0]) : -1;
+                        const hoofd = (sepIdx > 0 ? tekst.substring(0, sepIdx) : tekst).trim();
+                        const geciteerd = sepIdx > 0 ? tekst.substring(sepIdx).trim() : null;
+                        const body = `<div style="padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:14px;line-height:1.75;color:#1e293b">${plaintextNaarHtml(hoofd)}</div>`
+                            + (geciteerd ? `<details style="margin:0 16px 16px"><summary style="cursor:pointer;color:#94a3b8;font-size:0.72rem;padding:6px 0;list-style:none;display:flex;align-items:center;gap:8px;user-select:none"><span style="flex:1;height:1px;background:#e2e8f0"></span>▾ Toon oorspronkelijke email<span style="flex:1;height:1px;background:#e2e8f0"></span></summary><div style="font-size:0.85em;color:#64748b;border-left:3px solid #e2e8f0;padding:8px 12px;margin-top:4px">${plaintextNaarHtml(geciteerd)}</div></details>` : '');
+                        html = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"></head><body style="margin:0">${body}</body></html>`;
+                    }
+                }
+                if (html) {
+                    if (!/<html/i.test(html)) {
+                        html = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:14px;line-height:1.6;color:#1e293b;margin:0;padding:16px">${html}</body></html>`;
+                    } else if (!/<meta[^>]+charset/i.test(html)) {
+                        html = html.replace(/(<head[^>]*>)/i, '$1<meta charset="utf-8"><base target="_blank">');
+                    }
+                    // Blob URL = betere rendering dan srcDoc, geen sandbox-beperking
+                    blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+                    if (actief) setIframeSrc(blobUrl);
+                }
+            } catch (e) { console.error('[EmailBody]', e); }
+            if (actief) setBezig(false);
+        })();
+        return () => { actief = false; if (blobUrl) URL.revokeObjectURL(blobUrl); };
+    }, [email.id, email.originalFile?.fileId]); // eslint-disable-line react-hooks/exhaustive-deps
+    const iStyle = { width: '100%', border: 'none', display: 'block', minHeight: 80 };
+    const onLoad = ev => { try { const h = ev.target.contentDocument?.documentElement?.scrollHeight; if (h) ev.target.style.height = h + 8 + 'px'; } catch {} };
+    if (bezig) return <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: '0.75rem' }}><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Email wordt geladen…</div>;
+    if (iframeSrc) return <iframe src={iframeSrc} style={iStyle} onLoad={onLoad} title="email" />;
+    if (email.outlookId) return <iframe src={`/api/outlook/emailrender?id=${encodeURIComponent(email.outlookId)}`} style={iStyle} onLoad={onLoad} title="email" />;
+    if (email.bodyHtml) return <iframe srcDoc={email.bodyHtml} style={iStyle} onLoad={onLoad} sandbox="allow-same-origin" title="email" />;
+    if (email.body) return <pre style={{ fontFamily: 'inherit', whiteSpace: 'pre-wrap', margin: 0, fontSize: '0.78rem', color: '#334155', lineHeight: 1.6, padding: '16px' }}>{email.body}</pre>;
+    return null;
+}
+
+function AttachmentItem({ att, onLightbox }) {
+    const imgExts = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.tiff','.tif','.heic','.heif'];
+    const isImg = att.mimeType?.startsWith('image/') || imgExts.some(e => att.name?.toLowerCase().endsWith(e));
+    const [imgUrl, setImgUrl] = React.useState(null);
+    React.useEffect(() => {
+        if (!isImg) return;
+        let url;
+        let actief = true;
+        (async () => {
+            const b = await haalEmailBestandOp(att.id);
+            const blob = b?.blob || b;
+            if (actief && blob instanceof Blob) { url = URL.createObjectURL(blob); setImgUrl(url); }
+        })();
+        return () => { actief = false; if (url) URL.revokeObjectURL(url); };
+    }, [att.id, isImg]); // eslint-disable-line react-hooks/exhaustive-deps
+    const handleDownload = async () => {
+        const b = await haalEmailBestandOp(att.id);
+        const blob = b?.blob || b;
+        if (blob instanceof Blob) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = att.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000); }
+    };
+    if (isImg) return (
+        <div style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', background: '#f1f5f9', aspectRatio: '1', cursor: 'zoom-in' }} onClick={() => imgUrl && onLightbox?.(imgUrl, att.name)} title={att.name}>
+            {imgUrl
+                ? <img src={imgUrl} alt={att.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fa-solid fa-spinner fa-spin" style={{ color: '#94a3b8' }} /></div>
+            }
+        </div>
+    );
+    const isPdf = att.mimeType === 'application/pdf';
+    const icon = isPdf ? 'fa-file-pdf' : att.mimeType?.includes('word') ? 'fa-file-word' : att.mimeType?.includes('excel') || att.mimeType?.includes('spreadsheet') ? 'fa-file-excel' : 'fa-file';
+    const iconColor = isPdf ? '#ef4444' : att.mimeType?.includes('word') ? '#2563eb' : att.mimeType?.includes('excel') || att.mimeType?.includes('spreadsheet') ? '#16a34a' : '#64748b';
+    const kb = att.size < 1024 ? att.size + ' B' : att.size < 1048576 ? Math.round(att.size / 1024) + ' KB' : (att.size / 1048576).toFixed(1) + ' MB';
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 7, background: '#fff', border: '1px solid #e2e8f0', marginBottom: 4 }}>
+            <i className={`fa-solid ${icon}`} style={{ color: iconColor, fontSize: '0.9rem', flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: '0.72rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+            <span style={{ fontSize: '0.62rem', color: '#94a3b8', flexShrink: 0 }}>{kb}</span>
+            <button onClick={handleDownload} style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.62rem', cursor: 'pointer', flexShrink: 0 }}>Download</button>
+        </div>
+    );
+}
+
 export default function ProjectDossierPage() {
     const { id } = useParams();
     const router = useRouter();
@@ -218,6 +423,11 @@ export default function ProjectDossierPage() {
     const [termijnen, setTermijnen] = useState(DEMO_TERMIJNEN);
     const [offerteBedrag, setOfferteBedrag] = useState('');
     const [showAddTask, setShowAddTask] = useState(false);
+    const [dossierFilter, setDossierFilter] = useState('taken');
+    const [dossierExpanded, setDossierExpanded] = useState(new Set());
+    const [dossierShowSjablonen, setDossierShowSjablonen] = useState(false);
+    const [dossierSjabloonExpanded, setDossierSjabloonExpanded] = useState(null);
+    const [voorgesteldeTaken, setVoorgesteldeTaken] = useState({});
     const [newTask, setNewTask] = useState({ name: '', startDate: '', endDate: '' });
     const [ganttCurrentDate, setGanttCurrentDate] = useState(() => new Date());
     const [savedFeedback, setSavedFeedback] = useState(false);
@@ -229,6 +439,53 @@ export default function ProjectDossierPage() {
     const [photos, setPhotos] = useState([]);
     const [photoFilter, setPhotoFilter] = useState('alle');
     const fileInputRef = useRef(null);
+    const emailUploadRef = useRef(null);
+    const dragTaskRef = useRef(null);
+    const [kanbanDragOver, setKanbanDragOver] = useState(null);
+    const [kanbanNieuweKolom, setKanbanNieuweKolom] = useState(null); // 'todo' | 'planning'
+    const [kanbanNieuweNaam, setKanbanNieuweNaam] = useState('');
+    const [selectedEmailId, setSelectedEmailId] = useState(null);
+    const [lightbox, setLightbox] = useState(null); // { url, naam }
+    const [emailForm, setEmailForm] = useState(null); // null=gesloten, {richting,van,onderwerp,datum,categorie,...}
+    const [toast, setToast] = useState(null);
+    const [teamsBezig, setTeamsBezig] = useState(false);
+    const [teamsFout, setTeamsFout] = useState(null);
+    const [teamsTeamId, setTeamsTeamId] = useState(() => {
+        if (typeof window === 'undefined') return '';
+        return localStorage.getItem('schilders_teams_team_id') || '';
+    });
+    const [teamsLijst, setTeamsLijst] = useState(null); // null=niet geladen, []= leeg, [{id,naam}]
+    const [teamsLijstBezig, setTeamsLijstBezig] = useState(false);
+    const [plannerTaken, setPlannerTaken] = useState(null); // null=niet geladen
+    const [plannerTakenBezig, setPlannerTakenBezig] = useState(false);
+    const [plannerNieuweTaak, setPlannerNieuweTaak] = useState('');
+    const [plannerNieuweTaakUser, setPlannerNieuweTaakUser] = useState({}); // { [bucketId]: userId }
+    const [plannerTaakToevoegBezig, setPlannerTaakToevoegBezig] = useState(false);
+    const [plannerBuckets, setPlannerBuckets] = useState([]);
+    const [plannerBucketKeuze, setPlannerBucketKeuze] = useState(null); // geselecteerde bucketId voor taak toevoegen
+    const [plannerVerstuurd, setPlannerVerstuurd] = useState({}); // { [taskId]: 'ok'|'error'|'bezig' }
+    const [plannerKaartOpen, setPlannerKaartOpen] = useState({}); // { [taskId]: bool }
+    const [plannerSnelToevoeg, setPlannerSnelToevoeg] = useState(null); // { bucketId, inputVal }
+    const [plannerDetails, setPlannerDetails] = useState({}); // { [taskId]: { description, etag, laden } }
+    const [plannerSjabloon, setPlannerSjabloon] = useState('schilderwerk'); // gekozen sjabloon bij aanmaken
+    const [plannerSjablonenState, setPlannerSjablonenState] = useState(() => {
+        try { const op = localStorage.getItem('schildersapp_planner_sjablonen'); return op ? JSON.parse(op) : PLANNER_SJABLONEN; } catch { return PLANNER_SJABLONEN; }
+    });
+    const [sjabloonEditor, setSjabloonEditor] = useState(null); // array van sjablonen die bewerkt worden
+    const [sjabloonEditorIdx, setSjabloonEditorIdx] = useState(0); // welk sjabloon is actief in de editor
+    const [plannerPaletOpen, setPlannerPaletOpen] = useState(true);
+    const [plannerPaletSjabloon, setPlannerPaletSjabloon] = useState(null);
+    const [plannerPaletBezig, setPlannerPaletBezig] = useState({});
+    const [plannerPaletKaartOpen, setPlannerPaletKaartOpen] = useState({});
+    const [plannerPaletVinkjes, setPlannerPaletVinkjes] = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_palet_vinkjes') || '{}'); } catch { return {}; } });
+    const [plannerPaletData, setPlannerPaletData] = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_palet_data') || '{}'); } catch { return {}; } });
+    const [plannerPaletSelectie, setPlannerPaletSelectie] = useState(new Set());
+    const [plannerPaletAssignPopup, setPlannerPaletAssignPopup] = useState(null);
+    const [teamsLeden, setTeamsLeden] = useState([]);
+    const savePlannerSjablonen = (nieuweSet) => { setPlannerSjablonenState(nieuweSet); try { localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(nieuweSet)); } catch {} };
+    const [outlookCategories, setOutlookCategories] = useState({}); // { naam: kleurHex }
+    const [catPickerEmailId, setCatPickerEmailId] = useState(null);
+    const [catDropdownEmailId, setCatDropdownEmailId] = useState(null);
     const [editingClient, setEditingClient] = useState(false);
     const [editForm, setEditForm] = useState({});
     // Offerte state
@@ -504,6 +761,277 @@ export default function ProjectDossierPage() {
     });
     const [showAddMeerwerk, setShowAddMeerwerk] = useState(false);
 
+    // Eigen Outlook emailadres — wordt opgehaald bij eerste verbinding
+    const [myOutlookEmail, setMyOutlookEmail] = useState(() => {
+        try { return localStorage.getItem('schildersapp_mijn_outlook_email') || ''; } catch { return ''; }
+    });
+    // Gedeelde mailbox adres (bijv. info@bedrijf.nl) — optioneel, voor gedeelde mailboxen
+    const [sharedMailbox, setSharedMailbox] = useState(() => {
+        try { return localStorage.getItem('schildersapp_shared_mailbox') || ''; } catch { return ''; }
+    });
+    const convUrl = (convId) => {
+        const base = `/api/outlook/conversation?id=${encodeURIComponent(convId)}`;
+        return sharedMailbox ? `${base}&sharedMailbox=${encodeURIComponent(sharedMailbox)}` : base;
+    };
+
+    // Laad Outlook categorieën en eigen emailadres zodra email-tab actief wordt
+    useEffect(() => {
+        if (dossierFilter !== 'emails') return;
+        fetch('/api/outlook/categories')
+            .then(r => r.ok ? r.json() : {})
+            .then(data => { if (data && !data.error) setOutlookCategories(data); })
+            .catch(() => {});
+        // Haal eigen emailadres op (voor betrouwbare direction-detectie)
+        fetch('/api/outlook/status')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data?.connected && data.email) {
+                    const ownEmail = data.email;
+                    setMyOutlookEmail(ownEmail);
+                    try { localStorage.setItem('schildersapp_mijn_outlook_email', ownEmail); } catch {}
+                    // Repareer emails die als 'in' zijn opgeslagen maar van ons eigen adres komen
+                    setProject(prev => {
+                        if (!prev) return prev;
+                        let changed = false;
+                        const updatedEmails = (prev.emails || []).map(e => {
+                            if (e.direction !== 'in') return e;
+                            const fromEmail = ((e.from || '').match(/<([^>]+)>/) || [])[1]?.toLowerCase() || (e.from || '').toLowerCase().trim();
+                            if (fromEmail === ownEmail) {
+                                changed = true;
+                                return { ...e, direction: 'out', status: 'verzonden' };
+                            }
+                            return e;
+                        });
+                        if (!changed) return prev;
+                        const updated = { ...prev, emails: updatedEmails };
+                        const newProjects = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]').map(p => p.id === updated.id ? updated : p);
+                        localStorage.setItem('schildersapp_projecten', JSON.stringify(newProjects));
+                        return updated;
+                    });
+                }
+            })
+            .catch(() => {});
+    }, [dossierFilter]);
+
+    // Sync categorieën vanuit Outlook → app (elke 30 sec als dossier open is)
+    // Extraheer email-adres uit "Naam <email>" of plain email string
+    const extractEmail = (str) => ((str || '').match(/<([^>]+)>/) || [])[1]?.toLowerCase() || (str || '').toLowerCase().trim();
+
+    // Bepaal direction: als het bericht VAN ons eigen adres of gedeelde mailbox komt → 'out'
+    const bepaalDirection = (origFrom, mFromEmail, mToEmails) => {
+        if (!mFromEmail) return 'in';
+        // Primaire check: eigen emailadres of gedeelde mailbox → meest betrouwbaar
+        if (myOutlookEmail && mFromEmail === myOutlookEmail) return 'out';
+        if (sharedMailbox && mFromEmail === sharedMailbox.toLowerCase()) return 'out';
+        // Fallback: als het bericht NIET van de originele afzender komt én die staat in de ontvangers → verzonden
+        const origEmail = extractEmail(origFrom);
+        if (origEmail && mFromEmail !== origEmail && (mToEmails || []).includes(origEmail)) return 'out';
+        return 'in';
+    };
+
+    const voegEmailToe = (data) => {
+        const emailId = data.id || (Date.now() + Math.random()).toString();
+        const nieuw = {
+            id: emailId,
+            direction: data.richting || data.direction || 'in',
+            van: data.van || data.from || '',
+            subject: data.onderwerp || data.subject || '',
+            date: data.datum || data.date || new Date().toISOString().split('T')[0],
+            categorie: data.categorie || 'Overig',
+            notitie: data.notitie || '',
+            body: data.body || '',
+            status: (data.richting || data.direction || 'in') === 'in' ? 'open' : 'verzonden',
+            aangemaakt: new Date().toISOString(),
+            from: data.van || data.from || '',
+            to: data.aan || data.to || '',
+            originalFile: data.originalFile || null,
+            outlookId: data.outlookId || null,
+            conversationId: data.conversationId || null,
+            attachments: data.attachments || [],
+            taken: data.taken || [],
+        };
+        saveProject({ ...project, emails: [...(project.emails || []), nieuw] });
+
+        // Achtergrond: conversationId opzoeken en registreren voor Teams-webhook
+        const kanaalId = project.teamsKanaalId;
+        const teamId = teamsTeamId;
+        if (kanaalId && teamId) {
+            const conversationId = data.conversationId || null;
+            const onderwerp = data.onderwerp || data.subject || '';
+            const van = data.van || data.from || '';
+            if (conversationId) {
+                fetch('/api/outlook/registreer-gesprek', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ conversationId, teamsKanaalId: kanaalId, teamId }),
+                }).catch(() => {});
+            } else if (onderwerp) {
+                // Zoek conversationId via Outlook search (fire-and-forget)
+                fetch('/api/outlook/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subject: onderwerp, from: van }),
+                }).then(r => r.ok ? r.json() : null).then(result => {
+                    if (result?.conversationId) {
+                        fetch('/api/outlook/registreer-gesprek', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ conversationId: result.conversationId, teamsKanaalId: kanaalId, teamId }),
+                        }).catch(() => {});
+                    }
+                }).catch(() => {});
+            }
+        }
+    };
+
+    const voegEmailTaakToe = (emailId, naam, deadline) => {
+        const taak = { id: 't' + Date.now() + Math.random(), naam, deadline: deadline || null, gedaan: false };
+        saveProject({ ...project, emails: (project.emails || []).map(e => String(e.id) === String(emailId) ? { ...e, taken: [...(e.taken || []), taak] } : e) });
+    };
+
+    const toggleEmailTaak = (emailId, taakId) => {
+        saveProject({ ...project, emails: (project.emails || []).map(e => String(e.id) === String(emailId) ? { ...e, taken: (e.taken || []).map(t => t.id === taakId ? { ...t, gedaan: !t.gedaan } : t) } : e) });
+    };
+
+    const verwijderEmailTaak = (emailId, taakId) => {
+        saveProject({ ...project, emails: (project.emails || []).map(e => String(e.id) === String(emailId) ? { ...e, taken: (e.taken || []).filter(t => t.id !== taakId) } : e) });
+    };
+
+    const verwijderEmail = (emailId) => {
+        saveProject({ ...project, emails: (project.emails || []).filter(e => String(e.id) !== String(emailId)) });
+    };
+
+    const updateEmailCategorie = (emailId, nieuweCat) => {
+        const email = (project.emails || []).find(e => String(e.id) === String(emailId));
+        saveProject({ ...project, emails: (project.emails || []).map(e => String(e.id) === String(emailId) ? { ...e, categorie: nieuweCat } : e) });
+        if (email?.outlookId) {
+            fetch('/api/outlook/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outlookId: email.outlookId, action: 'set_category', categories: nieuweCat ? [nieuweCat] : [] }) }).catch(() => {});
+        }
+        setCatDropdownEmailId(null);
+    };
+
+    // ── Ref om altijd de actuele project-state te lezen in de interval ──
+    const projectRef = useRef(null);
+    useEffect(() => { projectRef.current = project; });
+
+    // ── Achtergrond sync Outlook → app categorieën (elke 60s) ──
+    useEffect(() => {
+        const sync = async () => {
+            const proj = projectRef.current;
+            const emailsMetOutlook = (proj?.emails || []).filter(e => e.outlookId);
+            if (!emailsMetOutlook.length) return;
+            const ids = emailsMetOutlook.map(e => encodeURIComponent(e.outlookId)).join(',');
+            try {
+                const res = await fetch(`/api/outlook/sync?ids=${ids}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!Array.isArray(data)) return;
+                let changed = false;
+                const updatedEmails = (proj.emails || []).map(email => {
+                    if (!email.outlookId) return email;
+                    const syncResult = data.find(d => d.id === email.outlookId);
+                    if (!syncResult || syncResult.deleted || syncResult.error) return email;
+                    const outlookCat = syncResult.category || null;
+                    if (outlookCat && outlookCat !== email.categorie) { changed = true; return { ...email, categorie: outlookCat }; }
+                    return email;
+                });
+                if (changed) saveProject({ ...proj, emails: updatedEmails });
+            } catch {}
+        };
+        const interval = setInterval(sync, 60000);
+        return () => clearInterval(interval);
+    }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Planner → Palet sync: haal notities + controlelijst op voor taken die al in Planner staan
+    useEffect(() => {
+        if (!plannerTaken || plannerTaken.length === 0) return;
+        const huidigSjabloon = plannerSjablonenState.find(s => s.id === plannerPaletSjabloon) || plannerSjablonenState[0];
+        if (!huidigSjabloon) return;
+        const alleTaken = huidigSjabloon.buckets.flatMap(b => b.taken.map(t => ({ key: b.naam + '|' + t, titel: t })));
+        alleTaken.forEach(({ key, titel }) => {
+            const plannerTaak = plannerTaken.find(t => t.title?.toLowerCase() === titel.toLowerCase());
+            if (!plannerTaak) return;
+
+            // Velden die direct op de taak staan
+            const startDate = plannerTaak.startDateTime ? plannerTaak.startDateTime.slice(0, 10) : undefined;
+            const dueDate = plannerTaak.dueDateTime ? plannerTaak.dueDateTime.slice(0, 10) : undefined;
+            const label = plannerTaak.appliedCategories
+                ? Object.keys(plannerTaak.appliedCategories).find(k => plannerTaak.appliedCategories[k])
+                : undefined;
+            const userId = plannerTaak.assignments
+                ? Object.keys(plannerTaak.assignments)[0]
+                : undefined;
+
+            // Taakdetails ophalen voor notitie + controlelijst
+            fetch(`/api/teams/planner-taak-details?taskId=${plannerTaak.id}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(details => {
+                    const checklistItems = details?.checklist
+                        ? Object.values(details.checklist).map(c => c.title).filter(Boolean)
+                        : [];
+                    setPlannerPaletData(prev => {
+                        const bestaand = prev[key] || {};
+                        return {
+                            ...prev,
+                            [key]: {
+                                ...bestaand,
+                                notitie: details?.description || bestaand.notitie || '',
+                                checklist: checklistItems.length > 0 ? checklistItems : (bestaand.checklist || []),
+                                ...(startDate !== undefined && { startDate }),
+                                ...(dueDate !== undefined && { dueDate }),
+                                ...(label !== undefined && { label }),
+                                ...(userId !== undefined && { userId }),
+                            }
+                        };
+                    });
+                })
+                .catch(() => {});
+        });
+    }, [plannerTaken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Teams leden ophalen voor Planner toewijzing
+    useEffect(() => {
+        if (!teamsTeamId) return;
+        fetch(`/api/teams/leden?teamId=${teamsTeamId}`)
+            .then(async r => {
+                const d = await r.json();
+                if (!r.ok) { console.error('[leden] Graph fout:', d); return; }
+                if (Array.isArray(d)) setTeamsLeden(d);
+                else console.error('[leden] Onverwachte response:', d);
+            })
+            .catch(err => console.error('[leden] fetch fout:', err));
+    }, [teamsTeamId]);
+
+    // Auto-laden Planner bord + buckets aanmaken als ze ontbreken
+    useEffect(() => {
+        if (!project?.plannerPlanId || plannerTaken !== null || plannerTakenBezig) return;
+        setPlannerTakenBezig(true);
+        Promise.all([
+            fetch(`/api/teams/planner-taken?planId=${project.plannerPlanId}`),
+            fetch(`/api/teams/planner-buckets?planId=${project.plannerPlanId}`),
+        ]).then(async ([r, rb]) => {
+            const d = r.ok ? await r.json() : [];
+            let b = rb.ok ? await rb.json() : [];
+            setPlannerTaken(d);
+            if (b.length === 0) {
+                // Buckets ontbreken volledig — aanmaken vanuit sjabloon
+                const sjabloon = plannerSjablonenState.find(s => s.id === plannerPaletSjabloon) || plannerSjablonenState[0];
+                if (sjabloon) {
+                    const bestaandeNamen = new Set(b.map(x => x.name));
+                    const nieuweBuckets = [...b];
+                    for (const bucket of sjabloon.buckets) {
+                        if (bestaandeNamen.has(bucket.naam)) continue; // nooit duplicaten
+                        const r2 = await fetch('/api/teams/planner-buckets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId: project.plannerPlanId, name: bucket.naam }) });
+                        if (r2.ok) { const nb = await r2.json(); nieuweBuckets.push(nb); bestaandeNamen.add(bucket.naam); }
+                    }
+                    b = nieuweBuckets;
+                }
+            }
+            setPlannerBuckets(b);
+            if (b[0]) setPlannerBucketKeuze(b[0].id);
+        }).catch(() => setPlannerTaken([])).finally(() => setPlannerTakenBezig(false));
+    }, [project?.plannerPlanId]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Auto-refresh meerwerk als de chatbot (of ander tabblad) iets opslaat
     useEffect(() => {
         const key = `schildersapp_meerwerk_${id}`;
@@ -542,6 +1070,169 @@ export default function ProjectDossierPage() {
         setMeerwerk(updated);
         localStorage.setItem(`schildersapp_meerwerk_${id}`, JSON.stringify(updated));
     };
+
+    // Stuur een taak naar Microsoft Planner
+    const stuurNaarPlanner = async (taskId, title, bucketId) => {
+        if (!project.plannerPlanId) return;
+        setPlannerVerstuurd(prev => ({ ...prev, [taskId]: 'bezig' }));
+        try {
+            const r = await fetch('/api/teams/planner-taken', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ planId: project.plannerPlanId, title, bucketId: bucketId || plannerBucketKeuze || undefined }),
+            });
+            if (r.ok) {
+                const nieuw = await r.json();
+                setPlannerTaken(prev => prev ? [...prev, nieuw] : [nieuw]);
+                setPlannerVerstuurd(prev => ({ ...prev, [taskId]: 'ok' }));
+                setTimeout(() => setPlannerVerstuurd(prev => { const n = { ...prev }; delete n[taskId]; return n; }), 2000);
+            } else {
+                setPlannerVerstuurd(prev => ({ ...prev, [taskId]: 'error' }));
+            }
+        } catch {
+            setPlannerVerstuurd(prev => ({ ...prev, [taskId]: 'error' }));
+        }
+    };
+    // ===== PALET HELPERS =====
+    const updatePaletData = (key, patch) => {
+        setPlannerPaletData(prev => {
+            const nieuw = { ...prev, [key]: { ...(prev[key] || {}), ...patch } };
+            try { localStorage.setItem('schildersapp_palet_data', JSON.stringify(nieuw)); } catch {}
+            return nieuw;
+        });
+    };
+    const togglePaletVinkje = (key) => {
+        setPlannerPaletVinkjes(prev => {
+            const nieuw = { ...prev, [key]: !prev[key] };
+            if (nieuw[key]) setPlannerPaletSelectie(prev2 => { const n = new Set(prev2); n.delete(key); return n; });
+            try { localStorage.setItem('schildersapp_palet_vinkjes', JSON.stringify(nieuw)); } catch {}
+            return nieuw;
+        });
+    };
+    const voegPaletBijlageToe = async (key, file) => {
+        const storageKey = `palet_${key}_${file.name}`;
+        await slaEmailBestandOp(storageKey, file);
+        updatePaletData(key, { bijlagen: [...(plannerPaletData[key]?.bijlagen || []), { naam: file.name, storageKey }] });
+    };
+    const verwijderPaletBijlage = async (key, bi) => {
+        const b = plannerPaletData[key]?.bijlagen?.[bi];
+        if (b) { try { await verwijderEmailBestand(b.storageKey); } catch {} }
+        updatePaletData(key, { bijlagen: (plannerPaletData[key]?.bijlagen || []).filter((_, i) => i !== bi) });
+    };
+    const voegPaletTaakToe = async ({ taakTitel, bucketNaam, userId, startDate, dueDate, label, bulk, selectie }) => {
+        if (bulk && selectie) {
+            setPlannerPaletAssignPopup(null);
+            for (const selKey of selectie) {
+                const [selBucket, selTitel] = selKey.split('|');
+                await voegPaletTaakToe({ taakTitel: selTitel, bucketNaam: selBucket, userId, startDate, dueDate, label });
+            }
+            setPlannerPaletSelectie(new Set());
+            return;
+        }
+        const key = bucketNaam + '|' + taakTitel;
+        if (!project?.plannerPlanId) return;
+        setPlannerPaletBezig(prev => ({ ...prev, [key]: true }));
+        setPlannerPaletAssignPopup(null);
+        const matchBucket = plannerBuckets.find(b => b.name === bucketNaam);
+        const bucketId = matchBucket?.id || plannerBucketKeuze || undefined;
+        try {
+            const r = await fetch('/api/teams/planner-taken', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    planId: project.plannerPlanId, title: taakTitel, bucketId,
+                    startDateTime: startDate ? new Date(startDate).toISOString() : undefined,
+                    dueDateTime: dueDate ? new Date(dueDate).toISOString() : undefined,
+                    appliedCategories: label ? { [label]: true } : undefined,
+                    assignments: userId ? { [userId]: { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' } } : undefined,
+                }),
+            });
+            if (!r.ok) {
+                const err = await r.text();
+                console.error('[palet] planner-taken fout:', r.status, err);
+            }
+            if (r.ok) {
+                const nieuw = await r.json();
+                setPlannerTaken(prev => [...(prev || []), nieuw]);
+                const data = plannerPaletData[key];
+                const checklistItems = data?.checklist || [];
+                const heeftDetails = checklistItems.length > 0 || data?.notitie;
+                if (heeftDetails) {
+                    const detailsRes = await fetch(`/api/teams/planner-taak-details?taskId=${nieuw.id}`);
+                    if (detailsRes.ok) {
+                        const details = await detailsRes.json();
+                        const checklistObj = {};
+                        checklistItems.forEach((item, i) => {
+                            checklistObj[String(i)] = { '@odata.type': '#microsoft.graph.plannerChecklistItem', title: item, isChecked: false, orderHint: ' !' };
+                        });
+                        await fetch('/api/teams/planner-taak-details', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                taskId: nieuw.id,
+                                description: data?.notitie || '',
+                                checklist: checklistItems.length > 0 ? checklistObj : undefined,
+                                etag: details['@odata.etag'],
+                            }),
+                        });
+                    }
+                }
+
+                // Bijlagen uploaden naar SharePoint en als referentie toevoegen
+                const bijlagen = data?.bijlagen || [];
+                if (bijlagen.length > 0 && teamsTeamId) {
+                    const references = {};
+                    for (const b of bijlagen) {
+                        try {
+                            const fileBlob = await haalEmailBestandOp(b.storageKey);
+                            if (!fileBlob) continue;
+                            const blob = fileBlob.blob || fileBlob;
+                            const base64 = await new Promise(res => {
+                                const reader = new FileReader();
+                                reader.onload = e => res(e.target.result.split(',')[1]);
+                                reader.readAsDataURL(blob);
+                            });
+                            const uploadRes = await fetch('/api/teams/upload-bijlage', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ teamId: teamsTeamId, filename: b.naam, contentBase64: base64, mimeType: blob.type }),
+                            });
+                            if (uploadRes.ok) {
+                                const { webUrl } = await uploadRes.json();
+                                if (webUrl) {
+                                    references[webUrl] = { '@odata.type': '#microsoft.graph.plannerExternalReference', alias: b.naam, type: 'Other', previewPriority: ' !' };
+                                    // Sla webUrl op in lokale bijlage voor het link-icoontje
+                                    updatePaletData(key, {
+                                        bijlagen: (plannerPaletData[key]?.bijlagen || []).map((bj, i) => bj.storageKey === b.storageKey ? { ...bj, plannerUrl: webUrl } : bj)
+                                    });
+                                }
+                            }
+                        } catch {}
+                    }
+                    if (Object.keys(references).length > 0) {
+                        const detailsRes2 = await fetch(`/api/teams/planner-taak-details?taskId=${nieuw.id}`);
+                        if (detailsRes2.ok) {
+                            const details2 = await detailsRes2.json();
+                            // Planner vereist URL-encoded keys (: → %3A, . → %2E)
+                            const encodedRefs = {};
+                            for (const [url, val] of Object.entries(references)) {
+                                const encodedKey = url.replace(/:/g, '%3A').replace(/\./g, '%2E');
+                                encodedRefs[encodedKey] = val;
+                            }
+                            const refRes = await fetch('/api/teams/planner-taak-details', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ taskId: nieuw.id, references: encodedRefs, etag: details2['@odata.etag'] }),
+                            });
+                            if (!refRes.ok) console.error('[palet] referentie fout:', refRes.status, await refRes.text());
+                        }
+                    }
+                }
+            }
+        } catch {}
+        setPlannerPaletBezig(prev => { const n = { ...prev }; delete n[key]; return n; });
+    };
+
     const addMeerwerkItem = () => {
         if (!newMeerwerk.omschrijving || !newMeerwerk.bedrag) return;
         const item = {
@@ -667,6 +1358,35 @@ export default function ProjectDossierPage() {
                         ? { ...m, emailVerzonden: nu, emailNaar: contact.email, akkoordToken: tokenData.token }
                         : m
                 ));
+                // Sla verzonden email op in project emaillijst
+                voegEmailToe({
+                    direction: 'out',
+                    richting: 'out',
+                    van: vanNaam?.trim() || 'Wij',
+                    aan: contact.email,
+                    to: contact.email,
+                    onderwerp: onderwerp?.trim() || `Meerwerk akkoordverzoek — ${project.name}`,
+                    subject: onderwerp?.trim() || `Meerwerk akkoordverzoek — ${project.name}`,
+                    datum: nu,
+                    date: nu,
+                    categorie: 'Opdracht',
+                    body: persoonlijkBericht?.trim() || '',
+                    notitie: persoonlijkBericht?.trim() || '',
+                });
+                // Post naar Teams-kanaal als project gekoppeld is
+                if (project.teamsKanaalId && teamsTeamId) {
+                    fetch('/api/teams/kanaal-bericht', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            teamId: teamsTeamId,
+                            kanaalId: project.teamsKanaalId,
+                            onderwerp: onderwerp?.trim() || `Meerwerk akkoordverzoek — ${project.name}`,
+                            van: vanNaam?.trim() || 'App',
+                            inhoud: `Akkoordverzoek verstuurd naar <b>${contact.naam}</b> (${contact.email})`,
+                        }),
+                    }).catch(() => {});
+                }
             }
         } catch {
             setMeerwerkEmailStatus(prev => {
@@ -761,7 +1481,8 @@ export default function ProjectDossierPage() {
 
     useEffect(() => {
         const stored = localStorage.getItem('schildersapp_projecten');
-        let allProjects = stored ? JSON.parse(stored) : INITIAL_PROJECTS;
+        const parsedStored = stored ? JSON.parse(stored) : null;
+        let allProjects = (parsedStored && parsedStored.length > 0) ? parsedStored : INITIAL_PROJECTS;
         // Saneer project datums: herstel ongeldige datums van INITIAL_PROJECTS
         const isValidDate = (s) => s && !isNaN(new Date(s + 'T00:00:00').getTime());
         allProjects = allProjects.map(p => {
@@ -868,7 +1589,123 @@ export default function ProjectDossierPage() {
         setProject(updated);
         const newProjects = projects.map(p => p.id === updated.id ? updated : p);
         setProjects(newProjects);
-        localStorage.setItem('schildersapp_projecten', JSON.stringify(newProjects));
+        try {
+            localStorage.setItem('schildersapp_projecten', JSON.stringify(newProjects));
+        } catch (e) {
+            // localStorage vol (QuotaExceededError) — toon waarschuwing maar verlies geen data
+            console.error('localStorage vol:', e);
+            setToast('⚠️ Opslag vol — verwijder oude emails of bestanden');
+            setTimeout(() => setToast(null), 5000);
+        }
+    };
+
+    const updateTaskMemo = (taskId, val) => {
+        const updated = { ...project, tasks: project.tasks.map(t => t.id === taskId ? { ...t, memo: val } : t) };
+        saveProject(updated);
+    };
+
+    const verwerkEmailBestand = async (files) => {
+        const fmt = (d) => d.toISOString().split('T')[0];
+        for (const file of Array.from(files)) {
+            const isMsg = file.name.toLowerCase().endsWith('.msg')
+                || file.type === 'application/vnd.ms-outlook'
+                || (file.type === 'application/octet-stream' && file.name && !file.name.includes('.'));
+            const isEml = file.name.toLowerCase().endsWith('.eml') || file.type === 'message/rfc822';
+            if (!isMsg && !isEml) continue;
+            try {
+                let parsed = {};
+                const fileId = Date.now() + Math.random();
+                // Chunked btoa — voorkomt stack overflow bij grote afbeeldingen (>65k bytes)
+                const toB64 = (bytes) => { let s = ''; const c = 8192; for (let i = 0; i < bytes.length; i += c) s += btoa(String.fromCharCode(...bytes.subarray(i, i + c))); return s; };
+                if (isMsg) {
+                    const buffer = await new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsArrayBuffer(file); });
+                    const MsgReader = (await import('@kenjiuno/msgreader')).default;
+                    const msg = new MsgReader(buffer);
+                    const info = msg.getFileData();
+                    const smtpEmail = info.sentRepresentingSmtpAddress || info.senderEmail || '';
+                    const from = smtpEmail ? (info.senderName ? `${info.senderName} <${smtpEmail}>` : smtpEmail) : (info.senderName || '');
+                    const dateRaw = info.messageDeliveryTime || info.clientSubmitTime;
+                    const decodeBody = (val) => { if (!val) return null; if (typeof val === 'string') return val; try { return new TextDecoder('utf-8').decode(val) || null; } catch { return null; } };
+                    let bodyHtml = decodeBody(info.bodyHtml);
+                    // Vervang cid: referenties — bytes via msg.getAttachment(), contentId via att.pidContentId
+                    const inlinedCids = new Set();
+                    if (bodyHtml && bodyHtml.includes('cid:')) {
+                        for (const att of (info.attachments || [])) {
+                            const cid = (att.pidContentId || att.contentId || '').replace(/[<>]/g, '');
+                            if (!cid) continue;
+                            try {
+                                const attData = msg.getAttachment(att);
+                                const raw = attData?.content || attData?.fileData || att.content || att.fileData;
+                                if (!raw) continue;
+                                const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+                                const mime = att.attachMimeTag || att.mimeType || 'image/png';
+                                bodyHtml = bodyHtml.split(`cid:${cid}`).join(`data:${mime};base64,${toB64(bytes)}`);
+                                inlinedCids.add(cid);
+                            } catch {}
+                        }
+                    }
+                    // Zorg voor juiste charset & links openen in nieuw tabblad
+                    if (bodyHtml) {
+                        if (/<html/i.test(bodyHtml)) {
+                            if (!/<meta[^>]+charset/i.test(bodyHtml)) bodyHtml = bodyHtml.replace(/(<head[^>]*>)/i, '$1<meta charset="utf-8"><base target="_blank">');
+                        } else {
+                            bodyHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:14px;line-height:1.6;color:#1e293b;margin:0;padding:12px">${bodyHtml}</body></html>`;
+                        }
+                    }
+                    // Niet-inline bijlagen (PDF, Word, …) opslaan in IndexedDB
+                    const attMetadata = [];
+                    for (let i = 0; i < (info.attachments || []).length; i++) {
+                        const att = info.attachments[i];
+                        const cid = (att.pidContentId || att.contentId || '').replace(/[<>]/g, '') || null;
+                        if (cid && inlinedCids.has(cid)) continue; // al inline verwerkt
+                        const attData = msg.getAttachment(att);
+                        const raw = attData?.content || attData?.fileData || att.content || att.fileData;
+                        if (!raw) continue;
+                        const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+                        if (bytes.length < 50) continue; // sla metadata-flarden over
+                        const name = att.fileName || att.name || `bijlage_${i + 1}`;
+                        const ext = name.toLowerCase().split('.').pop();
+                        const extMime = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp', bmp:'image/bmp', tiff:'image/tiff', tif:'image/tiff', heic:'image/heic', pdf:'application/pdf', doc:'application/msword', docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls:'application/vnd.ms-excel', xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+                        const mime = att.attachMimeTag || att.mimeType || extMime[ext] || 'application/octet-stream';
+                        try { await slaEmailBestandOp(`${fileId}_att_${i}`, new Blob([bytes], { type: mime })); attMetadata.push({ id: `${fileId}_att_${i}`, name, mimeType: mime, size: bytes.length }); } catch {}
+                    }
+                    // bodyHtml NIET in parsed — wordt on-demand geladen uit IndexedDB (voorkomt localStorage overflow bij grote afbeeldingen)
+                    parsed = { subject: info.subject || '', from, body: typeof info.body === 'string' ? info.body : '', attachments: attMetadata, date: dateRaw ? fmt(new Date(dateRaw)) : fmt(new Date()) };
+                } else {
+                    const text = await new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsText(file, 'utf-8'); });
+                    const getH = (h) => { const m = text.match(new RegExp(`^${h}:\\s*(.+)`, 'im')); return m ? m[1].trim() : ''; };
+                    parsed = { subject: getH('Subject'), from: getH('From'), body: text.replace(/^[\s\S]*?\n\n/, '').trim(), attachments: [], date: fmt(new Date()) };
+                }
+                await slaEmailBestandOp(fileId, file);
+                const fromEmail = ((parsed.from || '').match(/<([^>]+)>/) || [])[1]?.toLowerCase() || (parsed.from || '').toLowerCase().trim();
+                const ownEmail = myOutlookEmail || localStorage.getItem('schildersapp_mijn_outlook_email') || '';
+                const richting = ownEmail && fromEmail === ownEmail ? 'out' : 'in';
+                // Open formulier met vooringevulde velden
+                setEmailForm({
+                    richting,
+                    van: parsed.from || '',
+                    onderwerp: parsed.subject || '',
+                    datum: parsed.date || fmt(new Date()),
+                    categorie: 'Overig',
+                    notitie: '',
+                    _body: parsed.body || '',
+                    _attachments: parsed.attachments || [],
+                    _fileId: fileId,
+                    _fileName: file.name,
+                    _fileSize: file.size,
+                    _aiLoading: !!(parsed.subject || parsed.body),
+                    _aiTaken: [],
+                });
+                // AI taken voorstellen op de achtergrond
+                const bodyForAi = parsed.body || '';
+                if (parsed.subject || bodyForAi) {
+                    fetch('/api/outlook/extract-taken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: parsed.subject, body: bodyForAi }) })
+                        .then(r => r.ok ? r.json() : { taken: [] })
+                        .then(data => setEmailForm(prev => prev ? { ...prev, _aiLoading: false, _aiTaken: data.taken || [] } : prev))
+                        .catch(() => setEmailForm(prev => prev ? { ...prev, _aiLoading: false } : prev));
+                }
+            } catch (err) { console.warn('Email verwerking fout:', err); }
+        }
     };
 
     // Expliciete opslaan met feedback + cross-tab sync event
@@ -1008,6 +1845,8 @@ export default function ProjectDossierPage() {
         { id: 'fotos', label: `Foto's (${photos.length})`, icon: 'fa-camera' },
         { id: 'documenten', label: 'Documenten', icon: 'fa-file-lines' },
         { id: 'bewaking', label: 'Bewaking', icon: 'fa-shield-halved' },
+        { id: 'dossier', label: 'Dossier', icon: 'fa-briefcase' },
+        { id: 'teams', label: 'Teams', icon: 'fa-brands fa-microsoft' },
     ];
 
     const mainContent = (
@@ -1372,7 +2211,7 @@ export default function ProjectDossierPage() {
                                         bezig: { label: 'Bezig',   color: '#2563eb', bg: '#dbeafe' },
                                         klaar: { label: 'Klaar',   color: '#16a34a', bg: '#dcfce7' },
                                     };
-                                    const statusKey = task.completed ? 'klaar' : (task.kanbanStatus || 'todo');
+                                    const statusKey = task.completed ? 'klaar' : (STATUS_CFG[task.kanbanStatus] ? task.kanbanStatus : 'todo');
                                     const cfg = STATUS_CFG[statusKey];
                                     const statusOrder = ['todo', 'bezig', 'klaar'];
                                     const nextStatus = () => {
@@ -2841,6 +3680,1400 @@ export default function ProjectDossierPage() {
                     </div>
                 );
             })()}
+
+            {activeTab === 'dossier' && (() => {
+                const emails = project.emails || [];
+                const tasks = project.tasks || [];
+
+                // Emails: nieuwste eerst. Taken: volgorde van de takenlijst (aanmaakdatum).
+                const emailItems = emails
+                    .map(e => ({ ...e, _type: 'email', _datum: new Date(e.date || 0) }))
+                    .sort((a, b) => b._datum - a._datum);
+                const taakItems = tasks
+                    .map((t, idx) => ({ ...t, _type: 'taak', _datum: new Date(t.startDate || t.endDate || 0), _idx: idx }));
+
+                const todoTaken     = tasks.filter(t => !t.completed && !emails.find(e => e.taskId === t.id) && t.kanbanStatus !== 'planning');
+                const planningTaken = tasks.filter(t => !t.completed && !emails.find(e => e.taskId === t.id) && t.kanbanStatus === 'planning');
+                const emailTaken    = tasks.filter(t => !t.completed && !!emails.find(e => e.taskId === t.id));
+                const afgerondTaken = tasks.filter(t => t.completed);
+
+                const gefilterd = (() => {
+                    if (dossierFilter === 'emails') return emailItems;
+                    if (dossierFilter === 'taken') return taakItems;
+                    if (dossierFilter === 'open') return [
+                        ...taakItems.filter(t => !t.completed),
+                        ...emailItems.filter(e => e.status !== 'afgehandeld'),
+                    ];
+                    // 'alle': taken eerst (taaklijst-volgorde), dan emails (nieuwste eerst)
+                    return [...taakItems, ...emailItems];
+                })();
+
+                // Datum-groepering
+                const nu = new Date();
+                const vandaag = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate());
+                const gisteren = new Date(vandaag); gisteren.setDate(gisteren.getDate() - 1);
+                const weekStart = new Date(vandaag); weekStart.setDate(weekStart.getDate() - 7);
+
+                const groepen = [];
+                let huidigeGroep = null;
+                gefilterd.forEach(item => {
+                    const d = item._datum;
+                    let label;
+                    if (!d || isNaN(d)) {
+                        label = item._type === 'taak' ? 'Taken' : 'Eerder';
+                    } else {
+                        const dag = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                        if (dag > vandaag) label = item._type === 'taak' ? 'Taken' : 'Gepland';
+                        else if (dag >= vandaag) label = 'Vandaag';
+                        else if (dag >= gisteren) label = 'Gisteren';
+                        else if (dag >= weekStart) label = 'Deze week';
+                        else label = 'Eerder';
+                    }
+                    if (label !== huidigeGroep) { groepen.push({ label, items: [] }); huidigeGroep = label; }
+                    groepen[groepen.length - 1].items.push(item);
+                });
+
+                const projColor = project.color || '#3b82f6';
+                const openEmails = emails.filter(e => e.status !== 'afgehandeld').length;
+                const openTaken = tasks.filter(t => !t.completed).length;
+
+                const addTaskFromDossierEmail = (email) => {
+                    const newT = {
+                        id: 't' + Date.now() + Math.random(),
+                        name: email.subject || 'Taak uit email',
+                        startDate: project.startDate || '',
+                        endDate: project.endDate || '',
+                        assignedTo: [],
+                        completed: false,
+                        notes: [],
+                        category: 'Email',
+                    };
+                    const updatedEmails = emails.map(e => e.id === email.id ? { ...e, taskId: newT.id } : e);
+                    saveProject({ ...project, tasks: [...tasks, newT], emails: updatedEmails });
+                };
+
+                const toggleEmailCategory = (emailId, category) => {
+                    const email = emails.find(e => e.id === emailId);
+                    const cur = email?.categories || [];
+                    const newCats = cur.includes(category) ? cur.filter(c => c !== category) : [...cur, category];
+                    saveProject({ ...project, emails: emails.map(e => e.id === emailId ? { ...e, categories: newCats } : e) });
+                    if (email?.outlookId) {
+                        fetch('/api/outlook/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outlookId: email.outlookId, action: 'set_category', categories: newCats }) }).catch(() => {});
+                    }
+                };
+                const setEmailCategory = (emailId, category) => {
+                    const newCats = category ? [category] : [];
+                    const email = emails.find(e => e.id === emailId);
+                    saveProject({ ...project, emails: emails.map(e => e.id === emailId ? { ...e, categories: newCats } : e) });
+                    if (email?.outlookId) {
+                        fetch('/api/outlook/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outlookId: email.outlookId, action: 'set_category', categories: newCats }) }).catch(() => {});
+                    }
+                    setCatPickerEmailId(null);
+                };
+                const CatPicker = ({ emailId, cats }) => (
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                        <button onClick={() => setCatPickerEmailId(catPickerEmailId === emailId ? null : emailId)} style={{ fontSize: '0.68rem', color: '#64748b', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <i className="fa-solid fa-tag" style={{ fontSize: '0.55rem' }} /> {cats.length ? 'Wijzig' : 'Categorie'}
+                        </button>
+                        {catPickerEmailId === emailId && (
+                            <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 999, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', padding: 8, minWidth: 180 }} onMouseLeave={() => setCatPickerEmailId(null)}>
+                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700, marginBottom: 6, paddingLeft: 2 }}>OUTLOOK CATEGORIEËN</div>
+                                {Object.keys(outlookCategories).length === 0
+                                    ? <div style={{ fontSize: '0.7rem', color: '#94a3b8', padding: '4px 2px' }}>Geen categorieën gevonden</div>
+                                    : Object.entries(outlookCategories).map(([cat, kleur]) => {
+                                        const actief = cats.includes(cat);
+                                        return (
+                                            <div key={cat} onClick={() => toggleEmailCategory(emailId, cat)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 6, cursor: 'pointer', background: actief ? kleur + '18' : 'transparent' }} onMouseEnter={e => e.currentTarget.style.background = kleur + '28'} onMouseLeave={e => e.currentTarget.style.background = actief ? kleur + '18' : 'transparent'}>
+                                                <span style={{ width: 12, height: 12, borderRadius: '50%', background: kleur, flexShrink: 0, border: actief ? `2px solid ${kleur}` : '2px solid transparent', outline: actief ? `2px solid ${kleur}55` : 'none' }} />
+                                                <span style={{ flex: 1, fontSize: '0.75rem', color: '#1e293b', fontWeight: actief ? 700 : 400 }}>{cat}</span>
+                                                {actief && <i className="fa-solid fa-check" style={{ fontSize: '0.6rem', color: kleur }} />}
+                                            </div>
+                                        );
+                                    })
+                                }
+                            </div>
+                        )}
+                    </div>
+                );
+
+                const toggleDossierExpand = (id) => {
+                    setDossierExpanded(prev => {
+                        const next = new Set(prev);
+                        next.has(id) ? next.delete(id) : next.add(id);
+                        return next;
+                    });
+                };
+
+                const iconBtn = (onClick, icon, title, extra = {}) => (
+                    <button onClick={onClick} title={title} style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', flexShrink: 0, ...extra }}>
+                        <i className={`fa-solid ${icon}`} />
+                    </button>
+                );
+
+                return (
+                    <div style={{ minHeight: '100%', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+
+                        {/* ── Sticky header ── */}
+                        <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 10 }}>
+                            {/* Rij 1: titel + badges + upload */}
+                            <div style={{ padding: '8px 20px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: projColor }} />
+                                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Dossier</span>
+                                </div>
+                                <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', fontSize: '0.72rem' }}>
+                                    {openEmails > 0 && <span style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>{openEmails} email open</span>}
+                                    {openTaken > 0 && <span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>{openTaken} taken open</span>}
+                                    <input ref={emailUploadRef} type="file" accept=".msg,.eml" multiple style={{ display: 'none' }} onChange={e => { verwerkEmailBestand(e.target.files); e.target.value = ''; }} />
+                                </div>
+                            </div>
+                            {/* Rij 2: tabs */}
+                            <div style={{ display: 'flex', padding: '0 20px' }}>
+                                {[['taken', '☑ Taken', openTaken], ['emails', '📧 Emails', openEmails]].map(([v, l, cnt]) => (
+                                    <button key={v} onClick={() => setDossierFilter(v)} style={{ padding: '7px 14px 6px', border: 'none', borderBottom: dossierFilter === v ? `2px solid ${projColor}` : '2px solid transparent', background: 'none', cursor: 'pointer', fontWeight: dossierFilter === v ? 700 : 500, fontSize: '0.78rem', color: dossierFilter === v ? projColor : '#94a3b8', display: 'flex', alignItems: 'center', gap: 5, marginBottom: -1 }}>
+                                        {l}{cnt > 0 && <span style={{ background: dossierFilter === v ? projColor : '#e2e8f0', color: dossierFilter === v ? '#fff' : '#64748b', borderRadius: 10, padding: '0 5px', fontSize: '0.65rem', fontWeight: 700 }}>{cnt}</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* ── Body: lijst + sjablonen ── */}
+                        <div style={{ display: 'flex', flex: 1, alignItems: 'flex-start' }}>
+
+                            {/* ── Kanban + Email tijdlijn ── */}
+                            <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
+
+                                {/* Kanban bord */}
+                                {dossierFilter === 'taken' && (() => {
+                                    const showAfgerond = dossierExpanded.has('__afgerond__');
+                                    const moveTask = (taskId, newStatus) => saveProject({ ...project, tasks: tasks.map(t => t.id === taskId ? { ...t, kanbanStatus: newStatus } : t) });
+                                    const movePlanningOrder = (taskId, dir) => {
+                                        const all = [...tasks];
+                                        const planIdxs = all.reduce((acc, t, i) => { if (t.kanbanStatus === 'planning' && !t.completed && !emails.find(e => e.taskId === t.id)) acc.push(i); return acc; }, []);
+                                        const pos = planIdxs.indexOf(all.findIndex(t => t.id === taskId));
+                                        if (pos < 0) return;
+                                        const swapPos = dir === 'up' ? pos - 1 : pos + 1;
+                                        if (swapPos < 0 || swapPos >= planIdxs.length) return;
+                                        [all[planIdxs[pos]], all[planIdxs[swapPos]]] = [all[planIdxs[swapPos]], all[planIdxs[pos]]];
+                                        saveProject({ ...project, tasks: all });
+                                    };
+                                    const renderTaakRij = (task, isLast, draggable, isFirst, showOrder) => {
+                                        const isExp = dossierExpanded.has(task.id);
+                                        const linkedEmail = emails.find(e => e.taskId === task.id);
+                                        const accent = task.completed ? '#22c55e' : projColor;
+                                        return (
+                                            <div key={task.id}
+                                                draggable={draggable}
+                                                onDragStart={() => { dragTaskRef.current = task.id; }}
+                                                onDragEnd={() => { dragTaskRef.current = null; }}
+                                                style={{ opacity: 1, cursor: draggable ? 'grab' : 'default' }}
+                                            >
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', minHeight: 32 }}>
+                                                    {draggable && <i className="fa-solid fa-grip-vertical" style={{ color: '#d1d5db', fontSize: '0.6rem', flexShrink: 0 }} />}
+                                                    <button onClick={() => saveProject({ ...project, tasks: tasks.map(t => t.id === task.id ? { ...t, completed: !t.completed } : t) })} style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${accent}`, background: task.completed ? accent : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                                                        {task.completed && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.45rem' }} />}
+                                                    </button>
+                                                    <span style={{ flex: 1, fontSize: '0.78rem', fontWeight: 500, color: task.completed ? '#94a3b8' : '#1e293b', textDecoration: task.completed ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</span>
+                                                    <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+                                                        <i className="fa-regular fa-calendar-plus" onClick={() => toggleDossierExpand(task.id)} style={{ fontSize: '0.6rem', color: task.startDate ? '#86efac' : '#e2e8f0', cursor: 'pointer' }} title={task.startDate ? `Start: ${task.startDate}` : 'Startdatum instellen'} />
+                                                        <i className="fa-regular fa-calendar-minus" onClick={() => toggleDossierExpand(task.id)} style={{ fontSize: '0.6rem', color: task.endDate ? '#fca5a5' : '#e2e8f0', cursor: 'pointer' }} title={task.endDate ? `Eind: ${task.endDate}` : 'Einddatum instellen'} />
+                                                        <i className="fa-regular fa-note-sticky" onClick={() => toggleDossierExpand(task.id)} style={{ fontSize: '0.6rem', color: (task.notes || []).length > 0 ? '#fdba74' : '#e2e8f0', cursor: 'pointer' }} title={(task.notes || []).length > 0 ? `${(task.notes || []).length} notitie(s)` : 'Notitie toevoegen'} />
+                                                        <i className="fa-solid fa-paperclip" onClick={() => toggleDossierExpand(task.id)} style={{ fontSize: '0.6rem', color: (task.attachments || []).length > 0 ? '#334155' : '#e2e8f0', cursor: 'pointer' }} title={(task.attachments || []).length > 0 ? `${(task.attachments || []).length} bijlage(n)` : 'Bijlage toevoegen'} />
+                                                        {linkedEmail && <i className="fa-regular fa-envelope" onClick={async () => { if (linkedEmail.originalFile) { const bestand = await haalEmailBestandOp(linkedEmail.originalFile.fileId); const blob = bestand?.blob || bestand; if (blob instanceof Blob) { const reader = new FileReader(); reader.onload = async ev => { await fetch('/api/outlook/open-msg', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: ev.target.result.split(',')[1], name: linkedEmail.originalFile.name }) }); }; reader.readAsDataURL(blob); } } else if (linkedEmail.from) { window.location.href = `mailto:${linkedEmail.from}`; } }} style={{ fontSize: '0.6rem', color: '#3b82f6', cursor: 'pointer' }} title="Open email in Outlook" />}
+                                                        {project.plannerPlanId && (() => {
+                                                            const st = plannerVerstuurd[task.id];
+                                                            return (
+                                                                <button onClick={() => stuurNaarPlanner(task.id, task.name)} disabled={st === 'bezig'} title="Naar Planner sturen" style={{ width: 18, height: 18, borderRadius: 4, border: `1px solid ${st === 'ok' ? '#16a34a' : st === 'error' ? '#dc2626' : '#059669'}`, background: st === 'ok' ? '#dcfce7' : st === 'error' ? '#fee2e2' : 'transparent', color: st === 'ok' ? '#16a34a' : st === 'error' ? '#dc2626' : '#059669', cursor: st === 'bezig' ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', padding: 0, flexShrink: 0 }}>
+                                                                    <i className={`fa-solid ${st === 'bezig' ? 'fa-spinner fa-spin' : st === 'ok' ? 'fa-check' : st === 'error' ? 'fa-xmark' : 'fa-share'}`} />
+                                                                </button>
+                                                            );
+                                                        })()}
+                                                        {showOrder && (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                                                <button onClick={() => movePlanningOrder(task.id, 'up')} disabled={isFirst} style={{ width: 14, height: 12, border: 'none', background: 'none', color: isFirst ? '#e2e8f0' : '#94a3b8', cursor: isFirst ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem' }}><i className="fa-solid fa-chevron-up" /></button>
+                                                                <button onClick={() => movePlanningOrder(task.id, 'down')} disabled={isLast} style={{ width: 14, height: 12, border: 'none', background: 'none', color: isLast ? '#e2e8f0' : '#94a3b8', cursor: isLast ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem' }}><i className="fa-solid fa-chevron-down" /></button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {/* Expand strip — gecentreerde pijl */}
+                                                <div onClick={() => toggleDossierExpand(task.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 16, cursor: 'pointer', borderTop: '1px solid #f1f5f9', borderBottom: (!isLast || isExp) ? '1px solid #f1f5f9' : 'none', background: isExp ? `${projColor}08` : '#fafafa', gap: 6 }}>
+                                                    <i className={`fa-solid fa-chevron-${isExp ? 'up' : 'down'}`} style={{ fontSize: '0.55rem', color: isExp ? projColor : '#94a3b8' }} />
+                                                </div>
+                                                {isExp && (
+                                                    <div style={{ padding: '10px 12px 12px', background: '#fafafa', borderBottom: !isLast ? '1px solid #f1f5f9' : 'none' }}>
+                                                        {/* Email info */}
+                                                        {linkedEmail && (
+                                                            <div style={{ marginBottom: 10 }}>
+                                                                <div style={{ display: 'flex', gap: 8, padding: '6px 10px', background: '#eff6ff', borderRadius: 6, border: '1px solid #bfdbfe', fontSize: '0.7rem', color: '#1e40af', marginBottom: 6 }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+                                                                        <i className="fa-regular fa-user" style={{ flexShrink: 0 }} />
+                                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{linkedEmail.from || '—'}</span>
+                                                                    </div>
+                                                                    {linkedEmail.date && (
+                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                                                            <i className="fa-regular fa-calendar" />
+                                                                            <span>{linkedEmail.date}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                {/* Categorieën */}
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                                                                    {(linkedEmail.categories || []).map(cat => {
+                                                                        const kleur = outlookCategories[cat] || '#94a3b8';
+                                                                        return (
+                                                                            <span key={cat} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: kleur + '22', border: `1px solid ${kleur}55`, color: kleur, borderRadius: 6, padding: '2px 7px', fontSize: '0.68rem', fontWeight: 600 }}>
+                                                                                <span style={{ width: 7, height: 7, borderRadius: '50%', background: kleur, flexShrink: 0 }} />
+                                                                                {cat}
+                                                                                <button onClick={() => setEmailCategory(linkedEmail.id, null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: kleur, padding: 0, fontSize: '0.6rem', lineHeight: 1, marginLeft: 1 }}>✕</button>
+                                                                            </span>
+                                                                        );
+                                                                    })}
+                                                                    <CatPicker emailId={linkedEmail.id} cats={linkedEmail.categories || []} />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {/* Datums */}
+                                                        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                                                            {[['startDate','Startdatum'],['endDate','Einddatum']].map(([field, label]) => (
+                                                                <div key={field} style={{ flex: 1 }}>
+                                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginBottom: 3, fontWeight: 600 }}>{label}</div>
+                                                                    <input type="date" key={task.id + field} defaultValue={task[field] || ''} onBlur={e => saveProject({ ...project, tasks: tasks.map(t => t.id === task.id ? { ...t, [field]: e.target.value || '' } : t) })} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 7px', fontSize: '0.73rem', outline: 'none', background: '#fff', boxSizing: 'border-box' }} />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {/* Notities */}
+                                                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginBottom: 5, fontWeight: 600 }}>Notities</div>
+                                                        {(task.notes || []).map(note => (
+                                                            <div key={note.id} style={{ display: 'flex', gap: 5, marginBottom: 4, alignItems: 'flex-start' }}>
+                                                                <textarea key={note.id} defaultValue={note.text} onBlur={e => { const v = e.target.value; if (v !== note.text) saveProject({ ...project, tasks: tasks.map(t => t.id === task.id ? { ...t, notes: (t.notes || []).map(n => n.id === note.id ? { ...n, text: v } : n) } : t) }); }} rows={2} placeholder="Notitie…" style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 7px', fontSize: '0.73rem', resize: 'vertical', outline: 'none', background: '#fff', boxSizing: 'border-box' }} />
+                                                                <button onClick={() => saveProject({ ...project, tasks: tasks.map(t => t.id === task.id ? { ...t, notes: (t.notes || []).filter(n => n.id !== note.id) } : t) })} style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid #fecaca', background: '#fff', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0, marginTop: 2 }}><i className="fa-solid fa-trash" /></button>
+                                                            </div>
+                                                        ))}
+                                                        <button onClick={() => { const newNote = { id: 'n' + Date.now(), text: '' }; saveProject({ ...project, tasks: tasks.map(t => t.id === task.id ? { ...t, notes: [...(t.notes || []), newNote] } : t) }); }} style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', marginBottom: 10 }}>+ Notitie toevoegen</button>
+                                                        {/* Bijlagen */}
+                                                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginBottom: 5, fontWeight: 600 }}>Bijlagen</div>
+                                                        {(task.attachments || []).map(att => {
+                                                            const isImg = att.type?.startsWith('image/');
+                                                            const kb = att.size ? (att.size < 1024 ? att.size + ' B' : att.size < 1048576 ? Math.round(att.size / 1024) + ' KB' : (att.size / 1048576).toFixed(1) + ' MB') : '';
+                                                            return (
+                                                                <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, padding: '4px 7px', borderRadius: 6, background: '#fff', border: '1px solid #e2e8f0' }}>
+                                                                    <i className={`fa-solid ${isImg ? 'fa-image' : 'fa-paperclip'}`} style={{ color: isImg ? '#3b82f6' : '#94a3b8', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                                    <span style={{ flex: 1, fontSize: '0.72rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                                                                    {kb && <span style={{ fontSize: '0.62rem', color: '#94a3b8', flexShrink: 0 }}>{kb}</span>}
+                                                                    <button onClick={async () => { const f = await haalEmailBestandOp(`task_${task.id}_${att.id}`); if (!f) return; const url = URL.createObjectURL(f.blob || f); const a = document.createElement('a'); a.href = url; a.download = att.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 5000); }} style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0 }} title="Download"><i className="fa-solid fa-download" /></button>
+                                                                    <button onClick={async () => { await verwijderEmailBestand(`task_${task.id}_${att.id}`); saveProject({ ...project, tasks: tasks.map(t => t.id === task.id ? { ...t, attachments: (t.attachments || []).filter(a => a.id !== att.id) } : t) }); }} style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid #fecaca', background: '#fff', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0 }} title="Verwijder"><i className="fa-solid fa-trash" /></button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', marginBottom: 10 }}>
+                                                            <i className="fa-solid fa-paperclip" /> Bijlage toevoegen
+                                                            <input type="file" multiple style={{ display: 'none' }} onChange={async e => {
+                                                                const files = Array.from(e.target.files);
+                                                                if (!files.length) return;
+                                                                const newAtts = [];
+                                                                for (const file of files) {
+                                                                    const attId = 'a' + Date.now() + Math.random().toString(36).slice(2);
+                                                                    await slaEmailBestandOp(`task_${task.id}_${attId}`, file);
+                                                                    newAtts.push({ id: attId, name: file.name, type: file.type, size: file.size });
+                                                                }
+                                                                saveProject({ ...project, tasks: tasks.map(t => t.id === task.id ? { ...t, attachments: [...(t.attachments || []), ...newAtts] } : t) });
+                                                                e.target.value = '';
+                                                            }} />
+                                                        </label>
+                                                        {/* Verwijder taak + ga naar email */}
+                                                        <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                            {linkedEmail && <button onClick={() => { setDossierFilter('emails'); setSelectedEmailId(linkedEmail.id); setTimeout(() => document.getElementById(`dossier-item-${linkedEmail.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); }} style={{ fontSize: '0.7rem', color: '#3b82f6', background: 'none', border: '1px solid #bfdbfe', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><i className="fa-regular fa-envelope" /> Ga naar email in dossier</button>}
+                                                            <button onClick={() => { if (window.confirm(`Taak "${task.name}" verwijderen?`)) saveProject({ ...project, tasks: tasks.filter(t => t.id !== task.id) }); }} style={{ fontSize: '0.7rem', color: '#ef4444', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><i className="fa-solid fa-trash" /> Verwijder taak</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    };
+                                    const kanbanKolom = (titel, icon, items, kleur, targetStatus, showOrder) => (
+                                        <div
+                                            style={{ flex: 1, minWidth: 0, background: kanbanDragOver === targetStatus ? `${kleur}08` : '#fff', borderRadius: 10, border: `1px solid ${kanbanDragOver === targetStatus ? kleur : '#e2e8f0'}`, overflow: 'hidden', transition: 'border-color 0.15s, background 0.15s' }}
+                                            onDragOver={e => { e.preventDefault(); if (targetStatus !== '__email__') setKanbanDragOver(targetStatus); }}
+                                            onDragLeave={() => setKanbanDragOver(null)}
+                                            onDrop={() => { if (dragTaskRef.current && targetStatus !== '__email__') moveTask(dragTaskRef.current, targetStatus); setKanbanDragOver(null); }}
+                                        >
+                                            <div style={{ padding: '7px 12px', background: `${kleur}10`, borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <span style={{ fontSize: '0.75rem' }}>{icon}</span>
+                                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b' }}>{titel}</span>
+                                                <span style={{ marginLeft: 'auto', background: `${kleur}20`, color: kleur, borderRadius: 10, padding: '1px 7px', fontSize: '0.62rem', fontWeight: 700 }}>{items.length}</span>
+                                            </div>
+                                            {items.length === 0
+                                                ? <div style={{ padding: '18px 12px', textAlign: 'center', color: '#cbd5e1', fontSize: '0.72rem' }}>{targetStatus === '__email__' ? 'Geen email-taken' : 'Sleep hier een taak naartoe'}</div>
+                                                : items.map((t, i) => renderTaakRij(t, i === items.length - 1, targetStatus === 'todo' || targetStatus === 'planning', i === 0, showOrder))
+                                            }
+                                            {targetStatus !== '__email__' && (
+                                                kanbanNieuweKolom === targetStatus
+                                                    ? <div style={{ padding: '6px 10px', borderTop: items.length > 0 ? '1px solid #f1f5f9' : 'none' }}>
+                                                        <input
+                                                            autoFocus
+                                                            value={kanbanNieuweNaam}
+                                                            onChange={e => setKanbanNieuweNaam(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter' && kanbanNieuweNaam.trim()) {
+                                                                    const newTask = { id: 't' + Date.now(), name: kanbanNieuweNaam.trim(), completed: false, kanbanStatus: targetStatus, notes: [], attachments: [] };
+                                                                    saveProject({ ...project, tasks: [...tasks, newTask] });
+                                                                    setKanbanNieuweNaam('');
+                                                                    setKanbanNieuweKolom(null);
+                                                                } else if (e.key === 'Escape') {
+                                                                    setKanbanNieuweNaam('');
+                                                                    setKanbanNieuweKolom(null);
+                                                                }
+                                                            }}
+                                                            onBlur={() => {
+                                                                if (kanbanNieuweNaam.trim()) {
+                                                                    const newTask = { id: 't' + Date.now(), name: kanbanNieuweNaam.trim(), completed: false, kanbanStatus: targetStatus, notes: [], attachments: [] };
+                                                                    saveProject({ ...project, tasks: [...tasks, newTask] });
+                                                                }
+                                                                setKanbanNieuweNaam('');
+                                                                setKanbanNieuweKolom(null);
+                                                            }}
+                                                            placeholder="Taaknaam…"
+                                                            style={{ width: '100%', border: `1px solid ${kleur}`, borderRadius: 6, padding: '5px 8px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }}
+                                                        />
+                                                      </div>
+                                                    : <button
+                                                        onClick={() => { setKanbanNieuweKolom(targetStatus); setKanbanNieuweNaam(''); }}
+                                                        style={{ width: '100%', padding: '6px 12px', border: 'none', borderTop: items.length > 0 ? '1px solid #f1f5f9' : 'none', background: 'none', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                        <i className="fa-solid fa-plus" style={{ fontSize: '0.6rem' }} /> Taak toevoegen
+                                                      </button>
+                                            )}
+                                        </div>
+                                    );
+                                    return (
+                                        <div style={{ padding: '12px 16px 8px' }}>
+                                            <div style={{ display: 'flex', gap: 12, marginBottom: afgerondTaken.length > 0 ? 10 : 0 }}>
+                                                {kanbanKolom('To-do', '☑', todoTaken, '#64748b', 'todo', false)}
+                                                {kanbanKolom('Planning taken', '📅', planningTaken, projColor, 'planning', true)}
+                                                {kanbanKolom('Uit email', '📧', emailTaken, '#3b82f6', '__email__')}
+                                            </div>
+                                            {afgerondTaken.length > 0 && (
+                                                <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                                                    <div onClick={() => toggleDossierExpand('__afgerond__')} style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                                                        <i className={`fa-solid fa-chevron-${showAfgerond ? 'up' : 'down'}`} style={{ fontSize: '0.6rem', color: '#94a3b8' }} />
+                                                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8' }}>Afgerond</span>
+                                                        <span style={{ background: '#f1f5f9', color: '#94a3b8', borderRadius: 10, padding: '1px 7px', fontSize: '0.62rem', fontWeight: 700 }}>{afgerondTaken.length}</span>
+                                                    </div>
+                                                    {showAfgerond && afgerondTaken.map((t, i) => renderTaakRij(t, i === afgerondTaken.length - 1))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Email lijst */}
+                                {dossierFilter === 'emails' && (() => {
+                                    const emailsSorted = [...(project.emails || [])].sort((a, b) => new Date(b.date || b.aangemaakt || 0) - new Date(a.date || a.aangemaakt || 0));
+                                    const catKleuren = { Offerte: '#f59e0b', Opdracht: '#8b5cf6', Factuur: '#ef4444', Klacht: '#dc2626', Informatie: '#06b6d4', Overig: '#94a3b8' };
+
+                                    return (
+                                        <div>
+                                            {/* Header */}
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
+                                                <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{emailsSorted.length} bericht{emailsSorted.length !== 1 ? 'en' : ''}</span>
+                                                <button onClick={() => setEmailForm({ richting: 'in', van: '', onderwerp: '', datum: new Date().toISOString().split('T')[0], categorie: 'Overig', notitie: '', _aiLoading: false, _aiTaken: [] })} style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <i className="fa-solid fa-plus" /> Email toevoegen
+                                                </button>
+                                            </div>
+                                            {/* Drag & drop zone */}
+                                            <div
+                                                onClick={() => emailUploadRef.current?.click()}
+                                                onDragEnter={e => { e.preventDefault(); e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+                                                onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+                                                onDragLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                                onDrop={e => { e.preventDefault(); e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; const files = e.dataTransfer.files?.length ? Array.from(e.dataTransfer.files) : Array.from(e.dataTransfer.items || []).filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean); verwerkEmailBestand(files); }}
+                                                style={{ margin: '10px 14px 4px', border: '2px dashed #3b82f6', borderRadius: 8, padding: '12px', textAlign: 'center', background: '#f8fafc', transition: 'all 0.15s', cursor: 'pointer' }}
+                                            >
+                                                <i className="fa-solid fa-envelope-arrow-down" style={{ color: '#3b82f6', fontSize: '1.1rem', display: 'block', marginBottom: 4 }} />
+                                                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#3b82f6' }}>Klik om .msg of .eml te uploaden</div>
+                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: 2 }}>of sleep een bestand hier naartoe</div>
+                                            </div>
+                                            {/* Lijst */}
+                                            {emailsSorted.length === 0 ? (
+                                                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '28px 0', fontSize: '0.82rem' }}>
+                                                    <i className="fa-solid fa-inbox" style={{ fontSize: '1.6rem', display: 'block', marginBottom: 7 }} />
+                                                    Nog geen emails — gebruik de knop of sleep een bestand
+                                                </div>
+                                            ) : (() => {
+                                                let vorigeDag = null;
+                                                return emailsSorted.map(email => {
+                                                    const isIn = email.direction !== 'out';
+                                                    const isOpen = selectedEmailId === email.id;
+                                                    const ac = isIn ? '#3b82f6' : '#16a34a';
+                                                    const datum = new Date(email.date || email.aangemaakt || 0);
+                                                    const dagStr = !isNaN(datum) ? datum.toLocaleDateString('nl-NL', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
+                                                    const tijdStr = !isNaN(datum) ? datum.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : '';
+                                                    const catKleur = catKleuren[email.categorie] || '#94a3b8';
+                                                    const vanAan = isIn ? (email.van || email.from || '—') : (email.to || email.van || '—');
+                                                    const initialen = (vanAan.match(/^([A-Za-z])/)?.[1] || '?').toUpperCase();
+                                                    const vEntry = voorgesteldeTaken[email.id] ?? (email.aiTaken?.length ? { loading: false, taken: email.aiTaken, done: true } : null);
+                                                    const preview = (email.body || email.notitie || '').replace(/<[^>]*>/g, '').slice(0, 120);
+                                                    const toonDatumScheiding = dagStr && dagStr !== vorigeDag;
+                                                    if (dagStr) vorigeDag = dagStr;
+                                                    return (
+                                                        <React.Fragment key={email.id}>
+                                                            {/* Datum scheiding */}
+                                                            {toonDatumScheiding && (
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', margin: '4px 0' }}>
+                                                                    <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                                                                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', whiteSpace: 'nowrap' }}>{dagStr}</span>
+                                                                    <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                                                                </div>
+                                                            )}
+                                                            {/* Chat bubble rij */}
+                                                            <div style={{ display: 'flex', flexDirection: isIn ? 'row' : 'row-reverse', alignItems: 'flex-start', gap: 10, padding: '2px 14px' }}>
+                                                                {/* Avatar */}
+                                                                <div style={{ width: 34, height: 34, borderRadius: '50%', background: isIn ? '#dbeafe' : '#dcfce7', color: isIn ? '#1d4ed8' : '#15803d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.75rem', flexShrink: 0, marginTop: 2 }}>
+                                                                    {isIn ? initialen : <i className="fa-solid fa-building" style={{ fontSize: '0.7rem' }} />}
+                                                                </div>
+                                                                {/* Bubble */}
+                                                                <div style={{ maxWidth: '78%', minWidth: 200 }}>
+                                                                    {/* Naam + tijd boven bubble */}
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexDirection: isIn ? 'row' : 'row-reverse' }}>
+                                                                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b' }}>{isIn ? vanAan : 'Wij'}</span>
+                                                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{tijdStr}</span>
+                                                                        {(email.attachments || []).length > 0 && <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}><i className="fa-solid fa-paperclip" /> {email.attachments.length}</span>}
+                                                                    </div>
+                                                                    {/* Bubble zelf — klikbaar */}
+                                                                    <div onClick={() => { setSelectedEmailId(isOpen ? null : email.id); setCatDropdownEmailId(null); }} style={{ background: isIn ? '#fff' : '#f0fdf4', border: `1px solid ${isIn ? '#e2e8f0' : '#bbf7d0'}`, borderRadius: isIn ? '2px 12px 12px 12px' : '12px 2px 12px 12px', padding: '10px 14px', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                                                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>{email.subject || email.onderwerp || '(geen onderwerp)'}</div>
+                                                                        {!isOpen && preview && <div style={{ fontSize: '0.73rem', color: '#64748b', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{preview}</div>}
+                                                                        {/* Categorie + acties */}
+                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                                                                            <div style={{ position: 'relative' }}>
+                                                                                <span onClick={e => { e.stopPropagation(); setCatDropdownEmailId(catDropdownEmailId === email.id ? null : email.id); }} style={{ background: catKleur + '20', color: catKleur, border: `1px solid ${catKleur}40`, padding: '1px 7px', borderRadius: 10, fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}>{email.categorie || 'Categorie'}</span>
+                                                                                {catDropdownEmailId === email.id && (
+                                                                                    <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, zIndex: 999, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', padding: 6, minWidth: 140 }}>
+                                                                                        {['Offerte', 'Opdracht', 'Factuur', 'Klacht', 'Informatie', 'Overig'].map(cat => {
+                                                                                            const kl = catKleuren[cat] || '#94a3b8';
+                                                                                            const actief = email.categorie === cat;
+                                                                                            return (
+                                                                                                <div key={cat} onClick={() => updateEmailCategorie(email.id, cat)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 7px', borderRadius: 6, cursor: 'pointer', background: actief ? kl + '18' : 'transparent' }} onMouseEnter={e => e.currentTarget.style.background = kl + '28'} onMouseLeave={e => e.currentTarget.style.background = actief ? kl + '18' : 'transparent'}>
+                                                                                                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: kl, flexShrink: 0 }} />
+                                                                                                    <span style={{ fontSize: '0.72rem', color: '#1e293b' }}>{cat}</span>
+                                                                                                    {actief && <i className="fa-solid fa-check" style={{ fontSize: '0.55rem', color: kl, marginLeft: 'auto' }} />}
+                                                                                                </div>
+                                                                                            );
+                                                                                        })}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            {(email.taken || []).length > 0 && <span style={{ fontSize: '0.6rem', color: '#92400e', background: '#fef9c3', border: '1px solid #fde68a', padding: '1px 6px', borderRadius: 8 }}><i className="fa-solid fa-list-check" /> {email.taken.length}</span>}
+                                                                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                                                                                <button onClick={e => { e.stopPropagation(); verwijderEmail(email.id); }} title="Verwijderen" style={{ width: 22, height: 22, borderRadius: 5, border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}><i className="fa-solid fa-trash" /></button>
+                                                                                <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem', color: '#94a3b8', alignSelf: 'center' }} />
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    {/* Uitgevouwen inhoud */}
+                                                                    {isOpen && (
+                                                                        <div style={{ background: '#fafafa', border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', overflow: 'hidden' }}>
+                                                                            {/* Email header details */}
+                                                                            <div style={{ padding: '8px 14px', borderBottom: '1px solid #f1f5f9', fontSize: '0.72rem', color: '#475569', lineHeight: 1.8, background: '#f8fafc' }}>
+                                                                                {email.van && <div><span style={{ color: '#94a3b8', minWidth: 44, display: 'inline-block' }}>Van:</span> {email.van}</div>}
+                                                                                {email.to && <div><span style={{ color: '#94a3b8', minWidth: 44, display: 'inline-block' }}>Aan:</span> {email.to}</div>}
+                                                                            </div>
+                                                                            {email.notitie && <div style={{ padding: '8px 14px', fontSize: '0.78rem', color: '#475569', borderBottom: '1px solid #f1f5f9', fontStyle: 'italic' }}>{email.notitie}</div>}
+                                                                            <EmailBody email={email} />
+                                                                            {/* Bijlagen */}
+                                                                            {(email.attachments || []).length > 0 && (() => {
+                                                                                const imgExts = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.tiff','.tif','.heic','.heif'];
+                                                                                const fotos = email.attachments.filter(a => a.mimeType?.startsWith('image/') || imgExts.some(e => a.name?.toLowerCase().endsWith(e)));
+                                                                                const bestanden = email.attachments.filter(a => !fotos.includes(a));
+                                                                                return (
+                                                                                    <div style={{ borderTop: '1px solid #f1f5f9' }}>
+                                                                                        {fotos.length > 0 && <div style={{ padding: '8px 14px' }}><div style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700, marginBottom: 6 }}>FOTO'S ({fotos.length})</div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6 }}>{fotos.map((att, fi) => <AttachmentItem key={att.id} att={att} onLightbox={(url, naam) => setLightbox({ url, naam, fotos, idx: fi })} />)}</div></div>}
+                                                                                        {bestanden.length > 0 && <div style={{ padding: '8px 14px', borderTop: fotos.length ? '1px solid #f1f5f9' : 'none' }}><div style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700, marginBottom: 5 }}>BIJLAGEN ({bestanden.length})</div>{bestanden.map(att => <AttachmentItem key={att.id} att={att} onLightbox={() => {}} />)}</div>}
+                                                                                    </div>
+                                                                                );
+                                                                            })()}
+                                                                            {/* Taken */}
+                                                                            {((email.taken || []).length > 0 || vEntry) && (
+                                                                                <div style={{ padding: '10px 14px', borderTop: '1px solid #f1f5f9', background: '#fefce8' }}>
+                                                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+                                                                                        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#92400e', display: 'flex', alignItems: 'center', gap: 5 }}><i className="fa-solid fa-list-check" /> Taken ({(email.taken || []).length})</span>
+                                                                                        {!vEntry?.done && <button onClick={async e => { e.stopPropagation(); setVoorgesteldeTaken(p => ({ ...p, [email.id]: { loading: true, taken: [], done: false } })); try { const r = await fetch('/api/outlook/extract-taken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: email.subject, body: email.body || email.notitie || '' }) }); const d = r.ok ? await r.json() : { taken: [] }; setVoorgesteldeTaken(p => ({ ...p, [email.id]: { loading: false, taken: d.taken || [], done: true } })); } catch { setVoorgesteldeTaken(p => ({ ...p, [email.id]: { loading: false, taken: [], done: true } })); } }} style={{ padding: '2px 9px', borderRadius: 6, border: '1px solid #f59e0b', background: '#fff', color: '#b45309', fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><i className={`fa-solid ${vEntry?.loading ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />{vEntry?.loading ? 'Analyseren…' : 'AI taken'}</button>}
+                                                                                    </div>
+                                                                                    {(email.taken || []).map(taak => (<div key={taak.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 7, background: taak.gedaan ? '#f0fdf4' : '#fff', border: `1px solid ${taak.gedaan ? '#bbf7d0' : '#fde68a'}`, marginBottom: 4 }}><button onClick={() => toggleEmailTaak(email.id, taak.id)} style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${taak.gedaan ? '#16a34a' : '#f59e0b'}`, background: taak.gedaan ? '#16a34a' : '#fff', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '0.55rem', padding: 0 }}>{taak.gedaan && <i className="fa-solid fa-check" />}</button><div style={{ flex: 1 }}><div style={{ fontSize: '0.72rem', color: taak.gedaan ? '#16a34a' : '#1e293b', textDecoration: taak.gedaan ? 'line-through' : 'none' }}>{taak.naam}</div>{taak.deadline && <div style={{ fontSize: '0.6rem', color: '#92400e' }}>Deadline: {taak.deadline}</div>}</div><button onClick={() => verwijderEmailTaak(email.id, taak.id)} style={{ width: 18, height: 18, borderRadius: 4, border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.55rem' }}><i className="fa-solid fa-xmark" /></button></div>))}
+                                                                                    {(vEntry?.taken || []).length > 0 && <div style={{ marginTop: 6, borderTop: '1px solid #fde68a', paddingTop: 6 }}><div style={{ fontSize: '0.6rem', color: '#92400e', marginBottom: 5 }}><i className="fa-solid fa-wand-magic-sparkles" /> AI-suggesties</div>{(vEntry.taken || []).map((taak, ti) => { const naam = typeof taak === 'string' ? taak : (taak?.name || ''); const deadline = typeof taak === 'object' ? taak?.deadline : null; const alToegewezen = (email.taken || []).some(t => t.naam === naam); return (<div key={ti} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 6px', borderRadius: 6, background: alToegewezen ? '#f0fdf4' : '#fffbeb', border: `1px solid ${alToegewezen ? '#bbf7d0' : '#fde68a'}`, marginBottom: 3, opacity: alToegewezen ? 0.6 : 1 }}><div style={{ flex: 1 }}><div style={{ fontSize: '0.7rem', color: '#92400e' }}>{naam}</div>{deadline && <div style={{ fontSize: '0.6rem', color: '#b45309' }}>Deadline: {deadline}</div>}</div>{!alToegewezen && <button onClick={() => voegEmailTaakToe(email.id, naam, deadline)} style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #f59e0b', background: '#f59e0b', color: '#fff', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>+</button>}{alToegewezen && <i className="fa-solid fa-check" style={{ color: '#16a34a', fontSize: '0.65rem' }} />}</div>); })}</div>}
+                                                                                </div>
+                                                                            )}
+                                                                            {email.originalFile && (
+                                                                                <div style={{ padding: '7px 14px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                                                    <i className="fa-solid fa-envelope" style={{ color: '#94a3b8', fontSize: '0.65rem' }} />
+                                                                                    <span style={{ flex: 1, fontSize: '0.7rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.originalFile.name}</span>
+                                                                                    <button onClick={async () => { const b = await haalEmailBestandOp(email.originalFile.fileId); const blob = b?.blob || b; if (blob instanceof Blob) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = email.originalFile.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }} style={{ padding: '2px 7px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.62rem', cursor: 'pointer' }}>Download .msg</button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </React.Fragment>
+                                                    );
+                                                });
+                                            })()}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+
+                            {/* ── Sjablonen sidebar ── */}
+                            {dossierFilter === 'taken' && <div style={{ width: 240, flexShrink: 0, borderLeft: '1px solid #e2e8f0', background: '#fff', padding: '12px 12px', position: 'sticky', top: 0, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+
+                                <div style={{ fontWeight: 700, fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <i className="fa-solid fa-layer-group" style={{ color: projColor }} /> Sjablonen
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                    {TAAK_TEMPLATES.map((tmpl, ti) => (
+                                        <div key={ti} style={{ borderRadius: 7, overflow: 'hidden', border: `1px solid ${tmpl.kleur}25` }}>
+                                            <div onClick={() => setDossierSjabloonExpanded(dossierSjabloonExpanded === ti ? null : ti)} style={{ background: `${tmpl.kleur}12`, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', gap: 6 }}>
+                                                <span style={{ fontWeight: 700, fontSize: '0.73rem', color: tmpl.kleur, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tmpl.naam}</span>
+                                                <button onClick={e => { e.stopPropagation(); const nt = tmpl.taken.map(naam => ({ id: 't' + Date.now() + Math.random(), name: naam, startDate: project.startDate || '', endDate: project.endDate || '', assignedTo: [], completed: false, notes: [], category: tmpl.naam })); saveProject({ ...project, tasks: [...project.tasks, ...nt] }); if (project.plannerPlanId) tmpl.taken.forEach(naam => stuurNaarPlanner('sjabloon-' + naam, naam)); }} style={{ padding: '1px 7px', borderRadius: 4, border: `1px solid ${tmpl.kleur}`, background: tmpl.kleur, color: '#fff', fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>+alles</button>
+                                                <i className={`fa-solid fa-chevron-${dossierSjabloonExpanded === ti ? 'up' : 'down'}`} style={{ fontSize: '0.55rem', color: tmpl.kleur, flexShrink: 0 }} />
+                                            </div>
+                                            {dossierSjabloonExpanded === ti && (
+                                                <div style={{ padding: '4px 8px 6px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                    {tmpl.taken.map((tnaam, tni) => (
+                                                        <div key={tni} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: '#475569' }}>
+                                                            <span style={{ flex: 1 }}>{tnaam}</span>
+                                                            <button onClick={() => { const t = { id: 't' + Date.now() + Math.random(), name: tnaam, startDate: project.startDate || '', endDate: project.endDate || '', assignedTo: [], completed: false, notes: [], category: tmpl.naam }; saveProject({ ...project, tasks: [...project.tasks, t] }); if (project.plannerPlanId) stuurNaarPlanner('sjabloon-' + tnaam, tnaam); }} style={{ padding: '1px 5px', borderRadius: 4, border: `1px solid ${tmpl.kleur}`, background: 'none', color: tmpl.kleur, fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer' }}>+</button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>}
+
+                        </div>{/* einde body flex */}
+                    </div>
+                );
+            })()}
+
+            {/* ===== TEAMS TAB ===== */}
+            {activeTab === 'teams' && (() => {
+                const heeftKanaal = !!(project.teamsKanaalUrl);
+                const heeftPlanner = !!(project.plannerPlanId);
+                const tenant = 'cd3d3914-6711-4801-9d09-f83f5a0645d3';
+                const teamsDeeplink = teamsTeamId ? `https://teams.microsoft.com/_#/team/conversations/General?groupId=${teamsTeamId}&tenantId=${tenant}` : null;
+
+                const maakTeamsAan = async () => {
+                    if (!teamsTeamId) { setTeamsFout('Kies eerst een Teams-team.'); return; }
+                    setTeamsBezig(true); setTeamsFout(null);
+                    try {
+                        const res = await fetch('/api/teams/maak-project-aan', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ teamId: teamsTeamId, projectNaam: project.name }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) { setTeamsFout(data.error || 'Onbekende fout'); return; }
+                        saveProject({ ...project, teamsKanaalId: data.kanaalId, teamsKanaalUrl: data.kanaalUrl, plannerPlanId: data.plannerPlanId, teamsPlanAangemaakt: true });
+                    } catch (e) { setTeamsFout(e.message); }
+                    finally { setTeamsBezig(false); }
+                };
+
+                const verwijderKanaal = async () => {
+                    if (!window.confirm('Teams kanaal verwijderen? Dit kan niet ongedaan worden.')) return;
+                    setTeamsBezig(true); setTeamsFout(null);
+                    try {
+                        const res = await fetch('/api/teams/verwijder-kanaal', {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ teamId: teamsTeamId, kanaalId: project.teamsKanaalId }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) { setTeamsFout(data.error || 'Verwijderen mislukt'); return; }
+                        saveProject({ ...project, teamsKanaalId: null, teamsKanaalUrl: null, teamsKanaalEmail: null, teamsPlanAangemaakt: false });
+                    } catch (e) { setTeamsFout(e.message); }
+                    finally { setTeamsBezig(false); }
+                };
+
+                const maakPlannerAan = async () => {
+                    if (!teamsTeamId) { setTeamsFout('Kies eerst een Teams-team.'); return; }
+                    setTeamsBezig(true); setTeamsFout(null);
+                    const gekozenSjabloon = plannerSjablonenState.find(s => s.id === plannerSjabloon) || plannerSjablonenState[0];
+                    try {
+                        const res = await fetch('/api/teams/maak-project-aan', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ teamId: teamsTeamId, projectNaam: project.name, buckets: gekozenSjabloon.buckets }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) { setTeamsFout(data.error || 'Onbekende fout'); return; }
+                        saveProject({ ...project, plannerPlanId: data.plannerPlanId, teamsPlanAangemaakt: true });
+                    } catch (e) { setTeamsFout(e.message); }
+                    finally { setTeamsBezig(false); }
+                };
+
+                const verwijderPlanner = async () => {
+                    if (!window.confirm('Planner plan verwijderen inclusief alle taken?')) return;
+                    setTeamsBezig(true); setTeamsFout(null);
+                    try {
+                        const res = await fetch('/api/teams/verwijder-planner', {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ planId: project.plannerPlanId }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) { setTeamsFout(data.error || 'Verwijderen mislukt'); return; }
+                        saveProject({ ...project, plannerPlanId: null });
+                    } catch (e) { setTeamsFout(e.message); }
+                    finally { setTeamsBezig(false); }
+                };
+
+                return (
+                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        {/* Header */}
+                        <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', padding: '20px 24px', color: '#fff' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                                    <i className="fa-brands fa-microsoft" />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '1rem', fontWeight: 700 }}>Microsoft Teams & Planner</div>
+                                    <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>{project.name}</div>
+                                </div>
+                                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                                    {heeftKanaal && <span style={{ background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700 }}>✓ Kanaal</span>}
+                                    {heeftPlanner && <span style={{ background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700 }}>✓ Planner</span>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {/* Foutmelding */}
+                            {teamsFout && (
+                                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, color: '#dc2626', fontSize: '0.8rem' }}>
+                                    <i className="fa-solid fa-triangle-exclamation" />
+                                    {teamsFout}
+                                    <button onClick={() => setTeamsFout(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer' }}>✕</button>
+                                </div>
+                            )}
+
+                            {/* Team kiezen */}
+                            {!teamsTeamId && (
+                                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', marginBottom: 6 }}>
+                                        <i className="fa-solid fa-gear" style={{ marginRight: 8, color: '#7c3aed' }} />Kies jouw Microsoft Teams-team
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 12 }}>Selecteer het team waar per project een kanaal in aangemaakt wordt.</div>
+                                    {!teamsLijst && (
+                                        <button onClick={async () => { setTeamsLijstBezig(true); try { const r = await fetch('/api/teams/mijn-teams'); const d = r.ok ? await r.json() : []; setTeamsLijst(d); } catch { setTeamsLijst([]); } finally { setTeamsLijstBezig(false); } }} disabled={teamsLijstBezig}
+                                            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <i className={`fa-solid ${teamsLijstBezig ? 'fa-spinner fa-spin' : 'fa-magnifying-glass'}`} />
+                                            {teamsLijstBezig ? 'Laden…' : 'Mijn teams ophalen'}
+                                        </button>
+                                    )}
+                                    {teamsLijst && teamsLijst.length === 0 && <div style={{ fontSize: '0.78rem', color: '#dc2626' }}>Geen teams gevonden. Zorg dat je verbonden bent met Outlook.</div>}
+                                    {teamsLijst && teamsLijst.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {teamsLijst.map(t => (
+                                                <button key={t.id} onClick={() => { localStorage.setItem('schilders_teams_team_id', t.id); setTeamsTeamId(t.id); setTeamsLijst(null); }}
+                                                    style={{ padding: '10px 14px', borderRadius: 9, border: '1.5px solid #e0e7ff', background: '#fff', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}
+                                                    onMouseEnter={e => e.currentTarget.style.background = '#eef2ff'} onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                                                    <span style={{ width: 32, height: 32, borderRadius: 8, background: '#4f46e5', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', flexShrink: 0 }}><i className="fa-solid fa-people-group" /></span>
+                                                    {t.naam}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* ── TEAMS KANAAL ── */}
+                            {teamsTeamId && (
+                                <div style={{ border: '1px solid #e0e7ff', borderRadius: 12, overflow: 'hidden' }}>
+                                    <div style={{ background: '#eef2ff', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.85rem' }}>
+                                            <i className="fa-solid fa-hashtag" />
+                                        </div>
+                                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#312e81' }}>Teams Kanaal</span>
+                                        <span style={{ marginLeft: 'auto', fontSize: '0.65rem', background: heeftKanaal ? '#c7d2fe' : '#f1f5f9', color: heeftKanaal ? '#3730a3' : '#64748b', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
+                                            {heeftKanaal ? 'Gekoppeld' : 'Nog niet gekoppeld'}
+                                        </span>
+                                    </div>
+                                    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {heeftKanaal ? (
+                                            <>
+                                                <a href={project.teamsKanaalUrl} target="_blank" rel="noopener noreferrer"
+                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: '#4f46e5', color: '#fff', borderRadius: 9, fontWeight: 700, fontSize: '0.82rem', textDecoration: 'none', width: 'fit-content' }}>
+                                                    <i className="fa-brands fa-microsoft" /> Kanaal openen
+                                                    <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '0.65rem', opacity: 0.8 }} />
+                                                </a>
+                                                <button onClick={() => saveProject({ ...project, teamsKanaalUrl: null })}
+                                                    style={{ alignSelf: 'flex-start', padding: '5px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '0.73rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <i className="fa-solid fa-trash" /> Koppeling verwijderen
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button onClick={maakTeamsAan} disabled={teamsBezig}
+                                                    style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content' }}>
+                                                    <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-plus'}`} />
+                                                    {teamsBezig ? 'Aanmaken…' : 'Teams kanaal aanmaken'}
+                                                </button>
+                                                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                                    Maakt automatisch een kanaal aan met de naam <strong>{project.name}</strong>
+                                                </div>
+                                                <div style={{ fontSize: '0.72rem', color: '#64748b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                                                    Of plak handmatig een kanaal-link:
+                                                </div>
+                                                <div style={{ display: 'flex', gap: 8 }}>
+                                                    <input
+                                                        placeholder="Plak hier de kanaal-link uit Teams…"
+                                                        id="teams-kanaal-url-input"
+                                                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.8rem' }}
+                                                    />
+                                                    <button onClick={() => { const v = document.getElementById('teams-kanaal-url-input')?.value?.trim(); if (v) { saveProject({ ...project, teamsKanaalUrl: v }); setToast('Kanaal opgeslagen'); } }}
+                                                        style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                                                        Opslaan
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── PLANNER ── */}
+                            {teamsTeamId && (
+                                <div style={{ border: '1px solid #d1fae5', borderRadius: 12, overflow: 'hidden' }}>
+                                    <div style={{ background: '#ecfdf5', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.85rem' }}>
+                                            <i className="fa-solid fa-list-check" />
+                                        </div>
+                                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#065f46' }}>Microsoft Planner</span>
+                                        <span style={{ marginLeft: 'auto', fontSize: '0.65rem', background: heeftPlanner ? '#a7f3d0' : '#f1f5f9', color: heeftPlanner ? '#064e3b' : '#64748b', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
+                                            {heeftPlanner ? 'Actief' : 'Nog niet aangemaakt'}
+                                        </span>
+                                    </div>
+                                    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {heeftPlanner ? (
+                                            <>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                                    <span style={{ fontSize: '0.75rem', color: '#065f46', fontWeight: 600 }}>Taken voor {project.name}</span>
+                                                    <div style={{ display: 'flex', gap: 6 }}>
+                                                        <button onClick={async () => {
+                                                            setPlannerTakenBezig(true);
+                                                            try {
+                                                                const [r, rb] = await Promise.all([
+                                                                    fetch(`/api/teams/planner-taken?planId=${project.plannerPlanId}`),
+                                                                    fetch(`/api/teams/planner-buckets?planId=${project.plannerPlanId}`),
+                                                                ]);
+                                                                const d = r.ok ? await r.json() : [];
+                                                                const b = rb.ok ? await rb.json() : [];
+                                                                setPlannerTaken(d);
+                                                                setPlannerBuckets(b);
+                                                                const nieuwTaakBucket = b.find(x => x.name === 'Nieuwe taak') || b[0];
+                                                            if (nieuwTaakBucket) setPlannerBucketKeuze(nieuwTaakBucket.id);
+                                                            } catch { setPlannerTaken([]); }
+                                                            finally { setPlannerTakenBezig(false); }
+                                                        }} disabled={plannerTakenBezig}
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#e2e8f0', color: '#334155', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: 'none', cursor: 'pointer' }}>
+                                                            <i className={`fa-solid ${plannerTakenBezig ? 'fa-spinner fa-spin' : 'fa-rotate'}`} />
+                                                            {plannerTakenBezig ? 'Laden…' : 'Vernieuwen'}
+                                                        </button>
+                                                        <a href={`https://planner.cloud.microsoft/webui/plan/${project.plannerPlanId}`} target="_blank" rel="noopener noreferrer"
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#059669', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', textDecoration: 'none' }}>
+                                                            <i className="fa-solid fa-arrow-up-right-from-square" /> Volledig scherm
+                                                        </a>
+                                                        {/* Sjabloon toepassen dropdown */}
+                                                        <div style={{ position: 'relative' }}>
+                                                            <button onClick={() => setPlannerSjabloon(plannerSjabloon === '__open__' ? 'schilderwerk' : '__open__')}
+                                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#eff6ff', color: '#2563eb', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: '1px solid #bfdbfe', cursor: 'pointer' }}>
+                                                                <i className="fa-solid fa-layer-group" /> Sjabloon
+                                                            </button>
+                                                            {plannerSjabloon === '__open__' && (
+                                                                <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, marginTop: 4, background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: 10, width: 280 }}>
+                                                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Buckets toevoegen uit sjabloon</div>
+                                                                    <button onClick={() => { setPlannerSjabloon('schilderwerk'); setSjabloonEditor(JSON.parse(JSON.stringify(plannerSjablonenState))); }} style={{ width: '100%', marginBottom: 8, padding: '5px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
+                                                                        <i className="fa-solid fa-pen-to-square" /> Sjablonen bewerken
+                                                                    </button>
+                                                                    {plannerSjablonenState.map(s => (
+                                                                        <div key={s.id} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid #f1f5f9', marginBottom: 5, cursor: 'pointer', background: '#fafafa' }}
+                                                                            onMouseEnter={e => e.currentTarget.style.background = '#f0f9ff'}
+                                                                            onMouseLeave={e => e.currentTarget.style.background = '#fafafa'}>
+                                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b' }}>{s.naam}</span>
+                                                                                <button onClick={async () => {
+                                                                                    setPlannerSjabloon('schilderwerk');
+                                                                                    for (const bucket of s.buckets) {
+                                                                                        const r = await fetch('/api/teams/planner-buckets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId: project.plannerPlanId, name: bucket.naam }) });
+                                                                                        if (r.ok) {
+                                                                                            const b = await r.json();
+                                                                                            setPlannerBuckets(prev => [...prev, b]);
+                                                                                            for (const taak of bucket.taken) {
+                                                                                                const tr = await fetch('/api/teams/planner-taken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId: project.plannerPlanId, title: taak, bucketId: b.id }) });
+                                                                                                if (tr.ok) { const nt = await tr.json(); setPlannerTaken(prev => [...(prev || []), nt]); }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }} style={{ padding: '2px 8px', borderRadius: 5, border: 'none', background: '#2563eb', color: '#fff', fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                                                    Toepassen
+                                                                                </button>
+                                                                            </div>
+                                                                            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                                                                                {s.buckets.map(b => <span key={b.naam} style={{ fontSize: '0.6rem', background: '#f1f5f9', color: '#64748b', padding: '1px 5px', borderRadius: 5 }}>{b.naam}</span>)}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {/* Kanban bord (Microsoft Planner) */}
+                                                {plannerTaken === null ? (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', fontSize: '0.78rem', padding: '12px 4px' }}>
+                                                        <i className="fa-solid fa-spinner fa-spin" /> Planner laden…
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, marginLeft: -2, paddingLeft: 2 }}>
+                                                        {/* Bucket kolommen */}
+                                                        {(plannerBuckets.length > 0 ? plannerBuckets : [{ id: null, name: 'Taken' }]).map(bucket => {
+                                                            const bucketTaken = [...plannerTaken].filter(t => bucket.id ? t.bucketId === bucket.id : true).sort((a, b) => (a.orderHint || '').localeCompare(b.orderHint || ''));
+                                                            const [kolInput, setKolInput] = [plannerNieuweTaak, setPlannerNieuweTaak];
+                                                            return (
+                                                                <div key={bucket.id || 'default'} style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#f1f5f9', borderRadius: 10, overflow: 'hidden' }}>
+                                                                    {/* Kolom header */}
+                                                                    <div style={{ padding: '10px 12px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                        <span style={{ flex: 1, fontSize: '0.75rem', fontWeight: 700, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bucket.name}</span>
+                                                                        <span style={{ fontSize: '0.62rem', color: '#94a3b8', background: '#e2e8f0', borderRadius: 8, padding: '1px 6px', flexShrink: 0 }}>{bucketTaken.length}</span>
+                                                                        {bucket.id && (
+                                                                            <button onClick={() => { const el = document.getElementById(`planner-input-${bucket.id}`); if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }} style={{ width: 18, height: 18, border: 'none', background: '#059669', color: '#fff', borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.55rem', flexShrink: 0 }} title="Taak toevoegen">
+                                                                                <i className="fa-solid fa-plus" />
+                                                                            </button>
+                                                                        )}
+                                                                        {bucket.id && (
+                                                                            <button onClick={async () => {
+                                                                                if (!window.confirm(`Bucket "${bucket.name}" verwijderen?`)) return;
+                                                                                const etag = bucket['@odata.etag'];
+                                                                                if (!etag) return;
+                                                                                const r = await fetch('/api/teams/planner-buckets', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bucketId: bucket.id, etag }) });
+                                                                                if (r.ok) { setPlannerBuckets(prev => prev.filter(b => b.id !== bucket.id)); setPlannerTaken(prev => prev.filter(t => t.bucketId !== bucket.id)); }
+                                                                            }} style={{ width: 18, height: 18, border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', flexShrink: 0 }} title="Bucket verwijderen">
+                                                                                <i className="fa-solid fa-trash" />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                    {/* Taakkaarten */}
+                                                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, padding: '0 8px 8px', minHeight: 40 }}>
+                                                                        {bucketTaken.map(taak => {
+                                                                            const gedaan = taak.percentComplete === 100;
+                                                                            return (
+                                                                                <div key={taak.id} style={{ background: '#fff', borderRadius: 7, padding: '8px 10px', boxShadow: '0 1px 3px rgba(0,0,0,0.07)', border: gedaan ? '1px solid #bbf7d0' : '1px solid transparent' }}>
+                                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                                                                        <button onClick={async () => {
+                                                                                            const etag = taak['@odata.etag'];
+                                                                                            if (!etag) return;
+                                                                                            const nieuweWaarde = gedaan ? 0 : 100;
+                                                                                            setPlannerTaken(prev => prev.map(t => t.id === taak.id ? { ...t, percentComplete: nieuweWaarde } : t));
+                                                                                            await fetch('/api/teams/planner-taken', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, percentComplete: nieuweWaarde, etag }) });
+                                                                                        }} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${gedaan ? '#16a34a' : '#94a3b8'}`, background: gedaan ? '#16a34a' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0, marginTop: 1 }}>
+                                                                                            {gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.45rem' }} />}
+                                                                                        </button>
+                                                                                        <span style={{ flex: 1, fontSize: '0.78rem', color: gedaan ? '#94a3b8' : '#1e293b', textDecoration: gedaan ? 'line-through' : 'none', lineHeight: 1.4, wordBreak: 'break-word' }}>{taak.title}</span>
+                                                                                        <button onClick={async () => {
+                                                                                            const etag = taak['@odata.etag'];
+                                                                                            if (!etag || !window.confirm(`"${taak.title}" verwijderen?`)) return;
+                                                                                            const r = await fetch('/api/teams/planner-taken', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, etag }) });
+                                                                                            if (r.ok) setPlannerTaken(prev => prev.filter(t => t.id !== taak.id));
+                                                                                        }} style={{ width: 16, height: 16, border: 'none', background: 'transparent', color: '#e2e8f0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', flexShrink: 0, padding: 0 }} title="Verwijderen">
+                                                                                            <i className="fa-solid fa-xmark" />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    {/* Labels */}
+                                                                                    {(() => {
+                                                                                        const LABEL_KLEUREN = { category1: '#ef4444', category2: '#f97316', category3: '#eab308', category4: '#22c55e', category5: '#3b82f6', category6: '#8b5cf6' };
+                                                                                        const actief = Object.entries(taak.appliedCategories || {}).filter(([, v]) => v).map(([k]) => k);
+                                                                                        if (actief.length === 0) return null;
+                                                                                        return <div style={{ display: 'flex', gap: 4, paddingLeft: 26, marginTop: 5, flexWrap: 'wrap' }}>{actief.map(cat => <span key={cat} style={{ width: 28, height: 8, borderRadius: 4, background: LABEL_KLEUREN[cat] || '#94a3b8' }} title={cat} />)}</div>;
+                                                                                    })()}
+                                                                                    {/* Datums */}
+                                                                                    {(taak.startDateTime || taak.dueDateTime) && (
+                                                                                        <div style={{ display: 'flex', gap: 6, paddingLeft: 26, marginTop: 4, fontSize: '0.62rem', color: '#94a3b8', flexWrap: 'wrap' }}>
+                                                                                            {taak.startDateTime && <span><i className="fa-regular fa-calendar" style={{ marginRight: 3 }} />{new Date(taak.startDateTime).toLocaleDateString('nl-NL')}</span>}
+                                                                                            {taak.startDateTime && taak.dueDateTime && <span>→</span>}
+                                                                                            {taak.dueDateTime && <span style={{ color: new Date(taak.dueDateTime) < new Date() && !gedaan ? '#ef4444' : '#94a3b8' }}><i className="fa-regular fa-calendar-check" style={{ marginRight: 3 }} />{new Date(taak.dueDateTime).toLocaleDateString('nl-NL')}</span>}
+                                                                                        </div>
+                                                                                    )}
+                                                                                    {/* Gecombineerde toewijzknop + Planner knop */}
+                                                                                    <div style={{ display: 'flex', gap: 4, paddingLeft: 26, marginTop: 5, alignItems: 'center', position: 'relative' }}>
+                                                                                        <a href={`https://tasks.office.com/cd3d3914-6711-4801-9d09-f83f5a0645d3/Home/Task/${taak.id}`}
+                                                                                           target="_blank" rel="noreferrer"
+                                                                                           onClick={e => e.stopPropagation()}
+                                                                                           style={{ width: 22, height: 22, borderRadius: 4, background: '#059669', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0, padding: '0 4px', textDecoration: 'none' }}
+                                                                                           title="Openen in Microsoft Planner">
+                                                                                            <i className="fa-solid fa-table-columns" style={{ fontSize: '0.55rem' }} />
+                                                                                        </a>
+                                                                                        {(() => {
+                                                                                            const uids = Object.keys(taak.assignments || {});
+                                                                                            const leden = uids.map(uid => teamsLeden.find(l => l.id === uid)).filter(l => l?.name);
+                                                                                            const eerste = leden[0];
+                                                                                            const extra = leden.length - 1;
+                                                                                            const initials = eerste ? eerste.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : null;
+                                                                                            const isAssigned = !!eerste;
+                                                                                            const tooltip = leden.map(l => l.name).join(', ') || 'Toewijzen';
+                                                                                            return (
+                                                                                                <div style={{ position: 'relative' }}>
+                                                                                                    <button onClick={e => { e.stopPropagation(); setPlannerKaartOpen(prev => ({ ...prev, [taak.id + '__assign']: !prev[taak.id + '__assign'] })); }}
+                                                                                                        title={tooltip}
+                                                                                                        style={{ height: 22, minWidth: 22, borderRadius: 11, border: isAssigned ? 'none' : '1.5px dashed #cbd5e1', background: isAssigned ? '#3b82f6' : 'transparent', color: isAssigned ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, fontSize: '0.5rem', fontWeight: 700, padding: isAssigned ? '0 6px' : 0 }}>
+                                                                                                        {isAssigned ? (
+                                                                                                            <>
+                                                                                                                <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>{initials}</span>
+                                                                                                                {extra > 0 && <span style={{ fontSize: '0.45rem', opacity: 0.85 }}>+{extra}</span>}
+                                                                                                            </>
+                                                                                                        ) : (
+                                                                                                            <i className="fa-solid fa-user-plus" style={{ fontSize: '0.55rem' }} />
+                                                                                                        )}
+                                                                                                    </button>
+                                                                                            {plannerKaartOpen[taak.id + '__assign'] && (
+                                                                                                <div style={{ position: 'absolute', top: 26, left: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, minWidth: 170, padding: 4 }} onClick={e => e.stopPropagation()}>
+                                                                                                    <div onClick={async () => {
+                                                                                                        setPlannerKaartOpen(prev => ({ ...prev, [taak.id + '__assign']: false }));
+                                                                                                        const nieuweAssignments = {};
+                                                                                                        setPlannerTaken(prev => prev.map(t => t.id === taak.id ? { ...t, assignments: nieuweAssignments } : t));
+                                                                                                        await fetch('/api/teams/planner-taken', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, assignments: nieuweAssignments, etag: taak['@odata.etag'] }) });
+                                                                                                    }} style={{ padding: '5px 10px', fontSize: '0.68rem', color: '#64748b', cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                                                        <i className="fa-solid fa-xmark" style={{ fontSize: '0.6rem' }} /> Niemand
+                                                                                                    </div>
+                                                                                                    {teamsLeden.map(u => {
+                                                                                                        const toegewezen = !!(taak.assignments || {})[u.id];
+                                                                                                        return (
+                                                                                                            <div key={u.id} onClick={async () => {
+                                                                                                                setPlannerKaartOpen(prev => ({ ...prev, [taak.id + '__assign']: false }));
+                                                                                                                const huidige = { ...(taak.assignments || {}) };
+                                                                                                                if (toegewezen) { delete huidige[u.id]; } else { huidige[u.id] = { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' }; }
+                                                                                                                setPlannerTaken(prev => prev.map(t => t.id === taak.id ? { ...t, assignments: huidige } : t));
+                                                                                                                await fetch('/api/teams/planner-taken', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, assignments: huidige, etag: taak['@odata.etag'] }) });
+                                                                                                            }} style={{ padding: '5px 10px', fontSize: '0.68rem', color: toegewezen ? '#059669' : '#1e293b', fontWeight: toegewezen ? 700 : 400, cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                                                                <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3b82f6', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.38rem', fontWeight: 700, flexShrink: 0 }}>
+                                                                                                                    {u.name ? u.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : '?'}
+                                                                                                                </span>
+                                                                                                                {u.name}
+                                                                                                                {toegewezen && <i className="fa-solid fa-check" style={{ marginLeft: 'auto', fontSize: '0.55rem' }} />}
+                                                                                                            </div>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                            );
+                                                                                        })()}
+                                                                                    </div>
+                                                                                    {/* Details uitklappen */}
+                                                                                    <div style={{ paddingLeft: 26, marginTop: 4 }}>
+                                                                                        <button onClick={async () => {
+                                                                                            const isOpen = plannerKaartOpen[taak.id];
+                                                                                            setPlannerKaartOpen(prev => ({ ...prev, [taak.id]: !isOpen }));
+                                                                                            if (!isOpen && !plannerDetails[taak.id]) {
+                                                                                                setPlannerDetails(prev => ({ ...prev, [taak.id]: { laden: true } }));
+                                                                                                const r = await fetch(`/api/teams/planner-taak-details?taskId=${taak.id}`);
+                                                                                                if (r.ok) {
+                                                                                                    const d = await r.json();
+                                                                                                    const checklistItems = d.checklist ? Object.values(d.checklist).sort((a, b) => (a.orderHint || '').localeCompare(b.orderHint || '')) : [];
+                                                                                                    const refs = d.references ? Object.entries(d.references).map(([url, v]) => ({ url: decodeURIComponent(url.replace(/%3A/g, ':').replace(/%2E/g, '.')), alias: v.alias || url })) : [];
+                                                                                                    setPlannerDetails(prev => ({ ...prev, [taak.id]: { description: d.description || '', checklist: checklistItems, references: refs, etag: d['@odata.etag'], laden: false } }));
+                                                                                                } else {
+                                                                                                    setPlannerDetails(prev => ({ ...prev, [taak.id]: { description: '', checklist: [], references: [], etag: null, laden: false } }));
+                                                                                                }
+                                                                                            }
+                                                                                        }} style={{ fontSize: '0.62rem', color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                                                            <i className={`fa-solid fa-chevron-${plannerKaartOpen[taak.id] ? 'up' : 'down'}`} style={{ fontSize: '0.5rem' }} />
+                                                                                            Details
+                                                                                        </button>
+                                                                                        {plannerKaartOpen[taak.id] && (
+                                                                                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                                                                {plannerDetails[taak.id]?.laden ? (
+                                                                                                    <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '0.65rem', color: '#94a3b8' }} />
+                                                                                                ) : (<>
+                                                                                                    {/* Rij 1: Labels + datums naast elkaar */}
+                                                                                                    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                                                                                        {/* Labels */}
+                                                                                                        <div style={{ display: 'flex', gap: 3 }}>
+                                                                                                            {[{ key: 'category1', k: '#ef4444', n: 'Rood' }, { key: 'category2', k: '#f97316', n: 'Oranje' }, { key: 'category3', k: '#eab308', n: 'Geel' }, { key: 'category4', k: '#22c55e', n: 'Groen' }, { key: 'category5', k: '#3b82f6', n: 'Blauw' }, { key: 'category6', k: '#8b5cf6', n: 'Paars' }].map(lb => {
+                                                                                                                const aan = !!(taak.appliedCategories || {})[lb.key];
+                                                                                                                return <button key={lb.key} title={lb.n} onClick={async () => { const nieuw = { ...(taak.appliedCategories || {}), [lb.key]: !aan }; setPlannerTaken(prev => prev.map(t => t.id === taak.id ? { ...t, appliedCategories: nieuw } : t)); await fetch('/api/teams/planner-taken', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, appliedCategories: nieuw, etag: taak['@odata.etag'] }) }); }} style={{ width: 18, height: 10, borderRadius: 3, border: aan ? '1.5px solid #1e293b' : '1.5px solid transparent', background: lb.k, cursor: 'pointer', opacity: aan ? 1 : 0.35, padding: 0, flexShrink: 0 }} />;
+                                                                                                            })}
+                                                                                                        </div>
+                                                                                                        {/* Startdatum */}
+                                                                                                        <div style={{ flex: 1, minWidth: 80 }}>
+                                                                                                            <div style={{ fontSize: '0.55rem', color: '#94a3b8', marginBottom: 1 }}>Van</div>
+                                                                                                            <input type="date" defaultValue={taak.startDateTime ? taak.startDateTime.split('T')[0] : ''} onChange={async e => { const val = e.target.value || null; setPlannerTaken(prev => prev.map(t => t.id === taak.id ? { ...t, startDateTime: val ? new Date(val).toISOString() : null } : t)); await fetch('/api/teams/planner-taken', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, startDateTime: val ? new Date(val).toISOString() : null, etag: taak['@odata.etag'] }) }); }} style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid #e2e8f0', fontSize: '0.62rem', width: '100%', boxSizing: 'border-box' }} />
+                                                                                                        </div>
+                                                                                                        {/* Vervaldatum */}
+                                                                                                        <div style={{ flex: 1, minWidth: 80 }}>
+                                                                                                            <div style={{ fontSize: '0.55rem', color: '#94a3b8', marginBottom: 1 }}>Tot</div>
+                                                                                                            <input type="date" defaultValue={taak.dueDateTime ? taak.dueDateTime.split('T')[0] : ''} onChange={async e => { const val = e.target.value || null; setPlannerTaken(prev => prev.map(t => t.id === taak.id ? { ...t, dueDateTime: val ? new Date(val).toISOString() : null } : t)); await fetch('/api/teams/planner-taken', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, dueDateTime: val ? new Date(val).toISOString() : null, etag: taak['@odata.etag'] }) }); }} style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid #e2e8f0', fontSize: '0.62rem', width: '100%', boxSizing: 'border-box' }} />
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                    {/* Controlelijst */}
+                                                                                                    <div>
+                                                                                                        {(plannerDetails[taak.id]?.checklist || []).map((item, ci) => (
+                                                                                                            <div key={ci} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                                                                                                                <input type="checkbox" defaultChecked={item.isChecked} onChange={async e => {
+                                                                                                                    const details = plannerDetails[taak.id]; if (!details?.etag) return;
+                                                                                                                    const newChecklist = Object.fromEntries(details.checklist.map((it, idx) => [String(idx), { '@odata.type': '#microsoft.graph.plannerChecklistItem', title: it.title, isChecked: idx === ci ? e.target.checked : it.isChecked, orderHint: it.orderHint || ' !' }]));
+                                                                                                                    const pr = await fetch('/api/teams/planner-taak-details', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, checklist: newChecklist, etag: details.etag }) });
+                                                                                                                    if (pr.ok) setPlannerDetails(prev => ({ ...prev, [taak.id]: { ...prev[taak.id], checklist: prev[taak.id].checklist.map((it, idx) => idx === ci ? { ...it, isChecked: e.target.checked } : it) } }));
+                                                                                                                }} style={{ width: 12, height: 12, cursor: 'pointer', flexShrink: 0, accentColor: '#059669' }} />
+                                                                                                                <span style={{ fontSize: '0.66rem', color: item.isChecked ? '#94a3b8' : '#334155', textDecoration: item.isChecked ? 'line-through' : 'none' }}>{item.title}</span>
+                                                                                                            </div>
+                                                                                                        ))}
+                                                                                                        <div style={{ display: 'flex', gap: 3, marginTop: 3 }}>
+                                                                                                            <input id={`cl-input-${taak.id}`} placeholder="+ Controlelijst item" style={{ flex: 1, padding: '2px 5px', borderRadius: 4, border: '1px solid #e2e8f0', fontSize: '0.66rem', minWidth: 0 }}
+                                                                                                                onKeyDown={async e => {
+                                                                                                                    if (e.key !== 'Enter') return;
+                                                                                                                    const titel = e.target.value.trim(); if (!titel) return;
+                                                                                                                    const details = plannerDetails[taak.id]; if (!details?.etag) return;
+                                                                                                                    const huidig = details.checklist || [];
+                                                                                                                    const nc = Object.fromEntries([...huidig, { title: titel, isChecked: false }].map((it, idx) => [String(idx), { '@odata.type': '#microsoft.graph.plannerChecklistItem', title: it.title, isChecked: it.isChecked, orderHint: it.orderHint || ' !' }]));
+                                                                                                                    const pr = await fetch('/api/teams/planner-taak-details', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, checklist: nc, etag: details.etag }) });
+                                                                                                                    if (pr.ok) { e.target.value = ''; setPlannerDetails(prev => ({ ...prev, [taak.id]: { ...prev[taak.id], checklist: [...huidig, { title: titel, isChecked: false }] } })); }
+                                                                                                                }} />
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                    {/* Bijlagen */}
+                                                                                                    <div>
+                                                                                                        {(plannerDetails[taak.id]?.references || []).map((ref, ri) => (
+                                                                                                            <div key={ri} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                                                                                                                <i className="fa-solid fa-paperclip" style={{ fontSize: '0.55rem', color: '#94a3b8', flexShrink: 0 }} />
+                                                                                                                <a href={ref.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.66rem', color: '#3b82f6', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ref.alias}</a>
+                                                                                                            </div>
+                                                                                                        ))}
+                                                                                                        <div onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+                                                                                                            onDragLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                                                                                            onDrop={async e => {
+                                                                                                                e.preventDefault(); e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#e2e8f0';
+                                                                                                                const files = Array.from(e.dataTransfer.files);
+                                                                                                                if (!files.length || !teamsTeamId) return;
+                                                                                                                for (const file of files) {
+                                                                                                                    const reader = new FileReader();
+                                                                                                                    reader.onload = async ev => {
+                                                                                                                        const base64 = ev.target.result.split(',')[1];
+                                                                                                                        const uploadRes = await fetch('/api/teams/upload-bijlage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teamId: teamsTeamId, filename: file.name, contentBase64: base64, mimeType: file.type }) });
+                                                                                                                        if (!uploadRes.ok) return;
+                                                                                                                        const { webUrl } = await uploadRes.json(); if (!webUrl) return;
+                                                                                                                        const details = plannerDetails[taak.id]; if (!details?.etag) return;
+                                                                                                                        const encodedUrl = webUrl.replace(/:/g, '%3A').replace(/\./g, '%2E');
+                                                                                                                        const newRefs = { ...(Object.fromEntries((details.references || []).map(r => [r.url.replace(/:/g, '%3A').replace(/\./g, '%2E'), { '@odata.type': '#microsoft.graph.plannerExternalReference', alias: r.alias, type: 'Other', previewPriority: ' !' }]))), [encodedUrl]: { '@odata.type': '#microsoft.graph.plannerExternalReference', alias: file.name, type: 'Other', previewPriority: ' !' } };
+                                                                                                                        const pr = await fetch('/api/teams/planner-taak-details', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, references: newRefs, etag: details.etag }) });
+                                                                                                                        if (pr.ok) setPlannerDetails(prev => ({ ...prev, [taak.id]: { ...prev[taak.id], references: [...(prev[taak.id].references || []), { url: webUrl, alias: file.name }] } }));
+                                                                                                                    };
+                                                                                                                    reader.readAsDataURL(file);
+                                                                                                                }
+                                                                                                            }}
+                                                                                                            style={{ border: '1px dashed #e2e8f0', borderRadius: 5, padding: '4px 6px', fontSize: '0.6rem', color: '#94a3b8', cursor: 'default', transition: 'all 0.15s', marginTop: 3 }}>
+                                                                                                            <i className="fa-solid fa-paperclip" style={{ marginRight: 4 }} />Bijlage slepen
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                    {/* Notitie */}
+                                                                                                    <textarea defaultValue={plannerDetails[taak.id]?.description || ''} placeholder="Notitie…" rows={2}
+                                                                                                        onBlur={async e => {
+                                                                                                            const details = plannerDetails[taak.id]; if (!details?.etag) return;
+                                                                                                            const nieuweText = e.target.value; if (nieuweText === details.description) return;
+                                                                                                            const r = await fetch('/api/teams/planner-taak-details', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, description: nieuweText, etag: details.etag }) });
+                                                                                                            if (r.ok) setPlannerDetails(prev => ({ ...prev, [taak.id]: { ...prev[taak.id], description: nieuweText } }));
+                                                                                                        }}
+                                                                                                        style={{ width: '100%', padding: '4px 6px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: '0.66rem', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4, boxSizing: 'border-box', color: '#334155' }} />
+                                                                                                </>)}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                    {/* Taak toevoegen aan deze bucket */}
+                                                                    {bucket.id && (() => {
+                                                                        const inputId = `planner-input-${bucket.id}`;
+                                                                        const toegewezenUid = plannerNieuweTaakUser[bucket.id] || null;
+                                                                        const toegewezenLid = toegewezenUid ? teamsLeden.find(l => l.id === toegewezenUid) : null;
+                                                                        const initials = toegewezenLid?.displayName ? toegewezenLid.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : null;
+                                                                        const voegToe = async () => {
+                                                                            const el = document.getElementById(inputId);
+                                                                            const titel = el?.value.trim();
+                                                                            if (!titel) return;
+                                                                            el.value = '';
+                                                                            const body = { planId: project.plannerPlanId, title: titel, bucketId: bucket.id };
+                                                                            if (toegewezenUid) body.assignments = { [toegewezenUid]: { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' } };
+                                                                            const r = await fetch('/api/teams/planner-taken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                                                                            if (r.ok) { const nieuw = await r.json(); setPlannerTaken(prev => [...(prev || []), nieuw]); }
+                                                                        };
+                                                                        return (
+                                                                            <div style={{ padding: '0 8px 10px' }}>
+                                                                                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                                                                    <input id={inputId} placeholder="Taak toevoegen…" onKeyDown={e => e.key === 'Enter' && voegToe()} style={{ flex: 1, padding: '5px 7px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: '0.7rem', background: '#fff', minWidth: 0 }} />
+                                                                                    {/* Toewijzen */}
+                                                                                    <div style={{ position: 'relative' }}>
+                                                                                        <button onClick={() => setPlannerNieuweTaakUser(prev => ({ ...prev, [bucket.id + '__open']: !prev[bucket.id + '__open'] }))}
+                                                                                            title={toegewezenLid?.displayName || 'Toewijzen'}
+                                                                                            style={{ width: 24, height: 24, borderRadius: '50%', border: toegewezenLid ? 'none' : '1.5px dashed #cbd5e1', background: toegewezenLid ? '#3b82f6' : 'transparent', color: toegewezenLid ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: toegewezenLid ? '0.45rem' : '0.6rem', fontWeight: 700, padding: 0, flexShrink: 0 }}>
+                                                                                            {toegewezenLid ? initials : <i className="fa-solid fa-user-plus" />}
+                                                                                        </button>
+                                                                                        {plannerNieuweTaakUser[bucket.id + '__open'] && (
+                                                                                            <div style={{ position: 'absolute', bottom: 28, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 160, padding: 4 }}>
+                                                                                                <div onClick={() => setPlannerNieuweTaakUser(prev => ({ ...prev, [bucket.id]: null, [bucket.id + '__open']: false }))}
+                                                                                                    style={{ padding: '5px 10px', fontSize: '0.68rem', color: '#64748b', cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                                                    <i className="fa-solid fa-xmark" style={{ fontSize: '0.6rem' }} /> Niemand
+                                                                                                </div>
+                                                                                                {teamsLeden.map(u => (
+                                                                                                    <div key={u.id} onClick={() => setPlannerNieuweTaakUser(prev => ({ ...prev, [bucket.id]: u.id, [bucket.id + '__open']: false }))}
+                                                                                                        style={{ padding: '5px 10px', fontSize: '0.68rem', color: toegewezenUid === u.id ? '#059669' : '#1e293b', fontWeight: toegewezenUid === u.id ? 700 : 400, cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3b82f6', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.38rem', fontWeight: 700, flexShrink: 0 }}>
+                                                                                                            {u.name ? u.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : '?'}
+                                                                                                        </span>
+                                                                                                        {u.name}
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <button onClick={voegToe} style={{ width: 26, height: 26, borderRadius: 6, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', flexShrink: 0 }}><i className="fa-solid fa-plus" /></button>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })()}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {/* Nieuwe bucket kolom */}
+                                                        <div style={{ width: 200, flexShrink: 0, background: '#f8fafc', borderRadius: 10, border: '2px dashed #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 12, gap: 8 }}>
+                                                            <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>Nieuwe bucket</span>
+                                                            <input id="nieuweBucketInput" placeholder="Naam…" onKeyDown={async e => {
+                                                                if (e.key !== 'Enter' || !e.target.value.trim()) return;
+                                                                const naam = e.target.value.trim(); e.target.value = '';
+                                                                const r = await fetch('/api/teams/planner-buckets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId: project.plannerPlanId, name: naam }) });
+                                                                if (r.ok) { const b = await r.json(); setPlannerBuckets(prev => [...prev, b]); }
+                                                            }} style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: '0.75rem', textAlign: 'center' }} />
+                                                            <button onClick={async () => {
+                                                                const input = document.getElementById('nieuweBucketInput');
+                                                                if (!input?.value.trim()) return;
+                                                                const naam = input.value.trim(); input.value = '';
+                                                                const r = await fetch('/api/teams/planner-buckets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId: project.plannerPlanId, name: naam }) });
+                                                                if (r.ok) { const b = await r.json(); setPlannerBuckets(prev => [...prev, b]); }
+                                                            }} style={{ padding: '5px 14px', borderRadius: 6, border: 'none', background: '#3b82f6', color: '#fff', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                                <i className="fa-solid fa-plus" /> Aanmaken
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+
+                                                {/* ── Checklist palet (ONDER) ── */}
+                                                {(() => {
+                                                    const huidigPaletSjabloon = plannerSjablonenState.find(s => s.id === plannerPaletSjabloon) || plannerSjablonenState[0];
+                                                    if (!huidigPaletSjabloon) return null;
+                                                    return (
+                                                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+                                                            {/* Header */}
+                                                            <div style={{ padding: '8px 12px', background: '#f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                                <i className="fa-solid fa-list-check" style={{ color: '#3b82f6', fontSize: '0.78rem' }} />
+                                                                <span style={{ fontWeight: 700, fontSize: '0.75rem', color: '#334155' }}>Checklist palet</span>
+                                                                <select value={plannerPaletSjabloon || plannerSjablonenState[0]?.id} onChange={e => setPlannerPaletSjabloon(e.target.value)}
+                                                                    style={{ padding: '2px 6px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: '0.72rem', background: '#fff' }}>
+                                                                    {plannerSjablonenState.map(s => <option key={s.id} value={s.id}>{s.naam}</option>)}
+                                                                </select>
+                                                                {plannerPaletSelectie.size > 0 && (
+                                                                    <button onClick={() => setPlannerPaletAssignPopup({ bulk: true, selectie: new Set(plannerPaletSelectie), userId: null, startDate: '', dueDate: '', label: null })}
+                                                                        style={{ padding: '4px 10px', borderRadius: 7, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.68rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                                                                        <i className="fa-solid fa-arrow-up" /> Stuur {plannerPaletSelectie.size} naar Planner
+                                                                    </button>
+                                                                )}
+                                                                <button onClick={() => setPlannerPaletOpen(p => !p)}
+                                                                    style={{ marginLeft: plannerPaletSelectie.size > 0 ? 0 : 'auto', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.72rem' }}>
+                                                                    <i className={`fa-solid fa-chevron-${plannerPaletOpen ? 'up' : 'down'}`} />
+                                                                </button>
+                                                            </div>
+                                                            {/* Kanban kolommen */}
+                                                            {plannerPaletOpen && (
+                                                                <div style={{ display: 'flex', gap: 10, overflowX: 'auto', padding: '10px 12px 12px', background: '#fafafa' }}>
+                                                                    {huidigPaletSjabloon.buckets.map((bucket, bi) => (
+                                                                        <div key={bi} style={{ width: 220, flexShrink: 0, background: '#f1f5f9', borderRadius: 8, overflow: 'hidden' }}>
+                                                                            <div style={{ padding: '7px 10px', fontSize: '0.72rem', fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0', background: '#e9eef5' }}>
+                                                                                {bucket.naam}
+                                                                            </div>
+                                                                            <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                                                                {bucket.taken.map((taak, ti) => {
+                                                                                    const key = bucket.naam + '|' + taak;
+                                                                                    const bezig = plannerPaletBezig[key];
+                                                                                    const gedaan = !!plannerPaletVinkjes[key];
+                                                                                    const isOpen = !!plannerPaletKaartOpen[key];
+                                                                                    const data = plannerPaletData[key] || {};
+                                                                                    const geselecteerd = plannerPaletSelectie.has(key);
+                                                                                    const afgerondInPlanner = (plannerTaken || []).some(t => t.title?.toLowerCase() === taak.toLowerCase() && t.percentComplete === 100);
+                                                                                    const alInPlanner = !afgerondInPlanner && (plannerTaken || []).some(t => t.title?.toLowerCase() === taak.toLowerCase());
+                                                                                    const toggleDisabled = gedaan || afgerondInPlanner;
+                                                                                    const ledenLijst = teamsLeden;
+                                                                                    const toegewezenUser = data.userId ? ledenLijst.find(u => String(u.id) === String(data.userId)) : null;
+                                                                                    const toegewezenInitials = toegewezenUser?.displayName ? toegewezenUser.displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?';
+                                                                                    return (
+                                                                                        <div key={ti} style={{ background: '#fff', borderRadius: 7, boxShadow: '0 1px 3px rgba(0,0,0,0.07)', overflow: 'hidden', border: geselecteerd ? '1px solid #bbf7d0' : afgerondInPlanner ? '1px solid #e2e8f0' : '1px solid transparent' }}>
+                                                                                            <div style={{ padding: '6px 8px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+                                                                                                onClick={() => setPlannerPaletKaartOpen(p => ({ ...p, [key]: !p[key] }))}>
+                                                                                                <button onClick={e => { e.stopPropagation(); togglePaletVinkje(key); }}
+                                                                                                    style={{ width: 16, height: 16, borderRadius: 3, border: `2px solid ${gedaan ? '#16a34a' : '#94a3b8'}`, background: gedaan ? '#16a34a' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
+                                                                                                    {gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.4rem' }} />}
+                                                                                                </button>
+                                                                                                <span style={{ flex: 1, fontSize: '0.72rem', color: (gedaan || afgerondInPlanner) ? '#94a3b8' : '#1e293b', textDecoration: (gedaan || afgerondInPlanner) ? 'line-through' : 'none', lineHeight: 1.3 }}>{taak}</span>
+                                                                                                {/* Toewijzen */}
+                                                                                                <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+                                                                                                    <button onClick={() => setPlannerPaletKaartOpen(p => ({ ...p, [key + '__assign']: !p[key + '__assign'] }))}
+                                                                                                        title={toegewezenUser ? toegewezenUser.displayName : 'Toewijzen'}
+                                                                                                        style={{ width: 20, height: 20, borderRadius: '50%', border: toegewezenUser ? 'none' : '1.5px dashed #cbd5e1', background: toegewezenUser ? '#3b82f6' : 'transparent', color: toegewezenUser ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: toegewezenUser ? '0.42rem' : '0.55rem', fontWeight: 700, flexShrink: 0, padding: 0 }}>
+                                                                                                        {toegewezenUser ? toegewezenInitials : <i className="fa-solid fa-user" />}
+                                                                                                    </button>
+                                                                                                    {plannerPaletKaartOpen[key + '__assign'] && (
+                                                                                                        <div style={{ position: 'absolute', top: 24, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 150, padding: 4 }}>
+                                                                                                            <div onClick={() => { updatePaletData(key, { userId: null }); setPlannerPaletKaartOpen(p => ({ ...p, [key + '__assign']: false })); }} style={{ padding: '5px 10px', fontSize: '0.68rem', color: '#64748b', cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                                                                <i className="fa-solid fa-xmark" style={{ fontSize: '0.6rem' }} /> Niemand
+                                                                                                            </div>
+                                                                                                            {teamsLeden.map(u => (
+                                                                                                                <div key={u.id} onClick={() => { updatePaletData(key, { userId: u.id }); setPlannerPaletKaartOpen(p => ({ ...p, [key + '__assign']: false })); }}
+                                                                                                                    style={{ padding: '5px 10px', fontSize: '0.68rem', color: String(data.userId) === String(u.id) ? '#059669' : '#1e293b', fontWeight: String(data.userId) === String(u.id) ? 700 : 400, cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                                                                    <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3b82f6', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.38rem', fontWeight: 700, flexShrink: 0 }}>
+                                                                                                                        {u.name ? u.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : '?'}
+                                                                                                                    </span>
+                                                                                                                    {u.name}
+                                                                                                                </div>
+                                                                                                            ))}
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                {/* + naar Planner knop */}
+                                                                                                <button onClick={e => { e.stopPropagation(); if (!bezig && !afgerondInPlanner) voegPaletTaakToe({ taakTitel: taak, bucketNaam: bucket.naam, userId: data.userId || null, startDate: data.startDate || '', dueDate: data.dueDate || '', label: data.label || null }); }} disabled={bezig}
+                                                                                                    title="Toevoegen aan Planner"
+                                                                                                    style={{ width: 18, height: 18, borderRadius: '50%', border: 'none', background: afgerondInPlanner || gedaan ? '#f1f5f9' : '#e2e8f0', color: afgerondInPlanner || gedaan ? '#94a3b8' : '#64748b', cursor: (bezig || afgerondInPlanner) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0 }}>
+                                                                                                    <i className={`fa-solid ${bezig ? 'fa-spinner fa-spin' : afgerondInPlanner || gedaan ? 'fa-check' : 'fa-plus'}`} />
+                                                                                                </button>
+                                                                                            </div>
+                                                                                            {isOpen && (
+                                                                                                <div style={{ borderTop: '1px solid #f1f5f9', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
+                                                                                                    <div>
+                                                                                                        <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: 4 }}>Controlelijst</div>
+                                                                                                        {(data.checklist || []).map((item, ci) => (
+                                                                                                            <div key={ci} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                                                                                                                <i className="fa-regular fa-square" style={{ color: '#94a3b8', fontSize: '0.6rem', flexShrink: 0 }} />
+                                                                                                                <span style={{ flex: 1, fontSize: '0.68rem', color: '#334155' }}>{item}</span>
+                                                                                                                <button onClick={() => updatePaletData(key, { checklist: data.checklist.filter((_, j) => j !== ci) })} style={{ width: 14, height: 14, border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', fontSize: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><i className="fa-solid fa-xmark" /></button>
+                                                                                                            </div>
+                                                                                                        ))}
+                                                                                                        <input placeholder="+ Item toevoegen (Enter)" onKeyDown={e => { if (e.key === 'Enter' && e.target.value.trim()) { updatePaletData(key, { checklist: [...(data.checklist || []), e.target.value.trim()] }); e.target.value = ''; } }} style={{ fontSize: '0.65rem', border: 'none', borderBottom: '1px solid #e2e8f0', outline: 'none', width: '100%', padding: '2px 0', background: 'transparent', color: '#94a3b8' }} />
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: 4 }}>Notitie</div>
+                                                                                                        <textarea defaultValue={data.notitie || ''} rows={2} onBlur={e => updatePaletData(key, { notitie: e.target.value })} placeholder="Notitie…" style={{ width: '100%', fontSize: '0.68rem', border: '1px solid #e2e8f0', borderRadius: 5, padding: '4px 6px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: 4 }}>Bijlagen</div>
+                                                                                                        {(data.bijlagen || []).map((b, bi2) => (
+                                                                                                            <div key={bi2} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                                                                                                                <i className="fa-solid fa-paperclip" style={{ color: '#94a3b8', fontSize: '0.6rem', flexShrink: 0 }} />
+                                                                                                                <span style={{ flex: 1, fontSize: '0.65rem', color: '#3b82f6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer', textDecoration: 'underline' }}
+                                                                                                                    title="Downloaden"
+                                                                                                                    onClick={async () => {
+                                                                                                                        const f = await haalEmailBestandOp(b.storageKey);
+                                                                                                                        if (!f) return;
+                                                                                                                        const blob = f.blob || f;
+                                                                                                                        const url = URL.createObjectURL(blob);
+                                                                                                                        const a = document.createElement('a');
+                                                                                                                        a.href = url;
+                                                                                                                        a.download = b.naam;
+                                                                                                                        a.click();
+                                                                                                                        setTimeout(() => URL.revokeObjectURL(url), 5000);
+                                                                                                                    }}>{b.naam}</span>
+                                                                                                                {/\.(jpe?g|png|gif|webp|bmp|svg|pdf)$/i.test(b.naam) && (
+                                                                                                                    <button title="Voorbeeld bekijken" onClick={async e => {
+                                                                                                                        e.stopPropagation();
+                                                                                                                        const f = await haalEmailBestandOp(b.storageKey);
+                                                                                                                        if (!f) return;
+                                                                                                                        const blob = f.blob || f;
+                                                                                                                        const url = URL.createObjectURL(blob);
+                                                                                                                        window.open(url, '_blank');
+                                                                                                                        setTimeout(() => URL.revokeObjectURL(url), 30000);
+                                                                                                                    }} style={{ width: 16, height: 16, border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0 }}>
+                                                                                                                        <i className="fa-solid fa-eye" />
+                                                                                                                    </button>
+                                                                                                                )}
+                                                                                                                {b.plannerUrl && <a href={b.plannerUrl} target="_blank" rel="noreferrer" title="Open in Planner/SharePoint" style={{ color: '#059669', fontSize: '0.5rem', flexShrink: 0 }}><i className="fa-solid fa-arrow-up-right-from-square" /></a>}
+                                                                                                                <button onClick={() => verwijderPaletBijlage(key, bi2)} style={{ width: 14, height: 14, border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', fontSize: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><i className="fa-solid fa-xmark" /></button>
+                                                                                                            </div>
+                                                                                                        ))}
+                                                                                                        <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); Array.from(e.dataTransfer.files).forEach(f => voegPaletBijlageToe(key, f)); }} onClick={() => document.getElementById(`palet-upload-${key.replace(/[^a-z0-9]/gi, '_')}`).click()} style={{ border: '2px dashed #e2e8f0', borderRadius: 6, padding: '6px 8px', textAlign: 'center', fontSize: '0.62rem', color: '#94a3b8', cursor: 'pointer', marginTop: 4 }}>
+                                                                                                            <i className="fa-solid fa-cloud-arrow-up" /> Sleep bestand of klik
+                                                                                                            <input id={`palet-upload-${key.replace(/[^a-z0-9]/gi, '_')}`} type="file" multiple style={{ display: 'none' }} onChange={e => { Array.from(e.target.files).forEach(f => voegPaletBijlageToe(key, f)); e.target.value = ''; }} />
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                                {bucket.taken.length === 0 && <span style={{ fontSize: '0.65rem', color: '#cbd5e1', padding: '2px 0' }}>Geen taken</span>}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+                                                <button onClick={verwijderPlanner} disabled={teamsBezig}
+                                                    style={{ alignSelf: 'flex-start', padding: '5px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '0.73rem', fontWeight: 600, cursor: teamsBezig ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <i className="fa-solid fa-trash" /> Planner verwijderen
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                                                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569' }}>Kies een sjabloon</span>
+                                                    <button onClick={() => setSjabloonEditor(JSON.parse(JSON.stringify(plannerSjablonenState)))} style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Sjablonen bewerken</button>
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                    {plannerSjablonenState.map(s => (
+                                                        <div key={s.id} onClick={() => setPlannerSjabloon(s.id)} style={{ padding: '10px 12px', borderRadius: 8, border: `2px solid ${plannerSjabloon === s.id ? '#059669' : '#e2e8f0'}`, background: plannerSjabloon === s.id ? '#f0fdf4' : '#fff', cursor: 'pointer', transition: 'all 0.1s' }}>
+                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: plannerSjabloon === s.id ? '#065f46' : '#1e293b', marginBottom: 4 }}>{s.naam}</div>
+                                                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                                {s.buckets.map(b => (
+                                                                    <span key={b.naam} style={{ fontSize: '0.62rem', background: plannerSjabloon === s.id ? '#dcfce7' : '#f1f5f9', color: plannerSjabloon === s.id ? '#065f46' : '#64748b', padding: '1px 6px', borderRadius: 6 }}>{b.naam}</span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    <button onClick={() => setSjabloonEditor([...plannerSjablonenState, { id: 'nieuw-' + Date.now(), naam: 'Nieuw sjabloon', buckets: [{ naam: 'Nieuwe taak', taken: [] }] }])} style={{ padding: '6px 12px', borderRadius: 7, border: '2px dashed #e2e8f0', background: 'transparent', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left' }}>
+                                                        <i className="fa-solid fa-plus" /> Nieuw sjabloon toevoegen
+                                                    </button>
+                                                </div>
+                                                <button onClick={maakPlannerAan} disabled={teamsBezig}
+                                                    style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content', marginTop: 4 }}>
+                                                    <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-table-columns'}`} />
+                                                    {teamsBezig ? 'Aanmaken…' : 'Planner aanmaken'}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {teamsTeamId && (
+                                <button onClick={() => { localStorage.removeItem('schilders_teams_team_id'); setTeamsTeamId(''); setTeamsLijst(null); }}
+                                    style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'flex-start' }}>
+                                    Team wijzigen
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 
@@ -2848,6 +5081,270 @@ export default function ProjectDossierPage() {
     return (
         <>
             {mainContent}
+
+            {/* ===== PALET TOEWIJZING POPUP ===== */}
+            {plannerPaletAssignPopup && (() => {
+                const KLEUREN = { category1: '#ef4444', category2: '#f97316', category3: '#eab308', category4: '#22c55e', category5: '#3b82f6', category6: '#8b5cf6' };
+                const popup = plannerPaletAssignPopup;
+                return (
+                    <div onClick={() => setPlannerPaletAssignPopup(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 22, width: 320, boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b', marginBottom: 4 }}>Toevoegen aan Planner</div>
+                            <div style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: 16 }}>{popup.bulk ? `${popup.selectie?.size} geselecteerde taken` : popup.taakTitel}</div>
+
+                            {/* Toewijzen aan */}
+                            <label style={{ display: 'block', marginBottom: 12 }}>
+                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', marginBottom: 4 }}>Toewijzen aan</div>
+                                <select value={popup.userId || ''} onChange={e => setPlannerPaletAssignPopup(p => ({ ...p, userId: e.target.value || null }))}
+                                    style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.78rem' }}>
+                                    <option value="">— Niemand —</option>
+                                    {teamsLeden.length === 0 && <option disabled>Laden…</option>}
+                                    {teamsLeden.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                            </label>
+
+                            {/* Datums */}
+                            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                                <label style={{ flex: 1 }}>
+                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', marginBottom: 4 }}>Startdatum</div>
+                                    <input type="date" value={popup.startDate || ''} onChange={e => setPlannerPaletAssignPopup(p => ({ ...p, startDate: e.target.value }))}
+                                        style={{ width: '100%', padding: '5px 8px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.75rem', boxSizing: 'border-box' }} />
+                                </label>
+                                <label style={{ flex: 1 }}>
+                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', marginBottom: 4 }}>Einddatum</div>
+                                    <input type="date" value={popup.dueDate || ''} onChange={e => setPlannerPaletAssignPopup(p => ({ ...p, dueDate: e.target.value }))}
+                                        style={{ width: '100%', padding: '5px 8px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.75rem', boxSizing: 'border-box' }} />
+                                </label>
+                            </div>
+
+                            {/* Label */}
+                            <div style={{ marginBottom: 18 }}>
+                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', marginBottom: 6 }}>Label</div>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    {Object.entries(KLEUREN).map(([cat, kleur]) => (
+                                        <button key={cat} onClick={() => setPlannerPaletAssignPopup(p => ({ ...p, label: p.label === cat ? null : cat }))}
+                                            style={{ width: 24, height: 24, borderRadius: '50%', border: popup.label === cat ? `3px solid #1e293b` : '2px solid transparent', background: kleur, cursor: 'pointer', outline: popup.label === cat ? `2px solid ${kleur}` : 'none', outlineOffset: 1 }} />
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Knoppen */}
+                            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                <button onClick={() => setPlannerPaletAssignPopup(null)}
+                                    style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.78rem', cursor: 'pointer' }}>
+                                    Annuleren
+                                </button>
+                                <button onClick={() => voegPaletTaakToe({ taakTitel: popup.taakTitel, bucketNaam: popup.bucketNaam, userId: popup.userId, startDate: popup.startDate, dueDate: popup.dueDate, label: popup.label, bulk: popup.bulk, selectie: popup.selectie })}
+                                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                    <i className="fa-solid fa-arrow-up" /> Toevoegen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* ===== SJABLOON EDITOR (KANBAN) ===== */}
+            {sjabloonEditor && (() => {
+                const si = Math.min(sjabloonEditorIdx, sjabloonEditor.length - 1);
+                const huidigSjabloon = sjabloonEditor[si];
+                const updateSjabloon = (fn) => setSjabloonEditor(prev => prev.map((x, i) => i === si ? fn(x) : x));
+                return (
+                    <div onClick={() => setSjabloonEditor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', flexDirection: 'column' }}>
+                        <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f8fafc' }}>
+
+                            {/* ── Topbalk ── */}
+                            <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '0 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, minHeight: 52 }}>
+                                <i className="fa-solid fa-layer-group" style={{ color: '#059669', fontSize: '1rem' }} />
+                                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b', marginRight: 8 }}>Sjablonen bewerken</span>
+
+                                {/* Tabs per sjabloon */}
+                                <div style={{ display: 'flex', gap: 4, flex: 1, overflowX: 'auto', alignItems: 'center' }}>
+                                    {sjabloonEditor.map((s, i) => (
+                                        <button key={s.id} onClick={() => setSjabloonEditorIdx(i)}
+                                            style={{ padding: '6px 14px', borderRadius: '8px 8px 0 0', border: 'none', background: i === si ? '#f0fdf4' : 'transparent', color: i === si ? '#059669' : '#64748b', fontWeight: i === si ? 700 : 500, fontSize: '0.78rem', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: i === si ? '2px solid #059669' : '2px solid transparent', flexShrink: 0 }}>
+                                            {s.naam}
+                                        </button>
+                                    ))}
+                                    <button onClick={() => { const nieuwIdx = sjabloonEditor.length; setSjabloonEditor(prev => [...prev, { id: 'nieuw-' + Date.now(), naam: 'Nieuw sjabloon', buckets: [{ naam: 'Nieuwe taak', taken: [] }] }]); setSjabloonEditorIdx(nieuwIdx); }}
+                                        style={{ padding: '6px 10px', borderRadius: 8, border: '1px dashed #cbd5e1', background: 'transparent', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                        <i className="fa-solid fa-plus" /> Nieuw
+                                    </button>
+                                </div>
+
+                                {/* Acties */}
+                                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                                    <button onClick={() => { if (window.confirm('Alle sjablonen terugzetten naar standaard?')) { setSjabloonEditor(JSON.parse(JSON.stringify(PLANNER_SJABLONEN))); setSjabloonEditorIdx(0); } }}
+                                        style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer' }}>
+                                        Terugzetten
+                                    </button>
+                                    <button onClick={() => { savePlannerSjablonen(sjabloonEditor); setSjabloonEditor(null); }}
+                                        style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                                        <i className="fa-solid fa-floppy-disk" /> Opslaan
+                                    </button>
+                                    <button onClick={() => setSjabloonEditor(null)}
+                                        style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', cursor: 'pointer' }}>
+                                        <i className="fa-solid fa-xmark" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* ── Sjabloon naam + verwijder ── */}
+                            <div style={{ padding: '10px 16px 6px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                                <input value={huidigSjabloon.naam} onChange={e => updateSjabloon(x => ({ ...x, naam: e.target.value }))}
+                                    style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 700, background: '#fff', minWidth: 200 }} />
+                                <button onClick={() => { if (!window.confirm(`Sjabloon "${huidigSjabloon.naam}" verwijderen?`)) return; setSjabloonEditor(prev => prev.filter((_, i) => i !== si)); setSjabloonEditorIdx(Math.max(0, si - 1)); }}
+                                    style={{ padding: '4px 10px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#ef4444', fontSize: '0.72rem', cursor: 'pointer' }}>
+                                    <i className="fa-solid fa-trash" /> Sjabloon verwijderen
+                                </button>
+                            </div>
+
+                            {/* ── Kanban bord ── */}
+                            <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', display: 'flex', gap: 10, padding: '8px 16px 16px', alignItems: 'flex-start' }}>
+                                {huidigSjabloon.buckets.map((bucket, bi) => (
+                                    <div key={bi} style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#f1f5f9', borderRadius: 10, overflow: 'hidden', maxHeight: 'calc(100vh - 160px)' }}>
+                                        {/* Bucket header */}
+                                        <div style={{ padding: '10px 10px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <input value={bucket.naam} onChange={e => updateSjabloon(x => ({ ...x, buckets: x.buckets.map((b, j) => j === bi ? { ...b, naam: e.target.value } : b) }))}
+                                                style={{ flex: 1, padding: '3px 6px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 700, background: '#fff', minWidth: 0 }} />
+                                            <span style={{ fontSize: '0.62rem', color: '#94a3b8', background: '#e2e8f0', borderRadius: 8, padding: '1px 6px', flexShrink: 0 }}>{bucket.taken.length}</span>
+                                            <button onClick={() => { if (!window.confirm(`Bucket "${bucket.naam}" verwijderen?`)) return; updateSjabloon(x => ({ ...x, buckets: x.buckets.filter((_, j) => j !== bi) })); }}
+                                                style={{ width: 18, height: 18, border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', flexShrink: 0 }} title="Bucket verwijderen">
+                                                <i className="fa-solid fa-trash" />
+                                            </button>
+                                        </div>
+                                        {/* Taakkaarten */}
+                                        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, padding: '0 8px 8px' }}>
+                                            {bucket.taken.map((taak, ti) => (
+                                                <div key={ti} style={{ background: '#fff', borderRadius: 7, padding: '8px 10px', boxShadow: '0 1px 3px rgba(0,0,0,0.07)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <input value={taak} onChange={e => updateSjabloon(x => ({ ...x, buckets: x.buckets.map((b, j) => j === bi ? { ...b, taken: b.taken.map((t, k) => k === ti ? e.target.value : t) } : b) }))}
+                                                        style={{ flex: 1, padding: '2px 4px', border: 'none', outline: 'none', fontSize: '0.78rem', color: '#1e293b', background: 'transparent', minWidth: 0 }} placeholder="Taaknaam…" />
+                                                    <button onClick={() => updateSjabloon(x => ({ ...x, buckets: x.buckets.map((b, j) => j === bi ? { ...b, taken: b.taken.filter((_, k) => k !== ti) } : b) }))}
+                                                        style={{ width: 16, height: 16, border: 'none', background: 'transparent', color: '#e2e8f0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', flexShrink: 0, padding: 0 }} title="Verwijderen">
+                                                        <i className="fa-solid fa-xmark" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {/* Taak toevoegen */}
+                                            <button onClick={() => updateSjabloon(x => ({ ...x, buckets: x.buckets.map((b, j) => j === bi ? { ...b, taken: [...b.taken, ''] } : b) }))}
+                                                style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left', padding: '4px 2px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                <i className="fa-solid fa-plus" /> Taak toevoegen
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                                {/* Nieuwe bucket kolom */}
+                                <button onClick={() => updateSjabloon(x => ({ ...x, buckets: [...x.buckets, { naam: 'Nieuwe bucket', taken: [] }] }))}
+                                    style={{ width: 220, flexShrink: 0, padding: '14px', borderRadius: 10, border: '2px dashed #cbd5e1', background: 'rgba(255,255,255,0.6)', color: '#94a3b8', fontSize: '0.75rem', cursor: 'pointer', alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <i className="fa-solid fa-plus" /> Bucket toevoegen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* ===== LIGHTBOX ===== */}
+            {lightbox && (() => {
+                const { fotos, idx } = lightbox;
+                const hasPrev = fotos && idx > 0;
+                const hasNext = fotos && idx < fotos.length - 1;
+                const goTo = async (newIdx) => {
+                    const att = fotos[newIdx];
+                    const b = await haalEmailBestandOp(att.id);
+                    const blob = b?.blob || b;
+                    if (blob instanceof Blob) setLightbox({ ...lightbox, url: URL.createObjectURL(blob), naam: att.name, idx: newIdx });
+                };
+                return (
+                    <div
+                        onClick={() => setLightbox(null)}
+                        onKeyDown={e => { if (e.key === 'Escape') setLightbox(null); if (e.key === 'ArrowLeft' && hasPrev) goTo(idx - 1); if (e.key === 'ArrowRight' && hasNext) goTo(idx + 1); }}
+                        tabIndex={0} ref={el => el?.focus()}
+                        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 99999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', outline: 'none' }}
+                    >
+                        {/* Sluiten */}
+                        <button onClick={() => setLightbox(null)} style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', borderRadius: '50%', width: 36, height: 36, fontSize: '1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                        {/* Vorige */}
+                        {hasPrev && <button onClick={e => { e.stopPropagation(); goTo(idx - 1); }} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', borderRadius: '50%', width: 44, height: 44, fontSize: '1.2rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>}
+                        {/* Foto */}
+                        <img src={lightbox.url} alt={lightbox.naam} style={{ maxWidth: '88vw', maxHeight: '84vh', objectFit: 'contain', borderRadius: 6, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }} onClick={e => e.stopPropagation()} />
+                        {/* Volgende */}
+                        {hasNext && <button onClick={e => { e.stopPropagation(); goTo(idx + 1); }} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', borderRadius: '50%', width: 44, height: 44, fontSize: '1.2rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>›</button>}
+                        {/* Onderschrift */}
+                        <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.72rem', marginTop: 12, textAlign: 'center' }}>
+                            {lightbox.naam}{fotos && fotos.length > 1 && <span style={{ marginLeft: 10, opacity: 0.6 }}>{idx + 1} / {fotos.length}</span>}
+                            <span style={{ marginLeft: 14, opacity: 0.5 }}>← → pijltjestoetsen • Esc sluiten</span>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* ===== TOAST ===== */}
+            {toast && (
+                <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', padding: '10px 20px', borderRadius: 10, fontSize: '0.82rem', zIndex: 99999, display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}>
+                    <i className="fa-solid fa-clipboard-check" style={{ color: '#a78bfa' }} />
+                    {toast}
+                </div>
+            )}
+
+            {/* ===== EMAIL TOEVOEGEN FORMULIER ===== */}
+            {emailForm && (
+                <div onClick={() => setEmailForm(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: 460, maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                        <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1e293b', marginBottom: 16 }}>
+                            {emailForm._fileName ? `📎 ${emailForm._fileName}` : 'Email toevoegen'}
+                        </div>
+                        {/* Richting */}
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                            {[['in', '📥 Inkomend', '#3b82f6', '#eff6ff'], ['out', '📤 Verzonden', '#16a34a', '#f0fdf4']].map(([r, l, c, bg]) => (
+                                <button key={r} onClick={() => setEmailForm(p => ({ ...p, richting: r }))} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `2px solid ${emailForm.richting === r ? c : '#e2e8f0'}`, background: emailForm.richting === r ? bg : '#fff', cursor: 'pointer', fontWeight: emailForm.richting === r ? 700 : 500, fontSize: '0.85rem', color: emailForm.richting === r ? c : '#94a3b8' }}>{l}</button>
+                            ))}
+                        </div>
+                        {/* Van / Aan */}
+                        <label style={{ display: 'block', marginBottom: 10 }}>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', marginBottom: 3 }}>{emailForm.richting === 'in' ? 'Van *' : 'Aan *'}</div>
+                            <input value={emailForm.van} onChange={e => setEmailForm(p => ({ ...p, van: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.85rem', boxSizing: 'border-box' }} placeholder="naam of e-mailadres" />
+                        </label>
+                        {/* Onderwerp */}
+                        <label style={{ display: 'block', marginBottom: 10 }}>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', marginBottom: 3 }}>Onderwerp</div>
+                            <input value={emailForm.onderwerp} onChange={e => setEmailForm(p => ({ ...p, onderwerp: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.85rem', boxSizing: 'border-box' }} placeholder="Onderwerp van de email" />
+                        </label>
+                        {/* Datum + Categorie */}
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                            <label style={{ flex: 1 }}>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', marginBottom: 3 }}>Datum</div>
+                                <input type="date" value={emailForm.datum} onChange={e => setEmailForm(p => ({ ...p, datum: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.85rem', boxSizing: 'border-box' }} />
+                            </label>
+                            <label style={{ flex: 1 }}>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', marginBottom: 3 }}>
+                                    Categorie{emailForm._aiLoading && <span style={{ color: '#a78bfa', fontWeight: 400 }}> · AI…</span>}
+                                </div>
+                                <select value={emailForm.categorie} onChange={e => setEmailForm(p => ({ ...p, categorie: e.target.value }))} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.85rem', boxSizing: 'border-box' }}>
+                                    {['Offerte', 'Opdracht', 'Factuur', 'Klacht', 'Informatie', 'Overig'].map(c => <option key={c}>{c}</option>)}
+                                </select>
+                            </label>
+                        </div>
+                        {/* Notitie */}
+                        <label style={{ display: 'block', marginBottom: 16 }}>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', marginBottom: 3 }}>Notitie <span style={{ fontWeight: 400 }}>(optioneel)</span></div>
+                            <textarea value={emailForm.notitie} onChange={e => setEmailForm(p => ({ ...p, notitie: e.target.value }))} rows={3} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.85rem', resize: 'vertical', boxSizing: 'border-box' }} placeholder="Korte samenvatting of aantekening…" />
+                        </label>
+                        {/* Knoppen */}
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <button onClick={() => setEmailForm(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#64748b' }}>Annuleren</button>
+                            <button onClick={() => {
+                                const emailId = (Date.now() + Math.random()).toString();
+                                const aiTaken = (emailForm._aiTaken || []).map(t => ({ id: 't' + Date.now() + Math.random(), naam: typeof t === 'string' ? t : (t?.name || ''), deadline: typeof t === 'object' ? (t?.deadline || null) : null, gedaan: false }));
+                                voegEmailToe({ id: emailId, richting: emailForm.richting, van: emailForm.van, onderwerp: emailForm.onderwerp, datum: emailForm.datum, categorie: emailForm.categorie || 'Overig', notitie: emailForm.notitie, body: emailForm._body || '', attachments: emailForm._attachments || [], originalFile: emailForm._fileId ? { name: emailForm._fileName, size: emailForm._fileSize, fileId: emailForm._fileId } : null, taken: aiTaken });
+                                setEmailForm(null);
+                            }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7 }}>
+                                {emailForm._aiLoading ? <><i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '0.75rem' }} />AI analyseert…</> : '✓ Opslaan'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ===== EMAIL CONTACT PICKER MODAL ===== */}
             {meerwerkEmailPicker && (
@@ -3177,7 +5674,8 @@ export default function ProjectDossierPage() {
                                             {emailData.bodyIsHtml ? (
                                                 <iframe
                                                     srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:14px;line-height:1.6;color:#1e293b;padding:24px 28px;margin:0;background:#fff}a{color:#3b82f6}img{max-width:100%}</style></head><body>${emailData.bodyHtml}</body></html>`}
-                                                    sandbox="allow-same-origin"
+                                                    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                                    onLoad={ev => { try { ev.target.contentDocument.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; }); } catch {} }}
                                                     style={{ width: '100%', height: '100%', minHeight: '320px', border: 'none', display: 'block', borderRadius: '12px' }}
                                                     title="email inhoud"
                                                 />
