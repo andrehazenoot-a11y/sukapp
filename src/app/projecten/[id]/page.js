@@ -786,6 +786,7 @@ export default function ProjectDossierPage() {
         saveProject(updated);
     };
     const [previewAtt, setPreviewAtt] = useState(null); // { data, name, type }
+    const [bijlageDragOver, setBijlageDragOver] = useState(false);
     const [deleteConfirmTask, setDeleteConfirmTask] = useState(null); // task.id
     const [dragOverTask, setDragOverTask] = useState(null); // task.id being dragged over
 
@@ -947,6 +948,8 @@ export default function ProjectDossierPage() {
     // ── Ref om altijd de actuele project-state te lezen in de interval ──
     const projectRef = useRef(null);
     useEffect(() => { projectRef.current = project; });
+    const plannerTakenRef = useRef(null);
+    useEffect(() => { plannerTakenRef.current = plannerTaken; }, [plannerTaken]);
 
     // ── Achtergrond sync Outlook → app categorieën (elke 60s) ──
     useEffect(() => {
@@ -1047,6 +1050,21 @@ export default function ProjectDossierPage() {
             const d = r.ok ? await r.json() : [];
             let b = rb.ok ? await rb.json() : [];
             setPlannerTaken(d);
+            // Sync voltooiing van Planner terug naar app
+            setProject(prev => {
+                if (!prev) return prev;
+                const gesync = prev.tasks.map(t => {
+                    if (!t.plannerTaskId) return t;
+                    const pt = d.find(p => p.id === t.plannerTaskId);
+                    if (!pt) return t;
+                    return { ...t, completed: pt.percentComplete === 100 };
+                });
+                const veranderd = gesync.some((t, i) => t.completed !== prev.tasks[i]?.completed);
+                if (!veranderd) return prev;
+                const bijgewerkt = { ...prev, tasks: gesync };
+                try { const all = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); localStorage.setItem('schildersapp_projecten', JSON.stringify(all.map(x => String(x.id) === String(bijgewerkt.id) ? bijgewerkt : x))); } catch {}
+                return bijgewerkt;
+            });
             if (b.length === 0) {
                 // Buckets ontbreken volledig — aanmaken vanuit sjabloon
                 const sjabloon = plannerSjablonenState.find(s => s.id === plannerPaletSjabloon) || plannerSjablonenState[0];
@@ -1065,6 +1083,75 @@ export default function ProjectDossierPage() {
             if (b[0]) setPlannerBucketKeuze(b[0].id);
         }).catch(() => setPlannerTaken([])).finally(() => setPlannerTakenBezig(false));
     }, [project?.plannerPlanId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Planner → App auto-sync (elke 30s) ──
+    const syncVanPlannerNaarApp = useCallback(async () => {
+        const proj = projectRef.current;
+        if (!proj?.plannerPlanId) return;
+        try {
+            const [rt, rb] = await Promise.all([
+                fetch(`/api/teams/planner-taken?planId=${proj.plannerPlanId}`),
+                fetch(`/api/teams/planner-buckets?planId=${proj.plannerPlanId}`),
+            ]);
+            const taken = rt.ok ? await rt.json() : null;
+            const buckets = rb.ok ? await rb.json() : null;
+            if (taken) setPlannerTaken(taken);
+            if (buckets) setPlannerBuckets(buckets);
+
+            // Details ophalen voor alle gekoppelde taken
+            const gekoppeld = (proj.tasks || []).filter(t => t.plannerTaskId);
+            const detailsMap = {};
+            await Promise.all(gekoppeld.map(async t => {
+                try {
+                    const dr = await fetch(`/api/teams/planner-taak-details?taskId=${t.plannerTaskId}`);
+                    if (dr.ok) detailsMap[t.plannerTaskId] = await dr.json();
+                } catch {}
+            }));
+
+            setProject(prev => {
+                if (!prev) return prev;
+                let veranderd = false;
+                const gesync = prev.tasks.map(t => {
+                    if (!t.plannerTaskId) return t;
+                    const pt = taken?.find(p => p.id === t.plannerTaskId);
+                    const det = detailsMap[t.plannerTaskId];
+                    const updates = {};
+                    if (pt && (pt.percentComplete === 100) !== t.completed) updates.completed = pt.percentComplete === 100;
+                    if (pt?.appliedCategories !== undefined) {
+                        const plannerCats = new Set(Object.keys(pt.appliedCategories || {}).filter(k => pt.appliedCategories[k]));
+                        const lokaalCats = new Set(Object.keys(t.labels || {}).filter(k => (t.labels||{})[k]));
+                        if (plannerCats.size !== lokaalCats.size || [...plannerCats].some(k => !lokaalCats.has(k))) {
+                            updates.labels = Object.fromEntries([...plannerCats].map(k => [k, true]));
+                        }
+                    }
+                    if (det?.description && det.description !== t.memo) updates.memo = det.description;
+                    if (det?.checklist) {
+                        const plannerItems = Object.entries(det.checklist)
+                            .filter(([, item]) => item?.title)
+                            .map(([pid, item]) => ({ plannerItemId: pid, text: item.title, done: item.isChecked }));
+                        if (plannerItems.length > 0) {
+                            const lokaalIds = new Set((t.checklist || []).map(x => x.plannerItemId));
+                            const plannerIds = new Set(plannerItems.map(x => x.plannerItemId));
+                            const verschil = plannerItems.some(x => !lokaalIds.has(x.plannerItemId) || (t.checklist||[]).find(l => l.plannerItemId === x.plannerItemId)?.done !== x.done);
+                            if (verschil || [...lokaalIds].some(id => id && !plannerIds.has(id))) updates.checklist = plannerItems;
+                        }
+                    }
+                    if (Object.keys(updates).length > 0) { veranderd = true; return { ...t, ...updates }; }
+                    return t;
+                });
+                if (!veranderd) return prev;
+                const bijgewerkt = { ...prev, tasks: gesync };
+                try { const all = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); localStorage.setItem('schildersapp_projecten', JSON.stringify(all.map(x => String(x.id) === String(bijgewerkt.id) ? bijgewerkt : x))); } catch {}
+                return bijgewerkt;
+            });
+        } catch {}
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!project?.plannerPlanId) return;
+        const interval = setInterval(syncVanPlannerNaarApp, 30000);
+        return () => clearInterval(interval);
+    }, [project?.plannerPlanId, syncVanPlannerNaarApp]);
 
     // Auto-refresh meerwerk als de chatbot (of ander tabblad) iets opslaat
     useEffect(() => {
@@ -1120,6 +1207,47 @@ export default function ProjectDossierPage() {
                 setPlannerTaken(prev => prev ? [...prev, nieuw] : [nieuw]);
                 setPlannerVerstuurd(prev => ({ ...prev, [taskId]: 'ok' }));
                 setTimeout(() => setPlannerVerstuurd(prev => { const n = { ...prev }; delete n[taskId]; return n; }), 2000);
+
+                // Bijlagen meesturen naar Planner als references
+                const lokaaleTaak = (project.tasks || []).find(t => t.id === taskId);
+                const bijlagen = lokaaleTaak?.attachments || [];
+                if (bijlagen.length > 0 && nieuw.id) {
+                    try {
+                        // Haal etag op van de nieuwe Planner taak
+                        const detailsRes = await fetch(`/api/teams/planner-taak-details?taskId=${nieuw.id}`);
+                        if (detailsRes.ok) {
+                            const details = await detailsRes.json();
+                            const etag = details['@odata.etag'];
+                            const references = {};
+                            for (const att of bijlagen) {
+                                let webUrl = att.url || null;
+                                // Base64-only bestanden eerst uploaden naar SharePoint
+                                if (!webUrl && att.data && teamsTeamId) {
+                                    try {
+                                        const base64 = att.data.includes(',') ? att.data.split(',')[1] : att.data;
+                                        const upRes = await fetch('/api/teams/upload-bijlage', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ teamId: teamsTeamId, filename: att.name, contentBase64: base64, mimeType: att.type }),
+                                        });
+                                        if (upRes.ok) { const upData = await upRes.json(); webUrl = upData.webUrl; }
+                                    } catch {}
+                                }
+                                if (webUrl) {
+                                    const encodedUrl = webUrl.replace(/:/g, '%3A').replace(/\./g, '%2E');
+                                    references[encodedUrl] = { '@odata.type': '#microsoft.graph.plannerExternalReference', alias: att.name, type: 'Other', previewPriority: ' !' };
+                                }
+                            }
+                            if (Object.keys(references).length > 0) {
+                                await fetch('/api/teams/planner-taak-details', {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ taskId: nieuw.id, references, etag }),
+                                });
+                            }
+                        }
+                    } catch {}
+                }
             } else {
                 setPlannerVerstuurd(prev => ({ ...prev, [taskId]: 'error' }));
             }
@@ -1268,27 +1396,32 @@ export default function ProjectDossierPage() {
     };
 
     const stuurProjectTaakNaarPlanner = async (taak) => {
-        if (!project?.plannerPlanId || taak.plannerTaskId) return;
+        if (!project?.plannerPlanId) return;
         setProjTaakPlannerBezig(prev => new Set([...prev, taak.id]));
         const matchBucket = plannerBuckets.find(b => b.name === taak.bucketNaam);
         const bucketId = matchBucket?.id || plannerBucketKeuze || undefined;
         try {
+            // Taak aanmaken in Planner
+            const postBody = { planId: project.plannerPlanId, title: taak.name };
+            if (bucketId) postBody.bucketId = bucketId;
+            if (taak.startDate) postBody.startDateTime = new Date(taak.startDate + 'T00:00:00').toISOString();
+            if (taak.endDate) postBody.dueDateTime = new Date(taak.endDate + 'T00:00:00').toISOString();
+            // Toewijzing meesturen zodat Microsoft een email stuurt — alleen als het een geldig Azure AD ID is
+            const toegewezenId = taak.assignedTo?.[0];
+            const isGeldigId = toegewezenId && typeof toegewezenId === 'string' && toegewezenId.includes('-');
+            if (isGeldigId) postBody.assignments = { [toegewezenId]: { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' } };
+
             const r = await fetch('/api/teams/planner-taken', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    planId: project.plannerPlanId,
-                    title: taak.name,
-                    bucketId,
-                    startDateTime: taak.startDate ? new Date(taak.startDate).toISOString() : undefined,
-                    dueDateTime: taak.endDate ? new Date(taak.endDate).toISOString() : undefined,
-                    assignments: taak.assignedTo?.[0] ? { [taak.assignedTo[0]]: { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' } } : undefined,
-                }),
+                body: JSON.stringify(postBody),
             });
-            if (!r.ok) return;
+            if (!r.ok) { setProjTaakPlannerBezig(prev => { const n = new Set(prev); n.delete(taak.id); return n; }); return; }
             const nieuw = await r.json();
             setPlannerTaken(prev => [...(prev || []), nieuw]);
-            if (taak.memo) {
+
+            // Details (memo + checklist) in één PATCH sturen
+            try {
                 const detailsRes = await fetch(`/api/teams/planner-taak-details?taskId=${nieuw.id}`);
                 if (detailsRes.ok) {
                     const details = await detailsRes.json();
@@ -1296,20 +1429,23 @@ export default function ProjectDossierPage() {
                     (taak.checklist || []).forEach((item, i) => {
                         checklistObj[String(i)] = { '@odata.type': '#microsoft.graph.plannerChecklistItem', title: item.text, isChecked: item.done || false, orderHint: ' !' };
                     });
-                    await fetch('/api/teams/planner-taak-details', {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            taskId: nieuw.id,
-                            description: taak.memo,
-                            checklist: taak.checklist?.length > 0 ? checklistObj : undefined,
-                            etag: details['@odata.etag'],
-                        }),
-                    });
+                    const patchBody = { taskId: nieuw.id, etag: details['@odata.etag'] };
+                    if (taak.memo) patchBody.description = taak.memo;
+                    if (Object.keys(checklistObj).length > 0) patchBody.checklist = checklistObj;
+                    if (taak.memo || Object.keys(checklistObj).length > 0) {
+                        await fetch('/api/teams/planner-taak-details', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(patchBody),
+                        });
+                    }
                 }
-            }
+            } catch {}
+
             saveProject({ ...project, tasks: (project.tasks || []).map(t => t.id === taak.id ? { ...t, plannerTaskId: nieuw.id } : t) });
-        } catch {}
+        } catch (err) {
+            console.error('stuurProjectTaakNaarPlanner fout:', err);
+        }
         setProjTaakPlannerBezig(prev => { const n = new Set(prev); n.delete(taak.id); return n; });
     };
 
@@ -1684,6 +1820,39 @@ export default function ProjectDossierPage() {
         saveProject(updated);
     };
 
+    // Helper: sync één taak naar Planner na een wijziging
+    const syncTaakNaarPlanner = async (taak, taakVelden = {}, detailsVelden = {}) => {
+        if (!taak?.plannerTaskId) { console.log('[sync] geen plannerTaskId op taak', taak?.id, taak?.name); return; }
+        const pid = taak.plannerTaskId;
+        // Taak-niveau (datums, labels, toewijzing) — etag ophalen uit plannerTaken state
+        if (Object.keys(taakVelden).length > 0) {
+            const plannerTaak = (plannerTakenRef.current || []).find(t => t.id === pid);
+            const etag = plannerTaak?.['@odata.etag'];
+            if (!etag) return; // etag nog niet geladen — auto-sync pakt het op
+            fetch('/api/teams/planner-taken', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId: pid, etag, ...taakVelden }),
+            }).then(r => {
+                if (!r.ok && r.status !== 412) r.text().then(t => console.error('[sync taak PATCH fout]', r.status, t));
+                // Na PATCH is de etag verlopen — auto-sync (elke 30s) vernieuwt hem
+            }).catch(() => {});
+        }
+        // Details-niveau (notitie, checklist)
+        if (Object.keys(detailsVelden).length > 0) {
+            fetch(`/api/teams/planner-taak-details?taskId=${pid}`)
+                .then(r => r.ok ? r.json() : (r.text().then(t => { console.error('[sync details GET fout]', r.status, t); return null; })))
+                .then(details => {
+                    if (!details) return;
+                    fetch('/api/teams/planner-taak-details', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ taskId: pid, etag: details['@odata.etag'], ...detailsVelden }),
+                    }).then(r => { if (!r.ok) r.text().then(t => console.error('[sync details PATCH fout]', r.status, t)); });
+                }).catch(e => console.error('[sync details fout]', e));
+        }
+    };
+
     const verwerkEmailBestand = async (files) => {
         const fmt = (d) => d.toISOString().split('T')[0];
         for (const file of Array.from(files)) {
@@ -1801,8 +1970,20 @@ export default function ProjectDossierPage() {
     };
 
     const toggleTask = (taskId) => {
-        const updated = { ...project, tasks: project.tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t) };
-        saveProject(updated);
+        const taak = project.tasks.find(t => t.id === taskId);
+        const nieuweStatus = !taak?.completed;
+        saveProject({ ...project, tasks: project.tasks.map(t => t.id === taskId ? { ...t, completed: nieuweStatus } : t) });
+        if (taak?.plannerTaskId) {
+            const plannerTaak = (plannerTakenRef.current || []).find(t => t.id === taak.plannerTaskId);
+            const etag = plannerTaak?.['@odata.etag'];
+            if (etag) {
+                fetch('/api/teams/planner-taken', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskId: taak.plannerTaskId, percentComplete: nieuweStatus ? 100 : 0, etag }),
+                }).catch(() => {});
+            }
+        }
     };
 
     const addNote = () => {
@@ -3960,14 +4141,6 @@ export default function ProjectDossierPage() {
                                                         <i className="fa-regular fa-note-sticky" onClick={() => toggleDossierExpand(task.id)} style={{ fontSize: '0.6rem', color: (task.notes || []).length > 0 ? '#fdba74' : '#e2e8f0', cursor: 'pointer' }} title={(task.notes || []).length > 0 ? `${(task.notes || []).length} notitie(s)` : 'Notitie toevoegen'} />
                                                         <i className="fa-solid fa-paperclip" onClick={() => toggleDossierExpand(task.id)} style={{ fontSize: '0.6rem', color: (task.attachments || []).length > 0 ? '#334155' : '#e2e8f0', cursor: 'pointer' }} title={(task.attachments || []).length > 0 ? `${(task.attachments || []).length} bijlage(n)` : 'Bijlage toevoegen'} />
                                                         {linkedEmail && <i className="fa-regular fa-envelope" onClick={async () => { if (linkedEmail.originalFile) { const bestand = await haalEmailBestandOp(linkedEmail.originalFile.fileId); const blob = bestand?.blob || bestand; if (blob instanceof Blob) { const reader = new FileReader(); reader.onload = async ev => { await fetch('/api/outlook/open-msg', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: ev.target.result.split(',')[1], name: linkedEmail.originalFile.name }) }); }; reader.readAsDataURL(blob); } } else if (linkedEmail.from) { window.location.href = `mailto:${linkedEmail.from}`; } }} style={{ fontSize: '0.6rem', color: '#3b82f6', cursor: 'pointer' }} title="Open email in Outlook" />}
-                                                        {project.plannerPlanId && (() => {
-                                                            const st = plannerVerstuurd[task.id];
-                                                            return (
-                                                                <button onClick={() => stuurNaarPlanner(task.id, task.name)} disabled={st === 'bezig'} title="Naar Planner sturen" style={{ width: 18, height: 18, borderRadius: 4, border: `1px solid ${st === 'ok' ? '#16a34a' : st === 'error' ? '#dc2626' : '#059669'}`, background: st === 'ok' ? '#dcfce7' : st === 'error' ? '#fee2e2' : 'transparent', color: st === 'ok' ? '#16a34a' : st === 'error' ? '#dc2626' : '#059669', cursor: st === 'bezig' ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', padding: 0, flexShrink: 0 }}>
-                                                                    <i className={`fa-solid ${st === 'bezig' ? 'fa-spinner fa-spin' : st === 'ok' ? 'fa-check' : st === 'error' ? 'fa-xmark' : 'fa-share'}`} />
-                                                                </button>
-                                                            );
-                                                        })()}
                                                         {showOrder && (
                                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                                                                 <button onClick={() => movePlanningOrder(task.id, 'up')} disabled={isFirst} style={{ width: 14, height: 12, border: 'none', background: 'none', color: isFirst ? '#e2e8f0' : '#94a3b8', cursor: isFirst ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem' }}><i className="fa-solid fa-chevron-up" /></button>
@@ -4689,19 +4862,8 @@ export default function ProjectDossierPage() {
                                                     <div style={{ display: 'flex', gap: 6 }}>
                                                         <button onClick={async () => {
                                                             setPlannerTakenBezig(true);
-                                                            try {
-                                                                const [r, rb] = await Promise.all([
-                                                                    fetch(`/api/teams/planner-taken?planId=${project.plannerPlanId}`),
-                                                                    fetch(`/api/teams/planner-buckets?planId=${project.plannerPlanId}`),
-                                                                ]);
-                                                                const d = r.ok ? await r.json() : [];
-                                                                const b = rb.ok ? await rb.json() : [];
-                                                                setPlannerTaken(d);
-                                                                setPlannerBuckets(b);
-                                                                const nieuwTaakBucket = b.find(x => x.name === 'Nieuwe taak') || b[0];
-                                                            if (nieuwTaakBucket) setPlannerBucketKeuze(nieuwTaakBucket.id);
-                                                            } catch { setPlannerTaken([]); }
-                                                            finally { setPlannerTakenBezig(false); }
+                                                            await syncVanPlannerNaarApp();
+                                                            setPlannerTakenBezig(false);
                                                         }} disabled={plannerTakenBezig}
                                                             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: 'none', cursor: 'pointer' }}>
                                                             <i className={`fa-solid ${plannerTakenBezig ? 'fa-spinner fa-spin' : 'fa-rotate'}`} />
@@ -4770,7 +4932,7 @@ export default function ProjectDossierPage() {
                                                         <div key={gt.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
                                                             {/* Sub-header */}
                                                             <div style={{ padding: '10px 14px', background: '#f5f3ff', borderBottom: '1px solid #e0e7ff', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                                                                <button onClick={() => { const updated = (project.tasks||[]).map(t => t.id===gt.id ? {...t, completed: !t.completed} : t); saveProject({...project, tasks: updated}); }}
+                                                                <button onClick={() => toggleTask(gt.id)}
                                                                     style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${gt.completed ? '#16a34a' : '#a5b4fc'}`, background: gt.completed ? '#16a34a' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
                                                                     {gt.completed && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.4rem' }} />}
                                                                 </button>
@@ -4778,21 +4940,59 @@ export default function ProjectDossierPage() {
                                                                     onBlur={e => { if (e.target.value.trim()) saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, name: e.target.value.trim()} : t)}); }}
                                                                     style={{ flex: 1, fontSize: '0.9rem', fontWeight: 700, color: '#3730a3', border: 'none', outline: 'none', background: 'transparent', borderBottom: '1px solid #c7d2fe' }} />
                                                                 <span style={{ fontSize: '0.65rem', background: '#ede9fe', color: '#6366f1', padding: '2px 8px', borderRadius: 10, whiteSpace: 'nowrap' }}>{gt.bucketNaam || '—'}</span>
+                                                                {project.plannerPlanId && (() => {
+                                                                    const bezig = projTaakPlannerBezig.has(gt.id);
+                                                                    const aan = !!gt.plannerTaskId;
+                                                                    return (
+                                                                        <button
+                                                                            disabled={bezig}
+                                                                            onClick={() => {
+                                                                                if (aan) {
+                                                                                    // Uitzetten: lokale koppeling verwijderen
+                                                                                    saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, plannerTaskId: null} : t)});
+                                                                                } else {
+                                                                                    stuurProjectTaakNaarPlanner(gt);
+                                                                                }
+                                                                            }}
+                                                                            title={aan ? 'Klik om te ontkoppelen van Planner' : 'Taak naar Microsoft Planner sturen'}
+                                                                            style={{ padding: '4px 10px', borderRadius: 7, border: `2px solid ${aan ? '#16a34a' : '#e2e8f0'}`, background: aan ? '#dcfce7' : '#f8fafc', color: aan ? '#16a34a' : '#64748b', fontWeight: 700, fontSize: '0.7rem', cursor: bezig ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, transition: 'all 0.2s' }}>
+                                                                            <i className={`fa-solid ${bezig ? 'fa-spinner fa-spin' : aan ? 'fa-check' : 'fa-share-from-square'}`} />
+                                                                            {bezig ? 'Bezig…' : aan ? 'In Planner' : 'Naar Planner'}
+                                                                        </button>
+                                                                    );
+                                                                })()}
                                                             </div>
                                                             {/* Body */}
                                                             <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
                                                                 {/* Start | Einde | Toegewezen */}
                                                                 <div style={{ display: 'flex', gap: 12 }}>
-                                                                    {[['startDate','Start'],['endDate','Einde']].map(([field,label]) => (
+                                                                    {[['startDate','Start','startDateTime'],['endDate','Einde','dueDateTime']].map(([field,label,plannerField]) => (
                                                                         <div key={field} style={{ flex: 1 }}>
                                                                             <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 3 }}>{label}</div>
-                                                                            <input type="date" defaultValue={gt[field]||''} onBlur={e => saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, [field]: e.target.value} : t)})}
+                                                                            <input type="date" defaultValue={gt[field]||''} onBlur={e => {
+                                                                                const val = e.target.value;
+                                                                                const bijgewerkt = {...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, [field]: val} : t)};
+                                                                                saveProject(bijgewerkt);
+                                                                                const taak = bijgewerkt.tasks.find(t => t.id===gt.id);
+                                                                                if (val) syncTaakNaarPlanner(taak, { [plannerField]: new Date(val + 'T00:00:00').toISOString() });
+                                                                            }}
                                                                                 style={{ width: '100%', fontSize: '0.78rem', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 7px', boxSizing: 'border-box' }} />
                                                                         </div>
                                                                     ))}
                                                                     <div style={{ flex: 1 }}>
                                                                         <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 3 }}>Toegewezen aan</div>
-                                                                        <select defaultValue={gt.assignedTo?.[0]||''} onChange={e => saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, assignedTo: e.target.value ? [e.target.value] : []} : t)})}
+                                                                        <select defaultValue={gt.assignedTo?.[0]||''} onChange={e => {
+                                                                            const userId = e.target.value;
+                                                                            const bijgewerkt = {...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, assignedTo: userId ? [userId] : []} : t)};
+                                                                            saveProject(bijgewerkt);
+                                                                            const taak = bijgewerkt.tasks.find(t => t.id===gt.id);
+                                                                            if (userId && userId.includes('-')) {
+                                                                                syncTaakNaarPlanner(taak, { assignments: { [userId]: { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' } } });
+                                                                            } else if (!userId) {
+                                                                                // Remove all assignments — send empty object
+                                                                                syncTaakNaarPlanner(taak, { assignments: {} });
+                                                                            }
+                                                                        }}
                                                                             style={{ width: '100%', fontSize: '0.78rem', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 7px' }}>
                                                                             <option value="">— Niet toegewezen —</option>
                                                                             {(teamsLeden||[]).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -4813,7 +5013,16 @@ export default function ProjectDossierPage() {
                                                                         ].map(cat => {
                                                                             const aan = !!(gt.labels?.[cat.key]);
                                                                             return (
-                                                                                <button key={cat.key} onClick={() => saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, labels: {...(t.labels||{}), [cat.key]: !aan}} : t)})}
+                                                                                <button key={cat.key} onClick={() => {
+                                                                                    const nieuweLabels = {...(gt.labels||{}), [cat.key]: !aan};
+                                                                                    const bijgewerkt = {...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, labels: nieuweLabels} : t)};
+                                                                                    saveProject(bijgewerkt);
+                                                                                    const taak = bijgewerkt.tasks.find(t => t.id===gt.id);
+                                                                                    // Alle 6 categorieën expliciet meesturen — Planner verwijdert anders oude labels niet
+                                                                                    const ac = { category1: false, category2: false, category3: false, category4: false, category5: false, category6: false };
+                                                                                    Object.entries(nieuweLabels).forEach(([k,v]) => { if (v) ac[k] = true; });
+                                                                                    syncTaakNaarPlanner(taak, { appliedCategories: ac });
+                                                                                }}
                                                                                     style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', border: `2px solid ${cat.color}`, background: aan ? cat.color : '#fff', color: aan ? '#fff' : cat.color }}>
                                                                                     {cat.label}
                                                                                 </button>
@@ -4824,7 +5033,11 @@ export default function ProjectDossierPage() {
                                                                 {/* Notitie */}
                                                                 <div>
                                                                     <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 4 }}>Notitie</div>
-                                                                    <textarea defaultValue={gt.memo||''} rows={3} placeholder="Voeg een notitie toe…" onBlur={e => updateTaskMemo(gt.id, e.target.value)}
+                                                                    <textarea key={gt.memo||''} defaultValue={gt.memo||''} rows={3} placeholder="Voeg een notitie toe…" onBlur={e => {
+                                                                        const val = e.target.value;
+                                                                        updateTaskMemo(gt.id, val);
+                                                                        syncTaakNaarPlanner(gt, {}, { description: val });
+                                                                    }}
                                                                         style={{ width: '100%', fontSize: '0.8rem', border: '1px solid #e0e7ff', borderRadius: 7, padding: '6px 8px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
                                                                 </div>
                                                                 {/* Checklist */}
@@ -4835,20 +5048,89 @@ export default function ProjectDossierPage() {
                                                                     </div>
                                                                     {(gt.checklist||[]).map((item,ci) => (
                                                                         <div key={ci} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                                                                            <button onClick={() => { const cl=(gt.checklist||[]).map((x,i)=>i===ci?{...x,done:!x.done}:x); saveProject({...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)}); }}
+                                                                            <button onClick={() => {
+                                                                                const cl=(gt.checklist||[]).map((x,i)=>i===ci?{...x,plannerItemId:x.plannerItemId||crypto.randomUUID(),done:!x.done}:x);
+                                                                                const bijgewerkt={...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)};
+                                                                                saveProject(bijgewerkt);
+                                                                                const taak=bijgewerkt.tasks.find(t=>t.id===gt.id);
+                                                                                const plannerCl={}; cl.forEach(x=>{if(x.plannerItemId)plannerCl[x.plannerItemId]={'@odata.type':'#microsoft.graph.plannerChecklistItem',title:x.text,isChecked:x.done,orderHint:' !'};});
+                                                                                syncTaakNaarPlanner(taak,{},{checklist:plannerCl});
+                                                                            }}
                                                                                 style={{ width:16,height:16,borderRadius:3,border:`1.5px solid ${item.done?'#16a34a':'#cbd5e1'}`,background:item.done?'#16a34a':'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,padding:0 }}>
                                                                                 {item.done && <i className="fa-solid fa-check" style={{color:'#fff',fontSize:'0.4rem'}}/>}
                                                                             </button>
                                                                             <span style={{ flex:1,fontSize:'0.8rem',color:item.done?'#94a3b8':'#1e293b',textDecoration:item.done?'line-through':'none' }}>{item.text}</span>
-                                                                            <button onClick={() => { const cl=(gt.checklist||[]).filter((_,i)=>i!==ci); saveProject({...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)}); }}
+                                                                            <button onClick={() => {
+                                                                                const removedId=item.plannerItemId;
+                                                                                const cl=(gt.checklist||[]).filter((_,i)=>i!==ci);
+                                                                                const bijgewerkt={...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)};
+                                                                                saveProject(bijgewerkt);
+                                                                                const taak=bijgewerkt.tasks.find(t=>t.id===gt.id);
+                                                                                if(removedId){const plannerCl={[removedId]:null};cl.forEach(x=>{if(x.plannerItemId)plannerCl[x.plannerItemId]={'@odata.type':'#microsoft.graph.plannerChecklistItem',title:x.text,isChecked:x.done,orderHint:' !'};});syncTaakNaarPlanner(taak,{},{checklist:plannerCl});}
+                                                                            }}
                                                                                 style={{ width:16,height:16,border:'none',background:'transparent',color:'#cbd5e1',cursor:'pointer',fontSize:'0.55rem',padding:0 }}>
                                                                                 <i className="fa-solid fa-xmark"/>
                                                                             </button>
                                                                         </div>
                                                                     ))}
                                                                     <input placeholder="+ Item toevoegen (Enter)"
-                                                                        onKeyDown={e => { if (e.key==='Enter' && e.target.value.trim()) { const cl=[...(gt.checklist||[]),{text:e.target.value.trim(),done:false}]; saveProject({...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)}); e.target.value=''; }}}
+                                                                        onKeyDown={e => { if (e.key==='Enter' && e.target.value.trim()) { const newItem={text:e.target.value.trim(),done:false,plannerItemId:crypto.randomUUID()}; const cl=[...(gt.checklist||[]),newItem]; const bijgewerkt={...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)}; saveProject(bijgewerkt); const taak=bijgewerkt.tasks.find(t=>t.id===gt.id); const plannerCl={}; cl.forEach(x=>{if(x.plannerItemId)plannerCl[x.plannerItemId]={'@odata.type':'#microsoft.graph.plannerChecklistItem',title:x.text,isChecked:x.done,orderHint:' !'};});syncTaakNaarPlanner(taak,{},{checklist:plannerCl}); e.target.value=''; }}}
                                                                         style={{ fontSize:'0.78rem',border:'none',borderBottom:'1px solid #e0e7ff',outline:'none',width:'100%',padding:'4px 0',color:'#94a3b8' }} />
+                                                                </div>
+                                                                {/* Bijlagen */}
+                                                                <div>
+                                                                    <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6 }}>
+                                                                        <div style={{ fontSize:'0.63rem',fontWeight:700,color:'#6366f1' }}>Bijlagen</div>
+                                                                        <label htmlFor={`bijlage-upload-${gt.id}`} style={{ cursor:'pointer',padding:'3px 8px',borderRadius:6,border:'1px solid #e0e7ff',background:'#f5f3ff',color:'#6366f1',fontSize:'0.68rem',fontWeight:600,display:'flex',alignItems:'center',gap:4 }}>
+                                                                            <i className="fa-solid fa-paperclip" /> Toevoegen
+                                                                            <input id={`bijlage-upload-${gt.id}`} name={`bijlage-upload-${gt.id}`} type="file" multiple style={{ display:'none' }} onChange={e => { if (e.target.files?.length) handleFileUpload(gt.id, e.target.files); e.target.value=''; }} />
+                                                                        </label>
+                                                                    </div>
+                                                                    {/* Drag & drop zone */}
+                                                                    <label
+                                                                        onDragOver={e => { e.preventDefault(); setBijlageDragOver(true); }}
+                                                                        onDragLeave={() => setBijlageDragOver(false)}
+                                                                        onDrop={e => { e.preventDefault(); setBijlageDragOver(false); if (e.dataTransfer.files?.length) handleFileUpload(gt.id, e.dataTransfer.files); }}
+                                                                        style={{ display:'block',border:`2px dashed ${bijlageDragOver?'#6366f1':'#c7d2fe'}`,borderRadius:8,padding:'10px 0',textAlign:'center',cursor:'pointer',background:bijlageDragOver?'#ede9fe':'#fafafe',marginBottom:8,transition:'all 0.15s' }}>
+                                                                        <i className="fa-solid fa-cloud-arrow-up" style={{ color:bijlageDragOver?'#6366f1':'#a5b4fc',fontSize:'1.1rem' }} />
+                                                                        <div style={{ fontSize:'0.68rem',color:bijlageDragOver?'#6366f1':'#a5b4fc',marginTop:3 }}>Sleep bestanden hier of klik om te uploaden</div>
+                                                                        <input id={`bijlage-drop-${gt.id}`} name={`bijlage-drop-${gt.id}`} type="file" multiple style={{ display:'none' }} onChange={e => { if (e.target.files?.length) handleFileUpload(gt.id, e.target.files); e.target.value=''; }} />
+                                                                    </label>
+                                                                    {(gt.attachments||[]).length === 0 && (
+                                                                        <div style={{ fontSize:'0.72rem',color:'#c7d2fe',textAlign:'center',padding:'2px 0 4px' }}>Geen bijlagen</div>
+                                                                    )}
+                                                                    <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6 }}>
+                                                                    {(gt.attachments||[]).map((att,ai) => {
+                                                                        const isImg = att.type?.startsWith('image/');
+                                                                        const attIcon = isImg ? null : att.type?.includes('pdf') ? {icon:'fa-file-pdf',color:'#ef4444'} : (att.type?.includes('outlook')||att.name?.endsWith('.msg')) ? {icon:'fa-envelope',color:'#3b82f6'} : (att.type==='message/rfc822'||att.name?.endsWith('.eml')) ? {icon:'fa-envelope',color:'#6366f1'} : (att.type?.includes('excel')||att.name?.match(/\.xlsx?$/i)) ? {icon:'fa-file-excel',color:'#16a34a'} : (att.type?.includes('word')||att.name?.match(/\.docx?$/i)) ? {icon:'fa-file-word',color:'#2563eb'} : {icon:'fa-file',color:'#94a3b8'};
+                                                                        return (
+                                                                        <div key={ai} style={{ borderRadius:8,border:'1px solid #e0e7ff',background:'#fafafe',overflow:'hidden',display:'flex',flexDirection:'column' }}>
+                                                                            {/* Thumbnail of icoon */}
+                                                                            <div style={{ height:60,background:'#f5f3ff',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden' }}>
+                                                                                {isImg ? (
+                                                                                    <img src={att.url||att.data} alt={att.name} style={{ width:'100%',height:'100%',objectFit:'cover' }} />
+                                                                                ) : (
+                                                                                    <i className={`fa-solid ${attIcon.icon}`} style={{ fontSize:'1.6rem',color:attIcon.color }} />
+                                                                                )}
+                                                                            </div>
+                                                                            {/* Naam + acties */}
+                                                                            <div style={{ padding:'4px 6px' }}>
+                                                                                <div style={{ fontSize:'0.65rem',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginBottom:3 }} title={att.name}>{att.name}</div>
+                                                                                <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center' }}>
+                                                                                    {(att.url||att.data) ? (
+                                                                                        <a href={att.url||att.data} download={att.name} style={{ color:'#6366f1',fontSize:'0.6rem',textDecoration:'none' }} title="Download">
+                                                                                            <i className="fa-solid fa-download" />
+                                                                                        </a>
+                                                                                    ) : <span />}
+                                                                                    <button onClick={() => removeAttachment(gt.id, ai)} style={{ width:14,height:14,border:'none',background:'transparent',color:'#cbd5e1',cursor:'pointer',fontSize:'0.5rem',padding:0 }}>
+                                                                                        <i className="fa-solid fa-xmark" />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        );
+                                                                    })}
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>

@@ -25,15 +25,48 @@ function getMonday(d) { const r = new Date(d); const day = r.getDay(); const dif
 const MONTHS_FULL = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'];
 const DAYS_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
 
-const HOLIDAYS = {
-    '2026-01-01': 'Nieuwjaarsdag', '2026-04-03': 'Goede Vrijdag', '2026-04-05': 'Eerste Paasdag',
-    '2026-04-06': 'Tweede Paasdag', '2026-04-27': 'Koningsdag', '2026-05-05': 'Bevrijdingsdag',
-    '2026-05-14': 'Hemelvaartsdag', '2026-05-24': 'Eerste Pinksterdag', '2026-05-25': 'Tweede Pinksterdag',
-    '2026-12-25': 'Eerste Kerstdag', '2026-12-26': 'Tweede Kerstdag',
-};
-function isHoliday(d) { return HOLIDAYS[formatDate(d)] || null; }
-function snapToWorkday(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS[formatDate(r)]) r.setDate(r.getDate() + 1); return r; }
-function snapToWorkdayBack(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || HOLIDAYS[formatDate(r)]) r.setDate(r.getDate() - 1); return r; }
+// Berekent Paaszondag voor een gegeven jaar (algoritme van Butcher)
+function getEasterSunday(year) {
+    const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+    const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(year, month - 1, day);
+}
+
+// Genereert Nederlandse feestdagen dynamisch voor een gegeven jaar
+function getDutchHolidays(year) {
+    const easter = getEasterSunday(year);
+    const fmt = (d) => formatDate(d);
+    const add = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+    return {
+        [fmt(new Date(year, 0, 1))]:   'Nieuwjaarsdag',
+        [fmt(add(easter, -2))]:        'Goede Vrijdag',
+        [fmt(easter)]:                 'Eerste Paasdag',
+        [fmt(add(easter, 1))]:         'Tweede Paasdag',
+        [fmt(new Date(year, 3, 27))]:  'Koningsdag',
+        [fmt(new Date(year, 4, 5))]:   'Bevrijdingsdag',
+        [fmt(add(easter, 39))]:        'Hemelvaartsdag',
+        [fmt(add(easter, 49))]:        'Eerste Pinksterdag',
+        [fmt(add(easter, 50))]:        'Tweede Pinksterdag',
+        [fmt(new Date(year, 11, 25))]: 'Eerste Kerstdag',
+        [fmt(new Date(year, 11, 26))]: 'Tweede Kerstdag',
+    };
+}
+
+// Cache per jaar zodat we niet elke render opnieuw berekenen
+const _holidayCache = {};
+function getHolidays(year) {
+    if (!_holidayCache[year]) _holidayCache[year] = getDutchHolidays(year);
+    return _holidayCache[year];
+}
+
+function isHoliday(d) { return getHolidays(d.getFullYear())[formatDate(d)] || null; }
+function snapToWorkday(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || isHoliday(r)) r.setDate(r.getDate() + 1); return r; }
+function snapToWorkdayBack(d) { const r = new Date(d); while (r.getDay() === 0 || r.getDay() === 6 || isHoliday(r)) r.setDate(r.getDate() - 1); return r; }
 function diffWorkdays(a, b) { let count = 0; const cur = new Date(a); while (cur <= b) { const d = cur.getDay(); if (d !== 0 && d !== 6) count++; cur.setDate(cur.getDate() + 1); } return count; }
 
 const PROJECT_COLORS = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#6366f1','#14b8a6','#f97316'];
@@ -98,6 +131,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const [showCompleted, setShowCompleted] = useState(false);
     const [colorPickerPos, setColorPickerPos] = useState(null);
     const [selectedTaskId, setSelectedTaskId] = useState(null);
+    const selectTaskRef = useRef(null);
+    selectTaskRef.current = (id) => setSelectedTaskId(prev => prev === id ? null : id);
 
     // Inline naam-bewerking op balken (dubbelklik)
     const [editingBarId, setEditingBarId] = useState(null); // 'project' of task.id
@@ -127,6 +162,9 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const [quickTaskPopup, setQuickTaskPopup] = useState(null); // { startDate, endDate, x, y }
     const [quickTaskName, setQuickTaskName] = useState('');
 
+    // Alleen planning taken weergeven in de gantt
+    const planningTasks = useMemo(() => (proj.tasks || []).filter(t => t.kanbanStatus === 'planning'), [proj.tasks]);
+
     // Refs
     const ganttWrapperRef = useRef(null);
     const timelineDatesRef = useRef([]);
@@ -134,6 +172,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const dragRef = useRef(null);
     const projRef = useRef(proj);
     projRef.current = proj;
+    const forceSaveRef = useRef(forceSave);
+    forceSaveRef.current = forceSave;
     const dblClickRef = useRef({ t: 0, id: null }); // timing voor dubbelklik detectie
 
 
@@ -284,7 +324,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         // Helper: bereken einde op basis van start + werkdagen
         const computeEnd = (startD, workdays) => {
             let e = new Date(startD); let n = workdays - 1;
-            while (n > 0) { e.setDate(e.getDate()+1); if(e.getDay()!==0&&e.getDay()!==6&&!HOLIDAYS[formatDate(e)]) n--; }
+            while (n > 0) { e.setDate(e.getDate()+1); if(e.getDay()!==0&&e.getDay()!==6&&!isHoliday(e)) n--; }
             return e;
         };
         const fmtNL = (str) => { const d = parseDate(str); return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; };
@@ -300,12 +340,21 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         });
         const setDatesAbs = (tId, ns, ne) => setProj(prev => {
             if (tId) return { ...prev, tasks: prev.tasks.map(t => t.id !== tId ? t : { ...t, startDate: formatDate(ns), endDate: formatDate(ne) }) };
-            const shift = diffDays(parseDate(prev.startDate), ns);
+            
+            const oldProjStart = parseDate(prev.startDate);
+            const newProjStart = parseDate(formatDate(ns));
+            
             return { ...prev, startDate: formatDate(ns), endDate: formatDate(ne),
-                tasks: prev.tasks.map(t => ({ ...t,
-                    startDate: formatDate(addDays(parseDate(t.startDate), shift)),
-                    endDate: formatDate(addDays(parseDate(t.endDate), shift)),
-                })) };
+                tasks: prev.tasks.map(t => {
+                    const startOffsetWdays = diffWorkdays(oldProjStart, parseDate(t.startDate)) - 1;
+                    const taskWdays = diffWorkdays(parseDate(t.startDate), parseDate(t.endDate));
+                    
+                    const nStart = computeEnd(newProjStart, Math.max(1, startOffsetWdays + 1));
+                    const nEnd = computeEnd(nStart, Math.max(1, taskWdays));
+                    
+                    return { ...t, startDate: formatDate(nStart), endDate: formatDate(nEnd) };
+                }) 
+            };
         });
 
         const handleMouseDown = (e) => {
@@ -360,12 +409,12 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 if (isResizeHandle) {
                     if (isLeftResize) {
                         const ns = snapToWorkday(addDays(parseDate(origStart), rawDays));
-                        if (ns >= parseDate(origEnd)) return;
+                        if (ns > parseDate(origEnd)) return;
                         setStartAbs(taskId, ns);
                         tooltip.textContent = `↔ ${fmtNL(formatDate(ns))} → ${fmtNL(origEnd)}`;
                     } else {
                         const ne = snapToWorkdayBack(addDays(parseDate(origEnd), rawDays));
-                        if (ne <= parseDate(origStart)) return;
+                        if (ne < parseDate(origStart)) return;
                         setEndAbs(taskId, ne);
                         tooltip.textContent = `↔ ${fmtNL(origStart)} → ${fmtNL(formatDate(ne))}`;
                     }
@@ -429,8 +478,14 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 wrapper.style.overflowX = savedOverflow || 'auto';
                 document.body.style.userSelect = '';
                 tooltip.style.opacity = '0';
-                // Datums zijn al live gesnapped — geen extra snap nodig
-                setTimeout(() => { justDraggedRef.current = false; }, 200);
+                // Datums zijn al live gesnapped — sla op na korte delay zodat React state bijgewerkt is
+                if (state.rawDaysMoved === 0 && !isResizeHandle && taskId) {
+                    selectTaskRef.current(taskId);
+                }
+                setTimeout(() => {
+                    justDraggedRef.current = false;
+                    forceSaveRef.current();
+                }, 200);
             };
 
             overlay.addEventListener('mousemove', onMove);
@@ -511,8 +566,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         setQuickTaskName('');
     }, [quickTaskPopup, updateProj]);
 
-    // Draw-create: start op mousedown op een lege cel in de projectbalk-rij
-    const handleDrawMouseDown = useCallback((e, startDateStr) => {
+    // Draw-create: start op mousedown op een lege cel in de projectbalk-rij of taak-rij
+    const handleDrawMouseDown = useCallback((e, startDateStr, taskId = null) => {
         if (e.button !== 0) return;
         // Sla over als er al een balk-drag actief is
         if (dragRef.current) return;
@@ -565,9 +620,20 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             setDrawCreate(null);
             drawCreateRef.current = null;
             if (!dc2 || !dc2.startDate || !dc2.endDate) return;
-            // Toon naam-popup op muispositie
-            setQuickTaskPopup({ startDate: dc2.startDate, endDate: dc2.endDate, x: ue.clientX, y: ue.clientY });
-            setQuickTaskName('');
+
+            if (taskId) {
+                // Update bestaande taak
+                updateProj(prev => {
+                    const newTasks = (prev.tasks || []).map(tx => tx.id === taskId ? { ...tx, startDate: dc2.startDate, endDate: dc2.endDate } : tx);
+                    const np = { ...prev, tasks: newTasks };
+                    forceSave(np);
+                    return np;
+                });
+            } else {
+                // Project-rij: maak nieuwe taak popup
+                setQuickTaskPopup({ startDate: dc2.startDate, endDate: dc2.endDate, x: ue.clientX, y: ue.clientY });
+                setQuickTaskName('');
+            }
         };
 
         document.addEventListener('mousemove', onMove, true);
@@ -762,7 +828,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                             style={{ fontSize: '0.55rem', color: '#94a3b8', width: '14px', textAlign: 'center', flexShrink: 0 }} />
                         <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {(() => {
-                                const activeTasks = (proj.tasks || []).filter(t => !t.completed);
+                                const activeTasks = planningTasks.filter(t => !t.completed);
                                 const hasUnassigned = activeTasks.length > 0 && activeTasks.some(t => (t.assignedTo || []).length === 0);
                                 return hasUnassigned && <i className="fa-solid fa-circle-exclamation" style={{ color: '#ef4444', fontSize: '0.65rem' }} title="Niet alle actieve taken hebben personeel toegewezen"></i>;
                             })()}
@@ -800,7 +866,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                     </div>
                     {/* Project-niveau team kolom */}
                     {(() => {
-                        const taskWorkerIds = [...new Set((proj.tasks || []).filter(t => !t.completed).flatMap(t => t.assignedTo || []))];
+                        const taskWorkerIds = [...new Set(planningTasks.filter(t => !t.completed).flatMap(t => t.assignedTo || []))];
                         const workers = taskWorkerIds.map(id => allUsers.find(u => u.id === id)).filter(Boolean);
                         const hasWorkers = workers.length > 0;
                         return (
@@ -831,11 +897,11 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         {timelineDates.map((d, i) => {
                             const ds = formatDate(d);
                             const weekend = isWeekend(d);
-                            const isHol = HOLIDAYS[ds];
+                            const isHol = isHoliday(d);
                             return (
                                 <div key={i}
                                     className={`gantt-cell ${weekend ? 'weekend' : ''} ${todayStr === ds ? 'today' : ''}`}
-                                    style={{ cursor: weekend || isHol ? 'default' : 'crosshair' }}
+                                    style={{ cursor: weekend || isHol ? 'default' : 'crosshair', pointerEvents: 'auto' }}
                                     onMouseDown={weekend || isHol ? undefined : (e) => {
                                         // Alleen als er geen bestaande balk wordt geraakt
                                         const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
@@ -846,7 +912,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                             );
                         })}
                         {/* Preview-balk tijdens draw-create */}
-                        {drawCreate && (() => {
+                        {drawCreate && !drawCreate.taskId && (() => {
                             const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, proj.color + '88');
                             return segs.map((seg, si) => (
                                 <div key={si} style={{
@@ -916,7 +982,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 </div>
 
                 {/* Taak rijen — alleen ACTIEVE taken */}
-                {expandedTasks && proj.tasks.filter(t => !t.completed).map(t => {
+                {expandedTasks && planningTasks.filter(t => !t.completed).map(t => {
                     const noTeam = (t.assignedTo || []).length === 0;
                     return (
                     <div key={t.id} className="gantt-row"
@@ -1060,22 +1126,22 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                             {timelineDates.map((d, i) => {
                                 const ds = formatDate(d);
                                 const weekend = isWeekend(d);
-                                const isHol = HOLIDAYS[ds];
+                                const isHol = isHoliday(d);
                                 return (
                                     <div key={i}
                                         className={`gantt-cell ${weekend ? 'weekend' : ''} ${todayStr === ds ? 'today' : ''}`}
-                                        style={{ cursor: weekend || isHol ? 'default' : 'crosshair' }}
+                                        style={{ cursor: weekend || isHol ? 'default' : 'crosshair', pointerEvents: 'auto' }}
                                         onMouseDown={weekend || isHol ? undefined : (e) => {
                                             const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
                                             if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
-                                            handleDrawMouseDown(e, ds);
+                                            handleDrawMouseDown(e, ds, t.id);
                                         }}
                                     />
                                 );
                             })}
 
                             {/* Preview-balk tijdens draw-create */}
-                            {drawCreate && (() => {
+                            {drawCreate && drawCreate.taskId === t.id && (() => {
                                 const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, proj.color + '88');
                                 return segs.map((seg, si) => (
                                     <div key={si} style={{
@@ -1103,9 +1169,9 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                                     display: 'flex', alignItems: 'center',
                                                     cursor: 'grab', height: '20px', top: '5px',
                                                     borderRadius: si === 0 && segs.length === 1 ? '6px' : si === 0 ? '6px 0 0 6px' : si === segs.length - 1 ? '0 6px 6px 0' : '0',
-                                                    border: noTeam ? '1.5px dashed #ef4444' : '1px solid rgba(0,0,0,0.08)',
-                                                    boxSizing: noTeam ? 'border-box' : undefined,
-                                                    boxShadow: noTeam ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+                                                    border: selectedTaskId === t.id ? '2px solid #F5850A' : noTeam ? '1.5px dashed #ef4444' : '1px solid rgba(0,0,0,0.08)',
+                                                    boxSizing: (selectedTaskId === t.id || noTeam) ? 'border-box' : undefined,
+                                                    boxShadow: selectedTaskId === t.id ? '0 0 0 3px rgba(245,133,10,0.25)' : noTeam ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
                                                 }}>
                                                 {si === 0 && <div className="resize-handle resize-handle-left" />}
                                                 {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
@@ -1147,7 +1213,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 })}
 
                 {/* ===== VOLTOOIDE TAKEN SECTIE ===== */}
-                {proj.tasks.some(t => t.completed) && (
+                {planningTasks.some(t => t.completed) && (
                     <>
                         {/* Scheidingslijn met knop */}
                         <div
@@ -1166,7 +1232,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                     style={{ fontSize: '0.5rem', color: '#10b981', transition: 'transform 0.2s' }} />
                                 <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.72rem' }} />
                                 <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#10b981' }}>
-                                    Voltooide taken ({proj.tasks.filter(t => t.completed).length})
+                                    Voltooide taken ({planningTasks.filter(t => t.completed).length})
                                 </span>
                             </div>
                             <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
@@ -1175,7 +1241,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         </div>
 
                         {/* Voltooide rijen */}
-                        {showCompleted && proj.tasks.filter(t => t.completed).map(t => (
+                        {showCompleted && planningTasks.filter(t => t.completed).map(t => (
                             <div key={t.id} className="gantt-row"
                                 style={{ background: '#fafafa', borderBottom: '1px solid #f1f5f9', opacity: 0.75 }}>
                                 <div className="gantt-row-label" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '1px', padding: '4px 8px 4px 32px' }}>
@@ -1207,15 +1273,15 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                     {timelineDates.map((d, i) => {
                                         const ds = formatDate(d);
                                         const weekend = isWeekend(d);
-                                        const isHol = HOLIDAYS[ds];
+                                        const isHol = isHoliday(d);
                                         return (
                                             <div key={i}
                                                 className={`gantt-cell ${weekend ? 'weekend' : ''}`}
-                                                style={{ cursor: weekend || isHol ? 'default' : 'crosshair' }}
+                                                style={{ cursor: weekend || isHol ? 'default' : 'crosshair', pointerEvents: 'auto' }}
                                                 onMouseDown={weekend || isHol ? undefined : (e) => {
                                                     const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
                                                     if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
-                                                    handleDrawMouseDown(e, ds);
+                                                    handleDrawMouseDown(e, ds, t.id);
                                                 }}
                                             />
                                         );
@@ -1259,7 +1325,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 )}
 
                 {/* Lege staat */}
-                {proj.tasks.length === 0 && (
+                {planningTasks.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '32px 20px', background: '#fff' }}>
                         <i className="fa-solid fa-chart-gantt" style={{ fontSize: '2rem', color: '#cbd5e1', display: 'block', marginBottom: '8px' }} />
                         <p style={{ color: '#94a3b8', margin: '0 0 12px', fontSize: '0.88rem' }}>Nog geen taken gepland</p>

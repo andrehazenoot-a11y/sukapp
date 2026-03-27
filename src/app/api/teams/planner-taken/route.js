@@ -87,13 +87,14 @@ export async function DELETE(req) {
 }
 
 export async function PATCH(req) {
-    const { taskId, percentComplete, etag, startDateTime, dueDateTime, appliedCategories } = await req.json();
+    const { taskId, percentComplete, etag, startDateTime, dueDateTime, appliedCategories, assignments } = await req.json();
 
     const body = {};
     if (percentComplete !== undefined) body.percentComplete = percentComplete;
     if (startDateTime !== undefined) body.startDateTime = startDateTime;
     if (dueDateTime !== undefined) body.dueDateTime = dueDateTime;
     if (appliedCategories !== undefined) body.appliedCategories = appliedCategories;
+    if (assignments !== undefined) body.assignments = assignments;
 
     try {
         const token = await getAppToken();
