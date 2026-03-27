@@ -79,45 +79,60 @@ const DEMO_TERMIJNEN = [
 
 const PLANNER_SJABLONEN = [
     {
-        id: 'schilderwerk',
-        naam: '🎨 Schilderwerk project',
+        id: 'compleet',
+        naam: '🏗️ Compleet schildersbedrijf',
         buckets: [
-            { naam: 'Voorbereiding', taken: ['Situatie beoordelen', 'Houtrot & schadecheck', 'Kleurkaarten bevestigen', 'Toegang & sleutels regelen', 'Steiger / hoogwerker bestellen'] },
-            { naam: 'Materiaal & Materieel', taken: ['Verf & materialen bestellen', 'Gereedschap controleren', 'Afplakmateriaal controleren'] },
-            { naam: 'Uitvoering', taken: ['Ondergrond reinigen & schuren', 'Houtrot repareren', 'Grondverf aanbrengen', 'Tussenlaag aanbrengen', 'Aflakken / eindlaag'] },
-            { naam: 'Oplevering', taken: ['Afplakken verwijderen', 'Eindcontrole met klant', 'Correcties verwerken'] },
-            { naam: 'Facturatie', taken: ['Factuur opstellen', 'Factuur versturen', 'Betaling controleren'] },
-        ],
-    },
-    {
-        id: 'onderhoud',
-        naam: '🔧 Onderhoud & renovatie',
-        buckets: [
-            { naam: 'Inspectie', taken: ['Conditiemeting uitvoeren', 'Schaderapporten maken', 'Offerte opstellen'] },
-            { naam: 'Planning', taken: ['Startdatum bevestigen', 'Team inplannen', 'Materialen bestellen'] },
-            { naam: 'Uitvoering', taken: ['Houtrot reparaties', 'Reiniging & ontvetting', 'Schilderwerk uitvoeren'] },
-            { naam: 'Oplevering & Nazorg', taken: ['Oplevering klant', 'Garantiecheck na 2 weken', 'Nazorgfactuur indien nodig'] },
-        ],
-    },
-    {
-        id: 'nieuwbouw',
-        naam: '🏗️ Nieuwbouw',
-        buckets: [
-            { naam: 'Werkvoorbereiding', taken: ['Tekeningen & bestekken doornemen', 'RAL-codes bevestigen', 'Steiger plannen', 'VGM-plan opstellen'] },
-            { naam: 'Ruwbouwfase', taken: ['Grondverf kozijnen', 'Grondverf staal', 'Tussenlaag buiten'] },
-            { naam: 'Afwerkingsfase', taken: ['Latex wanden', 'Aflakken kozijnen & deuren', 'Plafonds schilderen'] },
-            { naam: 'Oplevering', taken: ['Eindcontrole snagginglist', 'Correcties uitvoeren', 'Opleverdocument tekenen'] },
-            { naam: 'Facturatie', taken: ['Termijnfactuur', 'Eindafrekening', 'Meerwerk factureren'] },
-        ],
-    },
-    {
-        id: 'leeg',
-        naam: '📋 Leeg bord',
-        buckets: [
-            { naam: 'Nieuwe taak', taken: [] },
-            { naam: 'To-do', taken: [] },
-            { naam: 'In uitvoering', taken: [] },
-            { naam: 'Klaar', taken: [] },
+            { naam: 'Voorbereiding', taken: [
+                'Situatie / ondergrond beoordelen',
+                'Houtrot & schadecheck',
+                'Kleurkaarten / RAL-codes bevestigen',
+                'Tekeningen & bestekken doornemen',
+                'Toegang & sleutels regelen',
+                'Steiger / hoogwerker bestellen',
+                'VGM-plan opstellen',
+                'Offerte opstellen',
+                'Conditiemeting uitvoeren',
+                'Schaderapporten maken',
+            ]},
+            { naam: 'Planning', taken: [
+                'Startdatum bevestigen',
+                'Team inplannen',
+                'Materialen bestellen',
+            ]},
+            { naam: 'Materiaal & Materieel', taken: [
+                'Verf & materialen bestellen',
+                'Gereedschap controleren',
+                'Afplakmateriaal controleren',
+            ]},
+            { naam: 'Uitvoering', taken: [
+                'Ondergrond reinigen & schuren',
+                'Reiniging & ontvetting',
+                'Houtrot repareren',
+                'Grondverf aanbrengen',
+                'Grondverf kozijnen & staal',
+                'Tussenlaag aanbrengen',
+                'Aflakken / eindlaag',
+                'Latex wanden',
+                'Aflakken kozijnen & deuren',
+                'Plafonds schilderen',
+            ]},
+            { naam: 'Oplevering', taken: [
+                'Afplakken verwijderen',
+                'Eindcontrole met klant',
+                'Eindcontrole snagginglist',
+                'Correcties verwerken',
+                'Opleverdocument tekenen',
+                'Garantiecheck na 2 weken',
+            ]},
+            { naam: 'Facturatie', taken: [
+                'Factuur opstellen',
+                'Termijnfactuur',
+                'Eindafrekening',
+                'Meerwerk factureren',
+                'Factuur versturen',
+                'Betaling controleren',
+                'Nazorgfactuur indien nodig',
+            ]},
         ],
     },
 ];
@@ -469,11 +484,30 @@ export default function ProjectDossierPage() {
     const [plannerDetails, setPlannerDetails] = useState({}); // { [taskId]: { description, etag, laden } }
     const [plannerSjabloon, setPlannerSjabloon] = useState('schilderwerk'); // gekozen sjabloon bij aanmaken
     const [plannerSjablonenState, setPlannerSjablonenState] = useState(() => {
-        try { const op = localStorage.getItem('schildersapp_planner_sjablonen'); return op ? JSON.parse(op) : PLANNER_SJABLONEN; } catch { return PLANNER_SJABLONEN; }
+        try {
+            const op = localStorage.getItem('schildersapp_planner_sjablonen');
+            const parsed = op ? JSON.parse(op) : null;
+            // Reset als nog de oude 4 sjablonen staan (migratie naar 1 gecombineerd)
+            if (parsed && parsed.length > 1) { localStorage.removeItem('schildersapp_planner_sjablonen'); return PLANNER_SJABLONEN; }
+            return parsed || PLANNER_SJABLONEN;
+        } catch { return PLANNER_SJABLONEN; }
     });
     const [sjabloonEditor, setSjabloonEditor] = useState(null); // array van sjablonen die bewerkt worden
     const [sjabloonEditorIdx, setSjabloonEditorIdx] = useState(0); // welk sjabloon is actief in de editor
     const [plannerPaletOpen, setPlannerPaletOpen] = useState(true);
+    const [plannerPaletBucketOpen, setPlannerPaletBucketOpen] = useState({});
+    const [projectTakenBucketOpen, setProjectTakenBucketOpen] = useState({});
+    const [geselecteerdeTaakId, setGeselecteerdeTaakId] = useState(null);
+    const [projectTakenNieuwGroep, setProjectTakenNieuwGroep] = useState(null);
+    const [plannerPaletEditKey, setPlannerPaletEditKey] = useState(null);
+    const [plannerPaletEditVal, setPlannerPaletEditVal] = useState('');
+    const [plannerPaletNieuwBucket, setPlannerPaletNieuwBucket] = useState(null); // 'sjabloonId|bucketNaam'
+    const [plannerPaletNieuwHoofdgroep, setPlannerPaletNieuwHoofdgroep] = useState(null); // sjabloonId
+    const [paletDrag, setPaletDrag] = useState(null);     // { type:'bucket'|'taak', bi, ti? }
+    const [paletDragOver, setPaletDragOver] = useState(null);
+    const [projTaakDrag, setProjTaakDrag] = useState(null);    // { groepKey, taakId }
+    const [projTaakDragOver, setProjTaakDragOver] = useState(null); // { groepKey, taakId? }
+    const [projTaakPlannerBezig, setProjTaakPlannerBezig] = useState(new Set());
     const [plannerPaletSjabloon, setPlannerPaletSjabloon] = useState(null);
     const [plannerPaletBezig, setPlannerPaletBezig] = useState({});
     const [plannerPaletKaartOpen, setPlannerPaletKaartOpen] = useState({});
@@ -1231,6 +1265,52 @@ export default function ProjectDossierPage() {
             }
         } catch {}
         setPlannerPaletBezig(prev => { const n = { ...prev }; delete n[key]; return n; });
+    };
+
+    const stuurProjectTaakNaarPlanner = async (taak) => {
+        if (!project?.plannerPlanId || taak.plannerTaskId) return;
+        setProjTaakPlannerBezig(prev => new Set([...prev, taak.id]));
+        const matchBucket = plannerBuckets.find(b => b.name === taak.bucketNaam);
+        const bucketId = matchBucket?.id || plannerBucketKeuze || undefined;
+        try {
+            const r = await fetch('/api/teams/planner-taken', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    planId: project.plannerPlanId,
+                    title: taak.name,
+                    bucketId,
+                    startDateTime: taak.startDate ? new Date(taak.startDate).toISOString() : undefined,
+                    dueDateTime: taak.endDate ? new Date(taak.endDate).toISOString() : undefined,
+                    assignments: taak.assignedTo?.[0] ? { [taak.assignedTo[0]]: { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' } } : undefined,
+                }),
+            });
+            if (!r.ok) return;
+            const nieuw = await r.json();
+            setPlannerTaken(prev => [...(prev || []), nieuw]);
+            if (taak.memo) {
+                const detailsRes = await fetch(`/api/teams/planner-taak-details?taskId=${nieuw.id}`);
+                if (detailsRes.ok) {
+                    const details = await detailsRes.json();
+                    const checklistObj = {};
+                    (taak.checklist || []).forEach((item, i) => {
+                        checklistObj[String(i)] = { '@odata.type': '#microsoft.graph.plannerChecklistItem', title: item.text, isChecked: item.done || false, orderHint: ' !' };
+                    });
+                    await fetch('/api/teams/planner-taak-details', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            taskId: nieuw.id,
+                            description: taak.memo,
+                            checklist: taak.checklist?.length > 0 ? checklistObj : undefined,
+                            etag: details['@odata.etag'],
+                        }),
+                    });
+                }
+            }
+            saveProject({ ...project, tasks: (project.tasks || []).map(t => t.id === taak.id ? { ...t, plannerTaskId: nieuw.id } : t) });
+        } catch {}
+        setProjTaakPlannerBezig(prev => { const n = new Set(prev); n.delete(taak.id); return n; });
     };
 
     const addMeerwerkItem = () => {
@@ -4455,11 +4535,157 @@ export default function ProjectDossierPage() {
                                             {heeftPlanner ? 'Actief' : 'Nog niet aangemaakt'}
                                         </span>
                                     </div>
-                                    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                        {heeftPlanner ? (
-                                            <>
-                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                                    <span style={{ fontSize: '0.75rem', color: '#065f46', fontWeight: 600 }}>Taken voor {project.name}</span>
+                                    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                                        <>
+                                                {/* ── Projecttaken paneel (links) ── */}
+                                                <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                    <div style={{ border: '1px solid #c7d2fe', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(99,102,241,0.07)' }}>
+                                                        <div style={{ padding: '10px 12px', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                            <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                <i className="fa-solid fa-clipboard-list" style={{ color: '#fff', fontSize: '0.7rem' }} />
+                                                            </div>
+                                                            <span style={{ fontWeight: 700, fontSize: '0.78rem', color: '#fff', flex: 1 }}>Projecttaken</span>
+                                                            <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.75)' }}>{(project.tasks || []).length}</span>
+                                                        </div>
+                                                        <div style={{ background: '#f8f9ff', maxHeight: 520, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                                                            {[
+                                                                ...(plannerSjablonenState[0]?.buckets || []).map((b, idx) => ({
+                                                                    key: b.naam,
+                                                                    label: b.naam,
+                                                                    filter: t => t.bucketNaam === b.naam,
+                                                                    isAfgerond: false,
+                                                                    templateIdx: idx,
+                                                                })),
+                                                            ].map(groep => {
+                                                                const groepTaken = (project.tasks || []).filter(groep.filter);
+                                                                const showNieuw = projectTakenNieuwGroep === groep.key;
+                                                                if (!groepTaken.length && !showNieuw && groep.key === '__done__') return null;
+                                                                const isOpen = projectTakenBucketOpen[groep.key] !== false;
+                                                                const isDragBucketOver = paletDragOver?.type === 'bucket' && paletDragOver.bi === groep.templateIdx && paletDrag?.bi !== groep.templateIdx;
+                                                                return (
+                                                                    <div key={groep.key}
+                                                                        draggable={!groep.isAfgerond}
+                                                                        onDragStart={e => { if (groep.isAfgerond) return; e.stopPropagation(); setPaletDrag({ type: 'bucket', bi: groep.templateIdx }); }}
+                                                                        onDragOver={e => { e.preventDefault(); if (!projTaakDrag && !groep.isAfgerond) setPaletDragOver({ type: 'bucket', bi: groep.templateIdx }); if (projTaakDrag) setProjTaakDragOver({ groepKey: groep.key }); }}
+                                                                        onDrop={e => { e.preventDefault(); if (projTaakDrag && projTaakDrag.groepKey !== groep.key) { const newBucket = groep.key === '__done__' ? projTaakDrag.groepKey : groep.key; saveProject({ ...project, tasks: (project.tasks || []).map(t => t.id === projTaakDrag.taakId ? { ...t, bucketNaam: newBucket, completed: groep.key === '__done__' } : t) }); } else if (paletDrag?.type === 'bucket' && groep.templateIdx !== null && paletDrag.bi !== groep.templateIdx) { setPlannerSjablonenState(prev => { const upd = prev.map(s => { if (s.id !== (plannerSjablonenState[0]?.id)) return s; const b = [...s.buckets]; const [m] = b.splice(paletDrag.bi, 1); b.splice(groep.templateIdx, 0, m); return { ...s, buckets: b }; }); localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(upd)); return upd; }); } setPaletDrag(null); setPaletDragOver(null); setProjTaakDrag(null); setProjTaakDragOver(null); }}
+                                                                        onDragEnd={() => { setPaletDrag(null); setPaletDragOver(null); setProjTaakDrag(null); setProjTaakDragOver(null); }}
+                                                                        style={{ background: projTaakDragOver?.groepKey === groep.key && projTaakDrag ? '#eef2ff' : '#fff', opacity: paletDrag?.type === 'bucket' && paletDrag.bi === groep.templateIdx ? 0.4 : 1, borderTop: isDragBucketOver ? '2px solid #6366f1' : 'none' }}>
+                                                                        <div style={{ padding: '5px 10px', fontSize: '0.67rem', fontWeight: 700, color: '#6366f1', background: '#eef2ff', borderBottom: '1px solid #e0e7ff', borderLeft: '3px solid #6366f1', letterSpacing: '0.04em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                                            {!groep.isAfgerond && <i className="fa-solid fa-grip-vertical" style={{ fontSize: '0.5rem', color: '#a5b4fc', cursor: 'grab', flexShrink: 0 }} />}
+                                                                            <span onClick={() => setProjectTakenBucketOpen(p => ({ ...p, [groep.key]: !isOpen }))} style={{ flex: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                                                <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.45rem', opacity: 0.5 }} />
+                                                                                {groep.label}
+                                                                            </span>
+                                                                            <span style={{ fontSize: '0.6rem', opacity: 0.6, marginRight: 4 }}>{groepTaken.length}</span>
+                                                                            {!groep.isAfgerond && (
+                                                                                <button onClick={e => { e.stopPropagation(); setProjectTakenNieuwGroep(groep.key); setProjectTakenBucketOpen(p => ({ ...p, [groep.key]: true })); }}
+                                                                                    title="Taak toevoegen"
+                                                                                    style={{ width: 16, height: 16, borderRadius: 3, border: 'none', background: '#c7d2fe', color: '#6366f1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0 }}>
+                                                                                    <i className="fa-solid fa-plus" />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                        {isOpen && (
+                                                                            <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                                                {groepTaken.map(taak => {
+                                                                                    const isGeselecteerd = geselecteerdeTaakId === taak.id;
+                                                                                    return (
+                                                                                    <div key={taak.id}
+                                                                                        draggable
+                                                                                        onDragStart={e => { e.stopPropagation(); setProjTaakDrag({ groepKey: groep.key, taakId: taak.id }); }}
+                                                                                        onDragOver={e => { e.preventDefault(); e.stopPropagation(); setProjTaakDragOver({ groepKey: groep.key, taakId: taak.id }); }}
+                                                                                        onDrop={e => { e.preventDefault(); e.stopPropagation(); if (projTaakDrag && projTaakDrag.taakId !== taak.id && projTaakDrag.groepKey === groep.key) { const tasks = [...(project.tasks || [])]; const fi = tasks.findIndex(t => t.id === projTaakDrag.taakId); const ti2 = tasks.findIndex(t => t.id === taak.id); if (fi !== -1 && ti2 !== -1) { const [m] = tasks.splice(fi, 1); tasks.splice(ti2, 0, m); saveProject({ ...project, tasks }); } } setProjTaakDrag(null); setProjTaakDragOver(null); }}
+                                                                                        onDragEnd={() => { setProjTaakDrag(null); setProjTaakDragOver(null); }}
+                                                                                        onClick={() => setGeselecteerdeTaakId(isGeselecteerd ? null : taak.id)}
+                                                                                        style={{ padding: '5px 6px', display: 'flex', alignItems: 'center', gap: 6, borderRadius: 5, cursor: 'pointer', background: isGeselecteerd ? '#ede9fe' : taak.completed ? '#f0fdf4' : '#fff', border: isGeselecteerd ? '1px solid #a5b4fc' : projTaakDragOver?.taakId === taak.id && projTaakDrag?.taakId !== taak.id ? '1px solid #6366f1' : taak.completed ? '1px solid #bbf7d0' : '1px solid #f1f5f9', marginBottom: 1, opacity: projTaakDrag?.taakId === taak.id ? 0.4 : 1 }}>
+                                                                                        <i className="fa-solid fa-grip-vertical" style={{ fontSize: '0.45rem', color: taak.completed ? '#86efac' : '#cbd5e1', cursor: 'grab', flexShrink: 0 }} />
+                                                                                        <button onClick={() => toggleTask(taak.id)}
+                                                                                            style={{ width: 15, height: 15, borderRadius: 3, border: `1.5px solid ${taak.completed ? '#16a34a' : '#cbd5e1'}`, background: taak.completed ? '#16a34a' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
+                                                                                            {taak.completed && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.35rem' }} />}
+                                                                                        </button>
+                                                                                        <span style={{ flex: 1, fontSize: '0.71rem', color: '#1e293b', lineHeight: 1.3 }}>{taak.name}</span>
+                                                                                        {(() => {
+                                                                                            const bezig = projTaakPlannerBezig.has(taak.id);
+                                                                                            const gedaan = !!taak.plannerTaskId;
+                                                                                            return (
+                                                                                                <button onClick={e => { e.stopPropagation(); stuurProjectTaakNaarPlanner(taak); }}
+                                                                                                    disabled={bezig || gedaan}
+                                                                                                    title={gedaan ? 'Al in Planner' : 'Naar Planner sturen'}
+                                                                                                    style={{ width: 18, height: 18, borderRadius: 4, border: gedaan ? '1px solid #86efac' : 'none', background: gedaan ? '#dcfce7' : bezig ? '#6ee7b7' : '#059669', color: gedaan ? '#16a34a' : '#fff', cursor: gedaan || bezig ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0, transition: 'background 0.2s' }}>
+                                                                                                    <i className={gedaan ? 'fa-solid fa-check' : bezig ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-arrow-up'} />
+                                                                                                </button>
+                                                                                            );
+                                                                                        })()}
+                                                                                    </div>
+                                                                                    );
+                                                                                })}
+                                                                                {showNieuw && (
+                                                                                    <input
+                                                                                        autoFocus
+                                                                                        placeholder="Taaknaam… (Enter om op te slaan)"
+                                                                                        onKeyDown={e => {
+                                                                                            if (e.key === 'Escape') { setProjectTakenNieuwGroep(null); return; }
+                                                                                            if (e.key === 'Enter' && e.target.value.trim()) {
+                                                                                                const naam = e.target.value.trim();
+                                                                                                const nieuweTask = { id: 't' + Date.now(), name: naam, startDate: '', endDate: '', assignedTo: [], completed: false, bucketNaam: groep.key === '__overig__' ? null : groep.key };
+                                                                                                saveProject({ ...project, tasks: [...(project.tasks || []), nieuweTask] });
+                                                                                                setProjectTakenNieuwGroep(null);
+                                                                                            }
+                                                                                        }}
+                                                                                        onBlur={() => setProjectTakenNieuwGroep(null)}
+                                                                                        style={{ fontSize: '0.71rem', border: 'none', borderBottom: '1px solid #6366f1', outline: 'none', width: '100%', padding: '4px 2px', background: 'transparent', color: '#1e293b', marginTop: 2 }}
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                            {!(project.tasks || []).length && (
+                                                                <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: '0.7rem', color: '#94a3b8' }}>Nog geen projecttaken</div>
+                                                            )}
+                                                            {/* Hoofdgroep toevoegen — zelfde als rechter paneel */}
+                                                            {plannerPaletNieuwHoofdgroep === '__left__' ? (
+                                                                <div style={{ padding: '6px 10px', background: '#eef2ff', borderLeft: '3px solid #6366f1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                    <i className="fa-solid fa-folder-plus" style={{ color: '#6366f1', fontSize: '0.55rem' }} />
+                                                                    <input
+                                                                        autoFocus
+                                                                        placeholder="Naam hoofdgroep… (Enter)"
+                                                                        onKeyDown={e => {
+                                                                            if (e.key === 'Escape') { setPlannerPaletNieuwHoofdgroep(null); return; }
+                                                                            if (e.key === 'Enter' && e.target.value.trim()) {
+                                                                                const naam = e.target.value.trim();
+                                                                                setPlannerSjablonenState(prev => {
+                                                                                    const upd = prev.map((s, si) => si !== 0 ? s : { ...s, buckets: [...s.buckets, { naam, taken: [] }] });
+                                                                                    localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(upd));
+                                                                                    return upd;
+                                                                                });
+                                                                                setPlannerPaletNieuwHoofdgroep(null);
+                                                                            }
+                                                                        }}
+                                                                        onBlur={() => setPlannerPaletNieuwHoofdgroep(null)}
+                                                                        style={{ flex: 1, fontSize: '0.7rem', border: 'none', borderBottom: '1px solid #6366f1', outline: 'none', background: 'transparent', color: '#1e293b', padding: '1px 2px' }}
+                                                                    />
+                                                                </div>
+                                                            ) : (
+                                                                <button onClick={() => setPlannerPaletNieuwHoofdgroep('__left__')}
+                                                                    style={{ margin: '6px 10px', padding: '4px 8px', borderRadius: 6, border: '1px dashed #c7d2fe', background: 'transparent', color: '#6366f1', fontSize: '0.67rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+                                                                    <i className="fa-solid fa-plus" style={{ fontSize: '0.5rem' }} /> Hoofdgroep toevoegen
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {/* ── Midden: detail of Planner kanban ── */}
+                                                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
+                                                {heeftPlanner ? (<>
+                                                <div style={{ border: '1px solid #c7d2fe', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(99,102,241,0.07)', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                                                {/* ── Kanban header ── */}
+                                                <div style={{ padding: '10px 12px', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+                                                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                        <i className="fa-solid fa-table-columns" style={{ color: '#fff', fontSize: '0.7rem' }} />
+                                                    </div>
+                                                    <span style={{ fontWeight: 700, fontSize: '0.78rem', color: '#fff', flex: 1 }}>Planner — {project.name}</span>
                                                     <div style={{ display: 'flex', gap: 6 }}>
                                                         <button onClick={async () => {
                                                             setPlannerTakenBezig(true);
@@ -4477,18 +4703,18 @@ export default function ProjectDossierPage() {
                                                             } catch { setPlannerTaken([]); }
                                                             finally { setPlannerTakenBezig(false); }
                                                         }} disabled={plannerTakenBezig}
-                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#e2e8f0', color: '#334155', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: 'none', cursor: 'pointer' }}>
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: 'none', cursor: 'pointer' }}>
                                                             <i className={`fa-solid ${plannerTakenBezig ? 'fa-spinner fa-spin' : 'fa-rotate'}`} />
                                                             {plannerTakenBezig ? 'Laden…' : 'Vernieuwen'}
                                                         </button>
                                                         <a href={`https://planner.cloud.microsoft/webui/plan/${project.plannerPlanId}`} target="_blank" rel="noopener noreferrer"
-                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#059669', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', textDecoration: 'none' }}>
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', textDecoration: 'none' }}>
                                                             <i className="fa-solid fa-arrow-up-right-from-square" /> Volledig scherm
                                                         </a>
                                                         {/* Sjabloon toepassen dropdown */}
                                                         <div style={{ position: 'relative' }}>
                                                             <button onClick={() => setPlannerSjabloon(plannerSjabloon === '__open__' ? 'schilderwerk' : '__open__')}
-                                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#eff6ff', color: '#2563eb', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: '1px solid #bfdbfe', cursor: 'pointer' }}>
+                                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer' }}>
                                                                 <i className="fa-solid fa-layer-group" /> Sjabloon
                                                             </button>
                                                             {plannerSjabloon === '__open__' && (
@@ -4528,15 +4754,113 @@ export default function ProjectDossierPage() {
                                                                 </div>
                                                             )}
                                                         </div>
+                                                        {geselecteerdeTaakId && (
+                                                            <button onClick={() => setGeselecteerdeTaakId(null)} title="Terug naar Planner"
+                                                                style={{ width: 22, height: 22, borderRadius: 5, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0 }}>
+                                                                <i className="fa-solid fa-xmark" />
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
-                                                {/* Kanban bord (Microsoft Planner) */}
-                                                {plannerTaken === null ? (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', fontSize: '0.78rem', padding: '12px 4px' }}>
-                                                        <i className="fa-solid fa-spinner fa-spin" /> Planner laden…
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, marginLeft: -2, paddingLeft: 2 }}>
+                                                {/* Werkblad of Kanban */}
+                                                {geselecteerdeTaakId ? (() => {
+                                                    const gt = (project.tasks || []).find(t => t.id === geselecteerdeTaakId);
+                                                    if (!gt) return null;
+                                                    return (
+                                                        <div key={gt.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+                                                            {/* Sub-header */}
+                                                            <div style={{ padding: '10px 14px', background: '#f5f3ff', borderBottom: '1px solid #e0e7ff', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                                                                <button onClick={() => { const updated = (project.tasks||[]).map(t => t.id===gt.id ? {...t, completed: !t.completed} : t); saveProject({...project, tasks: updated}); }}
+                                                                    style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${gt.completed ? '#16a34a' : '#a5b4fc'}`, background: gt.completed ? '#16a34a' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
+                                                                    {gt.completed && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.4rem' }} />}
+                                                                </button>
+                                                                <input defaultValue={gt.name}
+                                                                    onBlur={e => { if (e.target.value.trim()) saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, name: e.target.value.trim()} : t)}); }}
+                                                                    style={{ flex: 1, fontSize: '0.9rem', fontWeight: 700, color: '#3730a3', border: 'none', outline: 'none', background: 'transparent', borderBottom: '1px solid #c7d2fe' }} />
+                                                                <span style={{ fontSize: '0.65rem', background: '#ede9fe', color: '#6366f1', padding: '2px 8px', borderRadius: 10, whiteSpace: 'nowrap' }}>{gt.bucketNaam || '—'}</span>
+                                                            </div>
+                                                            {/* Body */}
+                                                            <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
+                                                                {/* Start | Einde | Toegewezen */}
+                                                                <div style={{ display: 'flex', gap: 12 }}>
+                                                                    {[['startDate','Start'],['endDate','Einde']].map(([field,label]) => (
+                                                                        <div key={field} style={{ flex: 1 }}>
+                                                                            <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 3 }}>{label}</div>
+                                                                            <input type="date" defaultValue={gt[field]||''} onBlur={e => saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, [field]: e.target.value} : t)})}
+                                                                                style={{ width: '100%', fontSize: '0.78rem', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 7px', boxSizing: 'border-box' }} />
+                                                                        </div>
+                                                                    ))}
+                                                                    <div style={{ flex: 1 }}>
+                                                                        <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 3 }}>Toegewezen aan</div>
+                                                                        <select defaultValue={gt.assignedTo?.[0]||''} onChange={e => saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, assignedTo: e.target.value ? [e.target.value] : []} : t)})}
+                                                                            style={{ width: '100%', fontSize: '0.78rem', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 7px' }}>
+                                                                            <option value="">— Niet toegewezen —</option>
+                                                                            {(teamsLeden||[]).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                {/* Labels */}
+                                                                <div>
+                                                                    <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 6 }}>Labels</div>
+                                                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                                        {[
+                                                                            {key:'category1',color:'#ef4444',label:'Urgent'},
+                                                                            {key:'category2',color:'#f97316',label:'Materiaal'},
+                                                                            {key:'category3',color:'#eab308',label:'Wachten'},
+                                                                            {key:'category4',color:'#22c55e',label:'Gereed'},
+                                                                            {key:'category5',color:'#3b82f6',label:'Klant'},
+                                                                            {key:'category6',color:'#a855f7',label:'Intern'},
+                                                                        ].map(cat => {
+                                                                            const aan = !!(gt.labels?.[cat.key]);
+                                                                            return (
+                                                                                <button key={cat.key} onClick={() => saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, labels: {...(t.labels||{}), [cat.key]: !aan}} : t)})}
+                                                                                    style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', border: `2px solid ${cat.color}`, background: aan ? cat.color : '#fff', color: aan ? '#fff' : cat.color }}>
+                                                                                    {cat.label}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                                {/* Notitie */}
+                                                                <div>
+                                                                    <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 4 }}>Notitie</div>
+                                                                    <textarea defaultValue={gt.memo||''} rows={3} placeholder="Voeg een notitie toe…" onBlur={e => updateTaskMemo(gt.id, e.target.value)}
+                                                                        style={{ width: '100%', fontSize: '0.8rem', border: '1px solid #e0e7ff', borderRadius: 7, padding: '6px 8px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                                                                </div>
+                                                                {/* Checklist */}
+                                                                <div>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                                                        <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1' }}>Checklist</div>
+                                                                        {(gt.checklist||[]).length > 0 && <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{(gt.checklist||[]).filter(x=>x.done).length}/{(gt.checklist||[]).length}</span>}
+                                                                    </div>
+                                                                    {(gt.checklist||[]).map((item,ci) => (
+                                                                        <div key={ci} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                                                                            <button onClick={() => { const cl=(gt.checklist||[]).map((x,i)=>i===ci?{...x,done:!x.done}:x); saveProject({...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)}); }}
+                                                                                style={{ width:16,height:16,borderRadius:3,border:`1.5px solid ${item.done?'#16a34a':'#cbd5e1'}`,background:item.done?'#16a34a':'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,padding:0 }}>
+                                                                                {item.done && <i className="fa-solid fa-check" style={{color:'#fff',fontSize:'0.4rem'}}/>}
+                                                                            </button>
+                                                                            <span style={{ flex:1,fontSize:'0.8rem',color:item.done?'#94a3b8':'#1e293b',textDecoration:item.done?'line-through':'none' }}>{item.text}</span>
+                                                                            <button onClick={() => { const cl=(gt.checklist||[]).filter((_,i)=>i!==ci); saveProject({...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)}); }}
+                                                                                style={{ width:16,height:16,border:'none',background:'transparent',color:'#cbd5e1',cursor:'pointer',fontSize:'0.55rem',padding:0 }}>
+                                                                                <i className="fa-solid fa-xmark"/>
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                    <input placeholder="+ Item toevoegen (Enter)"
+                                                                        onKeyDown={e => { if (e.key==='Enter' && e.target.value.trim()) { const cl=[...(gt.checklist||[]),{text:e.target.value.trim(),done:false}]; saveProject({...project,tasks:(project.tasks||[]).map(t=>t.id===gt.id?{...t,checklist:cl}:t)}); e.target.value=''; }}}
+                                                                        style={{ fontSize:'0.78rem',border:'none',borderBottom:'1px solid #e0e7ff',outline:'none',width:'100%',padding:'4px 0',color:'#94a3b8' }} />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })() : (
+                                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#c7d2fe', padding: 24 }}>
+                                                    <i className="fa-solid fa-hand-pointer" style={{ fontSize: '2rem', color: '#c7d2fe' }} />
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#a5b4fc' }}>Selecteer een taak</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#c7d2fe', textAlign: 'center' }}>Klik op een taak in Projecttaken om het werkblad te openen</div>
+                                                </div>
+                                                )}
+                                                {false && <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, marginLeft: -2, paddingLeft: 2 }}>
                                                         {/* Bucket kolommen */}
                                                         {(plannerBuckets.length > 0 ? plannerBuckets : [{ id: null, name: 'Taken' }]).map(bucket => {
                                                             const bucketTaken = [...plannerTaken].filter(t => bucket.id ? t.bucketId === bucket.id : true).sort((a, b) => (a.orderHint || '').localeCompare(b.orderHint || ''));
@@ -4586,8 +4910,8 @@ export default function ProjectDossierPage() {
                                                                                             if (!etag || !window.confirm(`"${taak.title}" verwijderen?`)) return;
                                                                                             const r = await fetch('/api/teams/planner-taken', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: taak.id, etag }) });
                                                                                             if (r.ok) setPlannerTaken(prev => prev.filter(t => t.id !== taak.id));
-                                                                                        }} style={{ width: 16, height: 16, border: 'none', background: 'transparent', color: '#e2e8f0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', flexShrink: 0, padding: 0 }} title="Verwijderen">
-                                                                                            <i className="fa-solid fa-xmark" />
+                                                                                        }} style={{ width: 18, height: 18, border: 'none', background: '#fee2e2', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', flexShrink: 0, padding: 0, borderRadius: 4 }} title="Verwijderen uit Planner">
+                                                                                            <i className="fa-solid fa-arrow-down" />
                                                                                         </button>
                                                                                     </div>
                                                                                     {/* Labels */}
@@ -4866,45 +5190,94 @@ export default function ProjectDossierPage() {
                                                             </button>
                                                         </div>
                                                     </div>
+                                                }
+                                                <div style={{ padding: '8px 12px', borderTop: '1px solid #e0e7ff', background: '#fafbff' }}>
+                                                <button onClick={verwijderPlanner} disabled={teamsBezig}
+                                                    style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '0.7rem', fontWeight: 600, cursor: teamsBezig ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                    <i className="fa-solid fa-trash" /> Planner verwijderen
+                                                </button>
+                                                </div>
+                                                </div>{/* einde kanban card */}
+                                                </>) : (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                                                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569' }}>Kies een sjabloon</span>
+                                                        <button onClick={() => setSjabloonEditor(JSON.parse(JSON.stringify(plannerSjablonenState)))} style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Sjablonen bewerken</button>
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                        {plannerSjablonenState.map(s => (
+                                                            <div key={s.id} onClick={() => setPlannerSjabloon(s.id)} style={{ padding: '10px 12px', borderRadius: 8, border: `2px solid ${plannerSjabloon === s.id ? '#059669' : '#e2e8f0'}`, background: plannerSjabloon === s.id ? '#f0fdf4' : '#fff', cursor: 'pointer', transition: 'all 0.1s' }}>
+                                                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: plannerSjabloon === s.id ? '#065f46' : '#1e293b', marginBottom: 4 }}>{s.naam}</div>
+                                                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                                    {s.buckets.map(b => (
+                                                                        <span key={b.naam} style={{ fontSize: '0.62rem', background: plannerSjabloon === s.id ? '#dcfce7' : '#f1f5f9', color: plannerSjabloon === s.id ? '#065f46' : '#64748b', padding: '1px 6px', borderRadius: 6 }}>{b.naam}</span>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        <button onClick={() => setSjabloonEditor([...plannerSjablonenState, { id: 'nieuw-' + Date.now(), naam: 'Nieuw sjabloon', buckets: [{ naam: 'Nieuwe taak', taken: [] }] }])} style={{ padding: '6px 12px', borderRadius: 7, border: '2px dashed #e2e8f0', background: 'transparent', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left' }}>
+                                                            <i className="fa-solid fa-plus" /> Nieuw sjabloon toevoegen
+                                                        </button>
+                                                    </div>
+                                                    <button onClick={maakPlannerAan} disabled={teamsBezig}
+                                                        style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content', marginTop: 4 }}>
+                                                        <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-table-columns'}`} />
+                                                        {teamsBezig ? 'Aanmaken…' : 'Planner aanmaken'}
+                                                    </button>
+                                                </div>
                                                 )}
-
-
-                                                {/* ── Checklist palet (ONDER) ── */}
+                                                </div>{/* einde Planner flex-child */}
+                                                <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                {/* ── Checklist palet (alle sjablonen) ── */}
                                                 {(() => {
-                                                    const huidigPaletSjabloon = plannerSjablonenState.find(s => s.id === plannerPaletSjabloon) || plannerSjablonenState[0];
-                                                    if (!huidigPaletSjabloon) return null;
+                                                    if (!plannerSjablonenState.length) return null;
                                                     return (
-                                                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+                                                        <div style={{ border: '1px solid #c7d2fe', borderRadius: 10, overflow: 'hidden', marginBottom: 8, boxShadow: '0 1px 4px rgba(99,102,241,0.07)' }}>
                                                             {/* Header */}
-                                                            <div style={{ padding: '8px 12px', background: '#f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                                <i className="fa-solid fa-list-check" style={{ color: '#3b82f6', fontSize: '0.78rem' }} />
-                                                                <span style={{ fontWeight: 700, fontSize: '0.75rem', color: '#334155' }}>Checklist palet</span>
-                                                                <select value={plannerPaletSjabloon || plannerSjablonenState[0]?.id} onChange={e => setPlannerPaletSjabloon(e.target.value)}
-                                                                    style={{ padding: '2px 6px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: '0.72rem', background: '#fff' }}>
-                                                                    {plannerSjablonenState.map(s => <option key={s.id} value={s.id}>{s.naam}</option>)}
-                                                                </select>
+                                                            <div style={{ padding: '10px 12px', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                        <i className="fa-solid fa-list-check" style={{ color: '#fff', fontSize: '0.7rem' }} />
+                                                                    </div>
+                                                                    <span style={{ fontWeight: 700, fontSize: '0.78rem', color: '#fff', flex: 1, letterSpacing: '0.01em' }}>Voorgestelde taken</span>
+                                                                </div>
                                                                 {plannerPaletSelectie.size > 0 && (
                                                                     <button onClick={() => setPlannerPaletAssignPopup({ bulk: true, selectie: new Set(plannerPaletSelectie), userId: null, startDate: '', dueDate: '', label: null })}
-                                                                        style={{ padding: '4px 10px', borderRadius: 7, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.68rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-                                                                        <i className="fa-solid fa-arrow-up" /> Stuur {plannerPaletSelectie.size} naar Planner
+                                                                        style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, backdropFilter: 'blur(4px)' }}>
+                                                                        <i className="fa-solid fa-arrow-up" /> Importeer {plannerPaletSelectie.size} naar Planner
                                                                     </button>
                                                                 )}
-                                                                <button onClick={() => setPlannerPaletOpen(p => !p)}
-                                                                    style={{ marginLeft: plannerPaletSelectie.size > 0 ? 0 : 'auto', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.72rem' }}>
-                                                                    <i className={`fa-solid fa-chevron-${plannerPaletOpen ? 'up' : 'down'}`} />
-                                                                </button>
                                                             </div>
-                                                            {/* Kanban kolommen */}
-                                                            {plannerPaletOpen && (
-                                                                <div style={{ display: 'flex', gap: 10, overflowX: 'auto', padding: '10px 12px 12px', background: '#fafafa' }}>
-                                                                    {huidigPaletSjabloon.buckets.map((bucket, bi) => (
-                                                                        <div key={bi} style={{ width: 220, flexShrink: 0, background: '#f1f5f9', borderRadius: 8, overflow: 'hidden' }}>
-                                                                            <div style={{ padding: '7px 10px', fontSize: '0.72rem', fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0', background: '#e9eef5' }}>
-                                                                                {bucket.naam}
+                                                            {/* Verticale lijst — alle sjablonen */}
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, background: '#f8f9ff', maxHeight: 520, overflowY: 'auto' }}>
+                                                                    {plannerSjablonenState.map((sjabloon, si) => (
+                                                                        <div key={sjabloon.id}>
+                                                                            {sjabloon.buckets.map((bucket, bi) => {
+                                                                                const bucketKey = sjabloon.id + '|' + bucket.naam;
+                                                                                const bucketOpen = plannerPaletBucketOpen[bucketKey] !== false; // standaard open
+                                                                                return (
+                                                                        <div key={bi}
+                                                                            draggable
+                                                                            onDragStart={e => { e.stopPropagation(); setPaletDrag({ type: 'bucket', bi }); }}
+                                                                            onDragOver={e => { e.preventDefault(); e.stopPropagation(); setPaletDragOver({ type: 'bucket', bi }); }}
+                                                                            onDrop={e => { e.preventDefault(); e.stopPropagation(); if (paletDrag?.type === 'bucket' && paletDrag.bi !== bi) { setPlannerSjablonenState(prev => { const upd = prev.map(s => { if (s.id !== sjabloon.id) return s; const b = [...s.buckets]; const [m] = b.splice(paletDrag.bi, 1); b.splice(bi, 0, m); return { ...s, buckets: b }; }); localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(upd)); return upd; }); } setPaletDrag(null); setPaletDragOver(null); }}
+                                                                            onDragEnd={() => { setPaletDrag(null); setPaletDragOver(null); }}
+                                                                            style={{ background: '#fff', opacity: paletDrag?.type === 'bucket' && paletDrag.bi === bi ? 0.4 : 1, borderTop: paletDragOver?.type === 'bucket' && paletDragOver.bi === bi && paletDrag?.bi !== bi ? '2px solid #6366f1' : 'none' }}>
+                                                                            <div style={{ padding: '5px 10px', fontSize: '0.67rem', fontWeight: 700, color: '#6366f1', background: '#eef2ff', borderBottom: '1px solid #e0e7ff', borderLeft: '3px solid #6366f1', letterSpacing: '0.04em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                                                <i className="fa-solid fa-grip-vertical" style={{ fontSize: '0.5rem', color: '#a5b4fc', cursor: 'grab', flexShrink: 0 }} />
+                                                                                <span onClick={() => setPlannerPaletBucketOpen(p => ({ ...p, [bucketKey]: !bucketOpen }))} style={{ flex: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                                                    <i className={`fa-solid fa-chevron-${bucketOpen ? 'up' : 'down'}`} style={{ fontSize: '0.45rem', opacity: 0.5 }} />
+                                                                                    {bucket.naam}
+                                                                                </span>
+                                                                                <button onClick={e => { e.stopPropagation(); setPlannerPaletNieuwBucket(bucketKey); setPlannerPaletBucketOpen(p => ({ ...p, [bucketKey]: true })); }}
+                                                                                    title="Taak toevoegen"
+                                                                                    style={{ width: 16, height: 16, borderRadius: 3, border: 'none', background: '#c7d2fe', color: '#6366f1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0 }}>
+                                                                                    <i className="fa-solid fa-plus" />
+                                                                                </button>
                                                                             </div>
-                                                                            <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                                                            {bucketOpen && <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
                                                                                 {bucket.taken.map((taak, ti) => {
-                                                                                    const key = bucket.naam + '|' + taak;
+                                                                                    const key = sjabloon.id + '|' + bucket.naam + '|' + taak;
                                                                                     const bezig = plannerPaletBezig[key];
                                                                                     const gedaan = !!plannerPaletVinkjes[key];
                                                                                     const isOpen = !!plannerPaletKaartOpen[key];
@@ -4917,44 +5290,66 @@ export default function ProjectDossierPage() {
                                                                                     const toegewezenUser = data.userId ? ledenLijst.find(u => String(u.id) === String(data.userId)) : null;
                                                                                     const toegewezenInitials = toegewezenUser?.displayName ? toegewezenUser.displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?';
                                                                                     return (
-                                                                                        <div key={ti} style={{ background: '#fff', borderRadius: 7, boxShadow: '0 1px 3px rgba(0,0,0,0.07)', overflow: 'hidden', border: geselecteerd ? '1px solid #bbf7d0' : afgerondInPlanner ? '1px solid #e2e8f0' : '1px solid transparent' }}>
-                                                                                            <div style={{ padding: '6px 8px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-                                                                                                onClick={() => setPlannerPaletKaartOpen(p => ({ ...p, [key]: !p[key] }))}>
-                                                                                                <button onClick={e => { e.stopPropagation(); togglePaletVinkje(key); }}
-                                                                                                    style={{ width: 16, height: 16, borderRadius: 3, border: `2px solid ${gedaan ? '#16a34a' : '#94a3b8'}`, background: gedaan ? '#16a34a' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
-                                                                                                    {gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.4rem' }} />}
+                                                                                        <div key={ti}
+                                                                                            draggable
+                                                                                            onDragStart={e => { e.stopPropagation(); setPaletDrag({ type: 'taak', bi, ti }); }}
+                                                                                            onDragOver={e => { e.preventDefault(); e.stopPropagation(); setPaletDragOver({ type: 'taak', bi, ti }); }}
+                                                                                            onDrop={e => { e.preventDefault(); e.stopPropagation(); if (paletDrag?.type === 'taak' && paletDrag.bi === bi && paletDrag.ti !== ti) { setPlannerSjablonenState(prev => { const upd = prev.map(s => { if (s.id !== sjabloon.id) return s; const buckets = s.buckets.map((b, bIdx) => { if (bIdx !== bi) return b; const t = [...b.taken]; const [m] = t.splice(paletDrag.ti, 1); t.splice(ti, 0, m); return { ...b, taken: t }; }); return { ...s, buckets }; }); localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(upd)); return upd; }); } setPaletDrag(null); setPaletDragOver(null); }}
+                                                                                            onDragEnd={() => { setPaletDrag(null); setPaletDragOver(null); }}
+                                                                                            style={{ borderRadius: 5, overflow: 'hidden', background: geselecteerd ? '#f0fdf4' : afgerondInPlanner ? '#f8fafc' : '#fff', border: paletDragOver?.type === 'taak' && paletDragOver.bi === bi && paletDragOver.ti === ti && paletDrag?.ti !== ti ? '1px solid #6366f1' : geselecteerd ? '1px solid #86efac' : '1px solid #f1f5f9', marginBottom: 1, opacity: paletDrag?.type === 'taak' && paletDrag.bi === bi && paletDrag.ti === ti ? 0.4 : 1 }}>
+                                                                                            <div style={{ padding: '5px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                                                <i className="fa-solid fa-grip-vertical" style={{ fontSize: '0.45rem', color: '#cbd5e1', cursor: 'grab', flexShrink: 0 }} />
+                                                                                                {/* Selectievinkje */}
+                                                                                                <button onClick={e => { e.stopPropagation(); if (!afgerondInPlanner && !gedaan) setPlannerPaletSelectie(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; }); }}
+                                                                                                    style={{ width: 15, height: 15, borderRadius: 3, border: `1.5px solid ${geselecteerd ? '#6366f1' : '#cbd5e1'}`, background: geselecteerd ? '#6366f1' : '#fff', cursor: (afgerondInPlanner || gedaan) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
+                                                                                                    {geselecteerd && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.35rem' }} />}
                                                                                                 </button>
-                                                                                                <span style={{ flex: 1, fontSize: '0.72rem', color: (gedaan || afgerondInPlanner) ? '#94a3b8' : '#1e293b', textDecoration: (gedaan || afgerondInPlanner) ? 'line-through' : 'none', lineHeight: 1.3 }}>{taak}</span>
-                                                                                                {/* Toewijzen */}
-                                                                                                <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
-                                                                                                    <button onClick={() => setPlannerPaletKaartOpen(p => ({ ...p, [key + '__assign']: !p[key + '__assign'] }))}
-                                                                                                        title={toegewezenUser ? toegewezenUser.displayName : 'Toewijzen'}
-                                                                                                        style={{ width: 20, height: 20, borderRadius: '50%', border: toegewezenUser ? 'none' : '1.5px dashed #cbd5e1', background: toegewezenUser ? '#3b82f6' : 'transparent', color: toegewezenUser ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: toegewezenUser ? '0.42rem' : '0.55rem', fontWeight: 700, flexShrink: 0, padding: 0 }}>
-                                                                                                        {toegewezenUser ? toegewezenInitials : <i className="fa-solid fa-user" />}
+                                                                                                {plannerPaletEditKey === key ? (
+                                                                                                    <input
+                                                                                                        autoFocus
+                                                                                                        value={plannerPaletEditVal}
+                                                                                                        onChange={e => setPlannerPaletEditVal(e.target.value)}
+                                                                                                        onKeyDown={e => {
+                                                                                                            if (e.key === 'Escape') { setPlannerPaletEditKey(null); return; }
+                                                                                                            if (e.key === 'Enter' && plannerPaletEditVal.trim()) {
+                                                                                                                const nieuweNaam = plannerPaletEditVal.trim();
+                                                                                                                setPlannerSjablonenState(prev => {
+                                                                                                                    const updated = prev.map(s => s.id !== sjabloon.id ? s : { ...s, buckets: s.buckets.map(b => b.naam !== bucket.naam ? b : { ...b, taken: b.taken.map((t, i) => i === ti ? nieuweNaam : t) }) });
+                                                                                                                    localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(updated));
+                                                                                                                    return updated;
+                                                                                                                });
+                                                                                                                setPlannerPaletEditKey(null);
+                                                                                                            }
+                                                                                                        }}
+                                                                                                        onBlur={() => setPlannerPaletEditKey(null)}
+                                                                                                        onClick={e => e.stopPropagation()}
+                                                                                                        style={{ flex: 1, fontSize: '0.71rem', border: 'none', borderBottom: '1px solid #3b82f6', outline: 'none', background: 'transparent', color: '#1e293b', padding: '0 2px' }}
+                                                                                                    />
+                                                                                                ) : (
+                                                                                                    <span
+                                                                                                        onDoubleClick={e => { e.stopPropagation(); setPlannerPaletEditKey(key); setPlannerPaletEditVal(taak); }}
+                                                                                                        title="Dubbelklik om te bewerken"
+                                                                                                        style={{ flex: 1, fontSize: '0.71rem', color: (gedaan || afgerondInPlanner) ? '#94a3b8' : '#1e293b', textDecoration: (gedaan || afgerondInPlanner) ? 'line-through' : 'none', lineHeight: 1.3, cursor: 'text' }}>{taak}</span>
+                                                                                                )}
+                                                                                                {(() => {
+                                                                                                    const inProject = (project.tasks || []).some(t => t.name?.toLowerCase() === taak.toLowerCase() && t.bucketNaam === bucket.naam);
+                                                                                                    return (
+                                                                                                        <button onClick={e => { e.stopPropagation(); if (inProject) { saveProject({ ...project, tasks: (project.tasks || []).filter(t => !(t.name?.toLowerCase() === taak.toLowerCase() && t.bucketNaam === bucket.naam)) }); } else { saveProject({ ...project, tasks: [...(project.tasks || []), { id: 't' + Date.now(), name: taak, startDate: '', endDate: '', assignedTo: [], completed: false, bucketNaam: bucket.naam }] }); } }}
+                                                                                                            title={inProject ? 'Verwijderen uit Projecttaken' : 'Toevoegen aan Projecttaken'}
+                                                                                                            style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${inProject ? '#3b82f6' : '#cbd5e1'}`, background: inProject ? '#3b82f6' : '#fff', color: inProject ? '#fff' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0 }}>
+                                                                                                            <i className="fa-solid fa-clipboard-list" />
+                                                                                                        </button>
+                                                                                                    );
+                                                                                                })()}
+                                                                                                {afgerondInPlanner ? (
+                                                                                                    <i className="fa-solid fa-check" style={{ color: '#16a34a', fontSize: '0.55rem', flexShrink: 0 }} />
+                                                                                                ) : (
+                                                                                                    <button onClick={e => { e.stopPropagation(); if (!bezig) voegPaletTaakToe({ taakTitel: taak, bucketNaam: bucket.naam, userId: data.userId || null, startDate: data.startDate || '', dueDate: data.dueDate || '', label: data.label || null }); }} disabled={bezig}
+                                                                                                        title="Direct naar Planner"
+                                                                                                        style={{ width: 18, height: 18, borderRadius: 4, border: 'none', background: bezig ? '#d1fae5' : '#059669', color: '#fff', cursor: bezig ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0, opacity: bezig ? 0.7 : 1 }}>
+                                                                                                        <i className={`fa-solid ${bezig ? 'fa-spinner fa-spin' : 'fa-arrow-up'}`} />
                                                                                                     </button>
-                                                                                                    {plannerPaletKaartOpen[key + '__assign'] && (
-                                                                                                        <div style={{ position: 'absolute', top: 24, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 150, padding: 4 }}>
-                                                                                                            <div onClick={() => { updatePaletData(key, { userId: null }); setPlannerPaletKaartOpen(p => ({ ...p, [key + '__assign']: false })); }} style={{ padding: '5px 10px', fontSize: '0.68rem', color: '#64748b', cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                                                                <i className="fa-solid fa-xmark" style={{ fontSize: '0.6rem' }} /> Niemand
-                                                                                                            </div>
-                                                                                                            {teamsLeden.map(u => (
-                                                                                                                <div key={u.id} onClick={() => { updatePaletData(key, { userId: u.id }); setPlannerPaletKaartOpen(p => ({ ...p, [key + '__assign']: false })); }}
-                                                                                                                    style={{ padding: '5px 10px', fontSize: '0.68rem', color: String(data.userId) === String(u.id) ? '#059669' : '#1e293b', fontWeight: String(data.userId) === String(u.id) ? 700 : 400, cursor: 'pointer', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                                                                    <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3b82f6', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.38rem', fontWeight: 700, flexShrink: 0 }}>
-                                                                                                                        {u.name ? u.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : '?'}
-                                                                                                                    </span>
-                                                                                                                    {u.name}
-                                                                                                                </div>
-                                                                                                            ))}
-                                                                                                        </div>
-                                                                                                    )}
-                                                                                                </div>
-                                                                                                {/* + naar Planner knop */}
-                                                                                                <button onClick={e => { e.stopPropagation(); if (!bezig && !afgerondInPlanner) voegPaletTaakToe({ taakTitel: taak, bucketNaam: bucket.naam, userId: data.userId || null, startDate: data.startDate || '', dueDate: data.dueDate || '', label: data.label || null }); }} disabled={bezig}
-                                                                                                    title="Toevoegen aan Planner"
-                                                                                                    style={{ width: 18, height: 18, borderRadius: '50%', border: 'none', background: afgerondInPlanner || gedaan ? '#f1f5f9' : '#e2e8f0', color: afgerondInPlanner || gedaan ? '#94a3b8' : '#64748b', cursor: (bezig || afgerondInPlanner) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0 }}>
-                                                                                                    <i className={`fa-solid ${bezig ? 'fa-spinner fa-spin' : afgerondInPlanner || gedaan ? 'fa-check' : 'fa-plus'}`} />
-                                                                                                </button>
+                                                                                                )}
                                                                                             </div>
                                                                                             {isOpen && (
                                                                                                 <div style={{ borderTop: '1px solid #f1f5f9', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
@@ -5019,47 +5414,68 @@ export default function ProjectDossierPage() {
                                                                                     );
                                                                                 })}
                                                                                 {bucket.taken.length === 0 && <span style={{ fontSize: '0.65rem', color: '#cbd5e1', padding: '2px 0' }}>Geen taken</span>}
-                                                                            </div>
+                                                                                {plannerPaletNieuwBucket === bucketKey && (
+                                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 2px', marginTop: 2 }}>
+                                                                                        <input autoFocus placeholder="Nieuwe taaknaam…"
+                                                                                            onKeyDown={e => {
+                                                                                                if (e.key === 'Escape') { setPlannerPaletNieuwBucket(null); return; }
+                                                                                                if (e.key === 'Enter' && e.target.value.trim()) {
+                                                                                                    const nieuweNaam = e.target.value.trim();
+                                                                                                    setPlannerSjablonenState(prev => {
+                                                                                                        const updated = prev.map(s => s.id !== sjabloon.id ? s : { ...s, buckets: s.buckets.map(b => b.naam !== bucket.naam ? b : { ...b, taken: [...b.taken, nieuweNaam] }) });
+                                                                                                        localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(updated));
+                                                                                                        return updated;
+                                                                                                    });
+                                                                                                    e.target.value = '';
+                                                                                                    setPlannerPaletNieuwBucket(null);
+                                                                                                }
+                                                                                            }}
+                                                                                            onBlur={() => setPlannerPaletNieuwBucket(null)}
+                                                                                            style={{ flex: 1, fontSize: '0.7rem', border: 'none', borderBottom: '1px solid #3b82f6', outline: 'none', background: 'transparent', color: '#1e293b', padding: '1px 2px' }} />
+                                                                                        <i className="fa-solid fa-corner-down-left" style={{ fontSize: '0.5rem', color: '#94a3b8' }} />
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>}
+                                                                        </div>
+                                                                        );
+                                                                            })}
+                                                                    {/* Nieuwe hoofdgroep */}
+                                                                    {plannerPaletNieuwHoofdgroep === sjabloon.id ? (
+                                                                        <div style={{ padding: '6px 10px', background: '#eef2ff', borderLeft: '3px solid #6366f1', borderBottom: '1px solid #e0e7ff', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                            <i className="fa-solid fa-folder-plus" style={{ color: '#6366f1', fontSize: '0.55rem' }} />
+                                                                            <input
+                                                                                autoFocus
+                                                                                placeholder="Naam hoofdgroep… (Enter)"
+                                                                                onKeyDown={e => {
+                                                                                    if (e.key === 'Escape') { setPlannerPaletNieuwHoofdgroep(null); return; }
+                                                                                    if (e.key === 'Enter' && e.target.value.trim()) {
+                                                                                        const naam = e.target.value.trim();
+                                                                                        setPlannerSjablonenState(prev => {
+                                                                                            const updated = prev.map(s => s.id !== sjabloon.id ? s : { ...s, buckets: [...s.buckets, { naam, taken: [] }] });
+                                                                                            localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(updated));
+                                                                                            return updated;
+                                                                                        });
+                                                                                        setPlannerPaletNieuwHoofdgroep(null);
+                                                                                    }
+                                                                                }}
+                                                                                onBlur={() => setPlannerPaletNieuwHoofdgroep(null)}
+                                                                                style={{ flex: 1, fontSize: '0.7rem', border: 'none', borderBottom: '1px solid #6366f1', outline: 'none', background: 'transparent', color: '#1e293b', padding: '1px 2px' }}
+                                                                            />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <button onClick={() => setPlannerPaletNieuwHoofdgroep(sjabloon.id)}
+                                                                            style={{ margin: '6px 10px', padding: '4px 8px', borderRadius: 6, border: '1px dashed #c7d2fe', background: 'transparent', color: '#6366f1', fontSize: '0.67rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+                                                                            <i className="fa-solid fa-plus" style={{ fontSize: '0.5rem' }} /> Hoofdgroep toevoegen
+                                                                        </button>
+                                                                    )}
                                                                         </div>
                                                                     ))}
                                                                 </div>
-                                                            )}
                                                         </div>
                                                     );
                                                 })()}
-                                                <button onClick={verwijderPlanner} disabled={teamsBezig}
-                                                    style={{ alignSelf: 'flex-start', padding: '5px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '0.73rem', fontWeight: 600, cursor: teamsBezig ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <i className="fa-solid fa-trash" /> Planner verwijderen
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-                                                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569' }}>Kies een sjabloon</span>
-                                                    <button onClick={() => setSjabloonEditor(JSON.parse(JSON.stringify(plannerSjablonenState)))} style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Sjablonen bewerken</button>
-                                                </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                                    {plannerSjablonenState.map(s => (
-                                                        <div key={s.id} onClick={() => setPlannerSjabloon(s.id)} style={{ padding: '10px 12px', borderRadius: 8, border: `2px solid ${plannerSjabloon === s.id ? '#059669' : '#e2e8f0'}`, background: plannerSjabloon === s.id ? '#f0fdf4' : '#fff', cursor: 'pointer', transition: 'all 0.1s' }}>
-                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: plannerSjabloon === s.id ? '#065f46' : '#1e293b', marginBottom: 4 }}>{s.naam}</div>
-                                                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                                                {s.buckets.map(b => (
-                                                                    <span key={b.naam} style={{ fontSize: '0.62rem', background: plannerSjabloon === s.id ? '#dcfce7' : '#f1f5f9', color: plannerSjabloon === s.id ? '#065f46' : '#64748b', padding: '1px 6px', borderRadius: 6 }}>{b.naam}</span>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                    <button onClick={() => setSjabloonEditor([...plannerSjablonenState, { id: 'nieuw-' + Date.now(), naam: 'Nieuw sjabloon', buckets: [{ naam: 'Nieuwe taak', taken: [] }] }])} style={{ padding: '6px 12px', borderRadius: 7, border: '2px dashed #e2e8f0', background: 'transparent', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left' }}>
-                                                        <i className="fa-solid fa-plus" /> Nieuw sjabloon toevoegen
-                                                    </button>
-                                                </div>
-                                                <button onClick={maakPlannerAan} disabled={teamsBezig}
-                                                    style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content', marginTop: 4 }}>
-                                                    <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-table-columns'}`} />
-                                                    {teamsBezig ? 'Aanmaken…' : 'Planner aanmaken'}
-                                                </button>
-                                            </div>
-                                        )}
+                                                </div>{/* einde palet flex-child */}
+                                        </>
                                     </div>
                                 </div>
                             )}
