@@ -35,7 +35,8 @@ export async function POST(req) {
     try {
         const token = await getAppToken();
 
-        // 1. Maak Teams kanaal aan
+        // 1. Maak Teams kanaal aan (of gebruik bestaand kanaal met dezelfde naam)
+        let kanaalId, kanaalUrl;
         const kanaalRes = await fetch(`https://graph.microsoft.com/v1.0/teams/${teamId}/channels`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -46,12 +47,17 @@ export async function POST(req) {
             }),
         });
         if (!kanaalRes.ok) {
-            const err = await kanaalRes.text();
-            return NextResponse.json({ error: `Kanaal aanmaken mislukt: ${err}` }, { status: kanaalRes.status });
+            const errData = await kanaalRes.json().catch(() => null);
+            const innerCode = errData?.error?.innerError?.code;
+            if (innerCode !== 'NameAlreadyExists') {
+                return NextResponse.json({ error: `Kanaal aanmaken mislukt: ${JSON.stringify(errData)}` }, { status: kanaalRes.status });
+            }
+            // Kanaal bestaat al — verdergaan zonder kanaalId (wordt al bewaard in het project)
+        } else {
+            const kanaal = await kanaalRes.json();
+            kanaalId = kanaal.id;
+            kanaalUrl = kanaal.webUrl;
         }
-        const kanaal = await kanaalRes.json();
-        const kanaalId = kanaal.id;
-        const kanaalUrl = kanaal.webUrl;
 
         // 2. Maak Planner plan aan
         let plannerPlanId = null;

@@ -4948,8 +4948,11 @@ export default function ProjectDossierPage() {
                                                                             disabled={bezig}
                                                                             onClick={() => {
                                                                                 if (aan) {
-                                                                                    // Uitzetten: lokale koppeling verwijderen
-                                                                                    saveProject({...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, plannerTaskId: null} : t)});
+                                                                                    // Uitzetten: taak terugzetten naar Voorgestelde taken
+                                                                                    saveProject({...project, tasks: (project.tasks||[]).filter(t => t.id !== gt.id)});
+                                                                                    setGeselecteerdeTaakId(null);
+                                                                                    setToast('Taak teruggezet naar Voorgestelde taken');
+                                                                                    setTimeout(() => setToast(null), 3000);
                                                                                 } else {
                                                                                     stuurProjectTaakNaarPlanner(gt);
                                                                                 }
@@ -5473,12 +5476,6 @@ export default function ProjectDossierPage() {
                                                         </div>
                                                     </div>
                                                 }
-                                                <div style={{ padding: '8px 12px', borderTop: '1px solid #e0e7ff', background: '#fafbff' }}>
-                                                <button onClick={verwijderPlanner} disabled={teamsBezig}
-                                                    style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '0.7rem', fontWeight: 600, cursor: teamsBezig ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                                                    <i className="fa-solid fa-trash" /> Planner verwijderen
-                                                </button>
-                                                </div>
                                                 </div>{/* einde kanban card */}
                                                 </>) : (
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -5581,11 +5578,7 @@ export default function ProjectDossierPage() {
                                                                                             style={{ borderRadius: 5, overflow: 'hidden', background: geselecteerd ? '#f0fdf4' : afgerondInPlanner ? '#f8fafc' : '#fff', border: paletDragOver?.type === 'taak' && paletDragOver.bi === bi && paletDragOver.ti === ti && paletDrag?.ti !== ti ? '1px solid #6366f1' : geselecteerd ? '1px solid #86efac' : '1px solid #f1f5f9', marginBottom: 1, opacity: paletDrag?.type === 'taak' && paletDrag.bi === bi && paletDrag.ti === ti ? 0.4 : 1 }}>
                                                                                             <div style={{ padding: '5px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
                                                                                                 <i className="fa-solid fa-grip-vertical" style={{ fontSize: '0.45rem', color: '#cbd5e1', cursor: 'grab', flexShrink: 0 }} />
-                                                                                                {/* Selectievinkje */}
-                                                                                                <button onClick={e => { e.stopPropagation(); if (!afgerondInPlanner && !gedaan) setPlannerPaletSelectie(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; }); }}
-                                                                                                    style={{ width: 15, height: 15, borderRadius: 3, border: `1.5px solid ${geselecteerd ? '#6366f1' : '#cbd5e1'}`, background: geselecteerd ? '#6366f1' : '#fff', cursor: (afgerondInPlanner || gedaan) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
-                                                                                                    {geselecteerd && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.35rem' }} />}
-                                                                                                </button>
+
                                                                                                 {plannerPaletEditKey === key ? (
                                                                                                     <input
                                                                                                         autoFocus
@@ -5625,13 +5618,7 @@ export default function ProjectDossierPage() {
                                                                                                 })()}
                                                                                                 {afgerondInPlanner ? (
                                                                                                     <i className="fa-solid fa-check" style={{ color: '#16a34a', fontSize: '0.55rem', flexShrink: 0 }} />
-                                                                                                ) : (
-                                                                                                    <button onClick={e => { e.stopPropagation(); if (!bezig) voegPaletTaakToe({ taakTitel: taak, bucketNaam: bucket.naam, userId: data.userId || null, startDate: data.startDate || '', dueDate: data.dueDate || '', label: data.label || null }); }} disabled={bezig}
-                                                                                                        title="Direct naar Planner"
-                                                                                                        style={{ width: 18, height: 18, borderRadius: 4, border: 'none', background: bezig ? '#d1fae5' : '#059669', color: '#fff', cursor: bezig ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.45rem', flexShrink: 0, padding: 0, opacity: bezig ? 0.7 : 1 }}>
-                                                                                                        <i className={`fa-solid ${bezig ? 'fa-spinner fa-spin' : 'fa-arrow-up'}`} />
-                                                                                                    </button>
-                                                                                                )}
+                                                                                                ) : null}
                                                                                             </div>
                                                                                             {isOpen && (
                                                                                                 <div style={{ borderTop: '1px solid #f1f5f9', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }} onClick={e => e.stopPropagation()}>
