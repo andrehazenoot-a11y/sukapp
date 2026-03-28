@@ -33,29 +33,35 @@ function getDaysForWeek(week, year) {
 }
 
 const UREN_TYPES = [
-    { id: 'normaal', label: 'Gewerkte uren', icon: 'fa-paint-roller', color: '#334155' },
-    { id: 'meerwerk', label: 'Extra werk', icon: 'fa-plus-minus', color: '#f59e0b' },
-    { id: 'oplevering', label: 'Oplevering', icon: 'fa-check-double', color: '#10b981' },
-    { id: 'klusuren', label: 'Klusuren', icon: 'fa-clipboard-list', color: '#3b82f6' },
-    { id: 'ziek', label: 'Ziek', icon: 'fa-briefcase-medical', color: '#ef4444' },
-    { id: 'vrij', label: 'Vrij / Vakantie', icon: 'fa-umbrella-beach', color: '#8b5cf6' },
+    { id: 'normaal',           label: 'Project uren',      icon: 'fa-paint-roller',    color: '#F5850A' },
+    { id: 'meerwerk',          label: 'Extra werk',         icon: 'fa-plus-minus',      color: '#f59e0b' },
+    { id: 'oplevering',        label: 'Oplevering',        icon: 'fa-flag-checkered',  color: '#06b6d4' },
+    { id: 'werkvoorbereiding', label: 'Werkvoorbereiding', icon: 'fa-clipboard-list',  color: '#6366f1' },
+    { id: 'ziek',              label: 'Ziek',              icon: 'fa-briefcase-medical', color: '#ef4444' },
+    { id: 'vrij',              label: 'Vrij',              icon: 'fa-umbrella-beach',  color: '#8b5cf6' },
 ];
 
-const PROJECTS = [
+// Projecten dynamisch laden uit app-data (localStorage), anders fallback
+const PROJECTS_FALLBACK = [
     { id: '1', name: 'Nieuwbouw Villa Wassenaar' },
-    { id: '2', name: 'Onderhoud Rijtjeshuizen Leiden' },
-    { id: '3', name: 'Renovatie Kantoorpand Den Haag' },
-    { id: '4', name: 'Schilderwerk VVE De Branding' },
-    { id: '5', name: 'Werkplaats / Magazijn' },
-    { id: '6', name: 'Houtrot Reparatie Oegstgeest' },
+    { id: '2', name: 'Werkplaats / Magazijn' },
 ];
+function getAppProjects() {
+    if (typeof window === 'undefined') return PROJECTS_FALLBACK;
+    try {
+        const raw = localStorage.getItem('schildersapp_projecten');
+        const arr = raw ? JSON.parse(raw) : [];
+        return arr.length > 0 ? arr.map(p => ({ id: String(p.id), name: p.name })) : PROJECTS_FALLBACK;
+    } catch { return PROJECTS_FALLBACK; }
+}
 
 // == PROJECT DROPDOWN ==
 function ProjectSelect({ value, onChange, onRemove, canRemove }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
-    const selected = PROJECTS.find(p => p.id === value);
-    const filtered = PROJECTS.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+    const projects = getAppProjects();
+    const selected = projects.find(p => p.id === value);
+    const filtered = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
 
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -509,7 +515,7 @@ export default function UrenPage() {
     projects.forEach(p => Object.entries(p.types).forEach(([t, hrs]) => {
         hrs.forEach((h, d) => {
             const v = parseVal(h);
-            if (t === 'klusuren') klusTotals[d] += v;
+            if (t === 'werkvoorbereiding') klusTotals[d] += v;
             else if (t !== 'ziek' && t !== 'vrij') dayTotals[d] += v;
         });
     }));
@@ -649,7 +655,7 @@ export default function UrenPage() {
                     {/* ═══ PROJECT RIJEN ═══ */}
                     {projects.map((proj, pi) => {
                         const projTotal = Object.entries(proj.types).reduce((sum, [t, hrs]) => {
-                            if (t === 'klusuren' || t === 'ziek' || t === 'vrij') return sum;
+                            if (t === 'werkvoorbereiding' || t === 'ziek' || t === 'vrij') return sum;
                             return sum + hrs.reduce((a, h) => a + parseVal(h), 0);
                         }, 0);
 
@@ -813,29 +819,29 @@ export default function UrenPage() {
                             </div>
                         )}
 
-                        {/* Klusuren — alleen zichtbaar als type geselecteerd */}
-                        {projects.some(p => 'klusuren' in p.types) && (
+                        {/* Werkvoorbereiding — alleen zichtbaar als type geselecteerd */}
+                        {projects.some(p => 'werkvoorbereiding' in p.types) && (
                             <div style={{
                                 display: 'grid', gridTemplateColumns: '460px 380px 60px', columnGap: '25px',
                                 alignItems: 'center', borderBottom: '1px solid var(--border-color)'
                             }}>
-                                <div style={{ padding: '6px 16px', fontWeight: 600, fontSize: '0.78rem', color: '#3b82f6' }}>
-                                    <i className="fa-solid fa-clipboard-list" style={{ marginRight: '5px' }}></i>Klusuren
+                                <div style={{ padding: '6px 16px', fontWeight: 600, fontSize: '0.78rem', color: '#6366f1' }}>
+                                    <i className="fa-solid fa-clipboard-list" style={{ marginRight: '5px' }}></i>Werkvoorbereiding
                                 </div>
                                 <div style={{ ...dayGridStyle(showWeekend ? 7 : 5), padding: '4px 8px' }}>
                                     {(showWeekend ? [0, 1, 2, 3, 4, 5, 6] : [0, 1, 2, 3, 4]).map(i => (
                                         <div key={i} style={{
                                             height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                             fontWeight: klusTotals[i] > 0 ? 700 : 400, fontSize: '0.78rem',
-                                            color: klusTotals[i] > 0 ? '#3b82f6' : 'rgba(0,0,0,0.1)'
+                                            color: klusTotals[i] > 0 ? '#6366f1' : 'rgba(0,0,0,0.1)'
                                         }}>
                                             {klusTotals[i] > 0 ? klusTotals[i] : '—'}
                                         </div>
                                     ))}
                                 </div>
                                 <div style={{
-                                    textAlign: 'center', fontWeight: 700, fontSize: '0.85rem', color: sumKlus > 0 ? '#3b82f6' : 'rgba(0,0,0,0.12)',
-                                    background: sumKlus > 0 ? 'rgba(59,130,246,0.08)' : 'transparent', borderRadius: '5px',
+                                    textAlign: 'center', fontWeight: 700, fontSize: '0.85rem', color: sumKlus > 0 ? '#6366f1' : 'rgba(0,0,0,0.12)',
+                                    background: sumKlus > 0 ? 'rgba(99,102,241,0.08)' : 'transparent', borderRadius: '5px',
                                     padding: '2px', margin: '2px 6px'
                                 }}>
                                     {sumKlus > 0 ? sumKlus : '—'}

@@ -31,14 +31,19 @@ function getDaysForWeek(week, year) {
     });
 }
 
-const PROJECTS = [
-    { id: '1', name: 'Schilderwerk Familie Bakker' },
-    { id: '2', name: 'Nieuwbouw Villa Wassenaar' },
-    { id: '3', name: 'Onderhoud Rijtjeshuizen Leiden' },
-    { id: '4', name: 'Renovatie Kantoorpand Den Haag' },
-    { id: '5', name: 'Schilderwerk VVE De Branding' },
-    { id: '6', name: 'Werkplaats / Magazijn' },
+// Projecten dynamisch laden uit app-data (localStorage), anders fallback
+const PROJECTS_FALLBACK = [
+    { id: '1', name: 'Nieuwbouw Villa Wassenaar' },
+    { id: '2', name: 'Werkplaats / Magazijn' },
 ];
+function getAppProjects() {
+    if (typeof window === 'undefined') return PROJECTS_FALLBACK;
+    try {
+        const raw = localStorage.getItem('schildersapp_projecten');
+        const arr = raw ? JSON.parse(raw) : [];
+        return arr.length > 0 ? arr.map(p => ({ id: String(p.id), name: p.name })) : PROJECTS_FALLBACK;
+    } catch { return PROJECTS_FALLBACK; }
+}
 
 const UREN_TYPES = [
     { id: 'normaal',           label: 'Project uren',       color: '#F5850A', icon: 'fa-paint-roller',    inputType: 'hours' },
@@ -70,8 +75,9 @@ const parseVal = v => parseFloat(String(v).replace(',', '.')) || 0;
 function ProjectPicker({ value, onChange }) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
-    const sel = PROJECTS.find(p => p.id === value);
-    const filtered = PROJECTS.filter(p => p.name.toLowerCase().includes(q.toLowerCase()));
+    const projects = getAppProjects();
+    const sel = projects.find(p => p.id === value);
+    const filtered = projects.filter(p => p.name.toLowerCase().includes(q.toLowerCase()));
     return (
         <div style={{ position: 'relative', flex: 1 }}>
             <div onClick={() => { setOpen(!open); setQ(''); }}
@@ -87,6 +93,7 @@ function ProjectPicker({ value, onChange }) {
                             placeholder="Zoek project..." style={{ width: '100%', padding: '6px 10px', fontSize: '0.8rem', border: '1.5px solid #FA9F52', borderRadius: '6px', outline: 'none', boxSizing: 'border-box' }} />
                     </div>
                     <ul style={{ listStyle: 'none', margin: 0, padding: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                        {filtered.length === 0 && <li style={{ padding: '7px 12px', fontSize: '0.8rem', color: '#94a3b8' }}>Geen projecten gevonden</li>}
                         {filtered.map(p => (
                             <li key={p.id} onClick={() => { onChange(p.id); setOpen(false); }}
                                 style={{ padding: '7px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: p.id === value ? 700 : 400, background: p.id === value ? 'rgba(245,133,10,0.08)' : 'transparent' }}
@@ -262,6 +269,9 @@ function MijnUren({ userId, adminMode = false, adminUserName = null }) {
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                         <button onClick={quickFill75} title="7.5u per dag" style={{ padding: '5px 12px', borderRadius: '7px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <i className="fa-solid fa-bolt" style={{ color: '#f59e0b', fontSize: '0.6rem' }} /> 7.5u × 5
+                        </button>
+                        <button onClick={() => window.print()} title="Weekstaat afdrukken" style={{ padding: '5px 12px', borderRadius: '7px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <i className="fa-solid fa-print" style={{ fontSize: '0.6rem' }} /> Afdrukken
                         </button>
                         {status === 'concept' && weekTotal > 0 && (
                             <button onClick={() => setShowSubmit(true)} style={{ padding: '5px 14px', borderRadius: '7px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -680,7 +690,7 @@ function TeamOverzicht({ weekNum, yearNum, setWeekNum, setYearNum, allUsers, cur
                                             </div>
 
                                             {u.projects.map((proj, pi) => {
-                                                const projName = PROJECTS.find(p => p.id === proj.projectId)?.name || 'Onbekend project';
+                                                const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
                                                 const typeKeys = Object.keys(proj.types || {});
                                                 return (
                                                     <div key={proj.id} style={{ marginBottom: '6px', background: '#fff', border: '1px solid #f1f5f9', borderRadius: '10px', overflow: 'hidden' }}>
@@ -766,7 +776,7 @@ function UrenstaatPrint({ user, week, year, onBack }) {
     // Bouw rijen op: per project + type
     const rows = [];
     rawProjects.forEach((proj, pi) => {
-        const projName = PROJECTS.find(p => p.id === proj.projectId)?.name || 'Onbekend project';
+        const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
         const typeKeys = Object.keys(proj.types || {});
         typeKeys.forEach(tid => {
             const typeInfo = UREN_TYPES.find(t => t.id === tid);
@@ -909,7 +919,7 @@ function MandagRegister({ allUsers }) {
     const curYear   = today.getFullYear();
     const curMonth  = today.getMonth() + 1; // 1-12
 
-    const [selectedProject, setSelectedProject] = useState(PROJECTS[0]?.id || '');
+    const [selectedProject, setSelectedProject] = useState(() => getAppProjects()[0]?.id || '');
     const [selectedUser, setSelectedUser]       = useState('all');
     const [viewMode, setViewMode]               = useState('week'); // 'week' | 'maand'
     const [year, setYear]                       = useState(curYear);
@@ -982,7 +992,7 @@ function MandagRegister({ allUsers }) {
 
     const colTotals  = columns.map((_, ci) => reportData.reduce((a, u) => a + u.colData[ci].total, 0));
     const grandTotal = colTotals.reduce((a, b) => a + b, 0);
-    const projName   = PROJECTS.find(p => p.id === selectedProject)?.name || '—';
+    const projName   = getAppProjects().find(p => p.id === selectedProject)?.name || '—';
     const userName   = selectedUser === 'all' ? null : (allUsers.find(u => u.id === selectedUser)?.name || '—');
     const activeRows = reportData.filter(u => u.userTotal > 0);
 
@@ -1017,7 +1027,7 @@ function MandagRegister({ allUsers }) {
                     <div>
                         <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Project</label>
                         <select value={selectedProject} onChange={e => setSelectedProject(e.target.value)} style={{ ...selStyle, minWidth: '220px' }}>
-                            {PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            {getAppProjects().map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
                     </div>
                     <div>
@@ -1222,6 +1232,167 @@ function MandagRegister({ allUsers }) {
 }
 
 // ══════════════════════════════════════════
+// MAAND OVERZICHT
+// ══════════════════════════════════════════
+function MaandOverzicht({ userId, userName, allUsers, isBeheerder }) {
+    const today = new Date();
+    const [maand, setMaand] = useState(today.getMonth());
+    const [jaar, setJaar] = useState(today.getFullYear());
+
+    const MAAND_NAMEN = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'];
+
+    // Bereken alle weken die (deels) in de maand vallen
+    function getWeeksInMonth(m, y) {
+        const weeks = [];
+        const d = new Date(y, m, 1);
+        while (d.getMonth() === m) {
+            const w = getISOWeekNumber(d);
+            const yw = d.getFullYear();
+            if (!weeks.find(x => x.week === w && x.year === yw)) weeks.push({ week: w, year: yw });
+            d.setDate(d.getDate() + 7 - (d.getDay() || 7) + 1);
+            if (d.getDay() !== 1) { d.setDate(d.getDate() - (d.getDay() - 1 + 7) % 7); }
+        }
+        // eenvoudiger: loop per dag en verzamel unieke weken
+        const weeks2 = [];
+        const d2 = new Date(y, m, 1);
+        while (d2.getMonth() === m) {
+            const w = getISOWeekNumber(d2);
+            const yw = d2.getDay() === 0 && d2.getDate() <= 3 ? y - 1 : (d2.getDay() !== 0 && d2.getMonth() === 11 && d2.getDate() >= 29 ? y + 1 : y);
+            if (!weeks2.find(x => x.week === w && x.year === yw)) weeks2.push({ week: w, year: yw });
+            d2.setDate(d2.getDate() + 1);
+        }
+        return weeks2;
+    }
+
+    const weeks = getWeeksInMonth(maand, jaar);
+
+    function getUserHoursPerWeek(uid) {
+        return weeks.map(({ week, year }) => {
+            const raw = localStorage.getItem(storageKey(uid, week, year));
+            if (!raw) return 0;
+            const data = JSON.parse(raw);
+            return (data || []).reduce((sum, proj) => {
+                return sum + Object.values(proj.types || {}).reduce((s, arr) => {
+                    if (!Array.isArray(arr)) return s;
+                    return s + arr.reduce((ss, v) => ss + parseVal(v), 0);
+                }, 0);
+            }, 0);
+        });
+    }
+
+    function getUserTotalHours(uid) {
+        return getUserHoursPerWeek(uid).reduce((a, b) => a + b, 0);
+    }
+
+    // CSV export
+    function exportCSV() {
+        const users = isBeheerder && allUsers ? allUsers : [{ id: userId, name: userName }];
+        const header = ['Medewerker', ...weeks.map(w => `Week ${w.week}`), 'Totaal'];
+        const rows = users.map(u => {
+            const perWeek = getUserHoursPerWeek(u.id);
+            const totaal = perWeek.reduce((a, b) => a + b, 0);
+            return [u.name, ...perWeek.map(h => h.toFixed(1)), totaal.toFixed(1)];
+        });
+        const csv = [header, ...rows].map(r => r.join(';')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `uren_${MAAND_NAMEN[maand]}_${jaar}.csv`; a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    const users = isBeheerder && allUsers ? allUsers : [{ id: userId, name: userName }];
+
+    return (
+        <div style={{ padding: '0 0 40px' }}>
+            {/* Navigatie balk */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                <button onClick={() => { const d = new Date(jaar, maand - 1, 1); setMaand(d.getMonth()); setJaar(d.getFullYear()); }}
+                    style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                    <i className="fa-solid fa-chevron-left" />
+                </button>
+                <span style={{ fontWeight: 800, fontSize: '1.05rem', color: '#1e293b', minWidth: '160px', textAlign: 'center' }}>
+                    {MAAND_NAMEN[maand]} {jaar}
+                </span>
+                <button onClick={() => { const d = new Date(jaar, maand + 1, 1); setMaand(d.getMonth()); setJaar(d.getFullYear()); }}
+                    style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                    <i className="fa-solid fa-chevron-right" />
+                </button>
+                <button onClick={() => { setMaand(today.getMonth()); setJaar(today.getFullYear()); }}
+                    style={{ padding: '6px 12px', border: '1px solid #FA9F52', borderRadius: '8px', background: 'rgba(245,133,10,0.07)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#F5850A' }}>
+                    Huidige maand
+                </button>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                    <button onClick={() => window.print()}
+                        style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <i className="fa-solid fa-print" style={{ fontSize: '0.7rem' }} /> Afdrukken
+                    </button>
+                    <button onClick={exportCSV}
+                        style={{ padding: '6px 12px', border: '1px solid #22c55e', borderRadius: '8px', background: 'rgba(34,197,94,0.07)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#16a34a', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <i className="fa-solid fa-file-csv" style={{ fontSize: '0.7rem' }} /> Export CSV
+                    </button>
+                </div>
+            </div>
+
+            {/* Tabel */}
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>Medewerker</th>
+                            {weeks.map(w => (
+                                <th key={`${w.week}-${w.year}`} style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#64748b', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap', minWidth: '80px' }}>
+                                    Wk {w.week}
+                                </th>
+                            ))}
+                            <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 800, color: '#1e293b', borderBottom: '2px solid #e2e8f0', background: 'rgba(245,133,10,0.06)' }}>Totaal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {users.map((u, idx) => {
+                            const perWeek = getUserHoursPerWeek(u.id);
+                            const totaal = perWeek.reduce((a, b) => a + b, 0);
+                            return (
+                                <tr key={u.id} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                    <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }}>{u.name}</td>
+                                    {perWeek.map((h, i) => (
+                                        <td key={i} style={{ padding: '10px 12px', textAlign: 'center', borderBottom: '1px solid #f1f5f9', color: h === 0 ? '#cbd5e1' : '#1e293b', fontWeight: h > 0 ? 600 : 400 }}>
+                                            {h === 0 ? '—' : h.toFixed(1)}
+                                        </td>
+                                    ))}
+                                    <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 800, color: totaal >= TARGET_WEEK * weeks.length * 0.8 ? '#16a34a' : '#F5850A', borderBottom: '1px solid #f1f5f9', background: 'rgba(245,133,10,0.04)' }}>
+                                        {totaal.toFixed(1)} u
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                    <tfoot>
+                        <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
+                            <td style={{ padding: '10px 14px', color: '#64748b', borderTop: '2px solid #e2e8f0' }}>Totaal</td>
+                            {weeks.map((w, i) => {
+                                const colTotal = users.reduce((sum, u) => {
+                                    const perWeek = getUserHoursPerWeek(u.id);
+                                    return sum + (perWeek[i] || 0);
+                                }, 0);
+                                return (
+                                    <td key={i} style={{ padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #e2e8f0', color: '#1e293b' }}>
+                                        {colTotal.toFixed(1)}
+                                    </td>
+                                );
+                            })}
+                            <td style={{ padding: '10px 14px', textAlign: 'center', borderTop: '2px solid #e2e8f0', color: '#F5850A', background: 'rgba(245,133,10,0.06)' }}>
+                                {users.reduce((sum, u) => sum + getUserTotalHours(u.id), 0).toFixed(1)} u
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+// ══════════════════════════════════════════
 // HOOFD PAGINA
 // ══════════════════════════════════════════
 export default function UrenregistratiePage() {
@@ -1242,6 +1413,7 @@ export default function UrenregistratiePage() {
 
     const tabs = [
         { id: 'mijn', label: 'Mijn Uren', icon: 'fa-pen-to-square' },
+        { id: 'maand', label: 'Maandoverzicht', icon: 'fa-calendar-days' },
         ...(isBeheerder ? [{ id: 'team', label: 'Team Overzicht', icon: 'fa-users' }] : []),
         ...(isBeheerder ? [{ id: 'mandag', label: 'Mandagregister', icon: 'fa-table-list' }] : []),
     ];
@@ -1301,6 +1473,9 @@ export default function UrenregistratiePage() {
                     )}
                     <MijnUren userId={effectiveUserId} adminMode={isBeheerder && !!adminEditUserId} adminUserName={adminEditUserId ? allUsers.find(u => u.id === adminEditUserId)?.name : null} />
                 </>
+            )}
+            {activeTab === 'maand' && (
+                <MaandOverzicht userId={effectiveUserId} userName={adminEditUserId ? allUsers.find(u => u.id === adminEditUserId)?.name : user.name} allUsers={isBeheerder ? allUsers : null} isBeheerder={isBeheerder} />
             )}
             {activeTab === 'team' && isBeheerder && (
                 <TeamOverzicht weekNum={teamWeek} yearNum={teamYear} setWeekNum={setTeamWeek} setYearNum={setTeamYear} allUsers={allUsers} curWeek={curWeek} curYear={curYear} />

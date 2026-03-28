@@ -4562,6 +4562,7 @@ export default function ProjectDossierPage() {
                         const data = await res.json();
                         if (!res.ok) { setTeamsFout(data.error || 'Onbekende fout'); return; }
                         saveProject({ ...project, plannerPlanId: data.plannerPlanId, teamsPlanAangemaakt: true });
+                        setToast('Planner aangemaakt!'); setTimeout(() => setToast(null), 3000);
                     } catch (e) { setTeamsFout(e.message); }
                     finally { setTeamsBezig(false); }
                 };
@@ -5520,12 +5521,6 @@ export default function ProjectDossierPage() {
                                                                     </div>
                                                                     <span style={{ fontWeight: 700, fontSize: '0.78rem', color: '#fff', flex: 1, letterSpacing: '0.01em' }}>Voorgestelde taken</span>
                                                                 </div>
-                                                                {plannerPaletSelectie.size > 0 && (
-                                                                    <button onClick={() => setPlannerPaletAssignPopup({ bulk: true, selectie: new Set(plannerPaletSelectie), userId: null, startDate: '', dueDate: '', label: null })}
-                                                                        style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, backdropFilter: 'blur(4px)' }}>
-                                                                        <i className="fa-solid fa-arrow-up" /> Importeer {plannerPaletSelectie.size} naar Planner
-                                                                    </button>
-                                                                )}
                                                             </div>
                                                             {/* Verticale lijst — alle sjablonen */}
                                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 0, background: '#f8f9ff', maxHeight: 520, overflowY: 'auto' }}>
