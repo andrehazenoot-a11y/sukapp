@@ -783,6 +783,9 @@ function UrenstaatBody({ user, week, year }) {
     const profiel = profielRaw ? JSON.parse(profielRaw) : null;
     const bsn = profiel?.bsn || user.bsn || '—';
 
+    // Briefpapier achtergrond (zelfde als modelovereenkomsten)
+    const briefpapier = typeof window !== 'undefined' ? localStorage.getItem('wa_briefpapier') : null;
+
     const ALL_DAYS = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
     const fmtDate  = d => `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 
@@ -808,7 +811,19 @@ function UrenstaatBody({ user, week, year }) {
     const thH = { ...tdH, background: '#f0f0f0', fontWeight: 700, whiteSpace: 'nowrap' };
 
     return (
-        <div className="urenstaat-doc">
+        <div className="urenstaat-doc" style={{ position: 'relative' }}>
+            {/* Briefpapier achtergrond — zelfde als modelovereenkomsten */}
+            {briefpapier && (
+                <div style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundImage: `url(${briefpapier})`,
+                    backgroundSize: '100% auto',
+                    backgroundPosition: 'top center',
+                    backgroundRepeat: 'no-repeat',
+                    pointerEvents: 'none', zIndex: 0,
+                }} />
+            )}
+            <div style={{ position: 'relative', zIndex: 1, paddingTop: briefpapier ? '110px' : '0' }}>
             <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 16px', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
                 De schilders uit Katwijk urenstaat
             </h1>
@@ -869,6 +884,7 @@ function UrenstaatBody({ user, week, year }) {
             <p style={{ fontSize: '11px', color: '#666', margin: 0 }}>
                 Afgedrukt op {today.toLocaleDateString('nl-NL')} {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.
             </p>
+            </div>{/* einde content-wrapper */}
         </div>
     );
 }
@@ -877,8 +893,9 @@ const URENSTAAT_PRINT_STYLE = `
     @media print {
         .sidebar, .topbar, .no-print { display: none !important; }
         .content-area { padding: 0 !important; margin: 0 !important; }
-        body { background: white !important; -webkit-print-color-adjust: exact; }
+        body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .urenstaat-doc { font-family: Arial, sans-serif !important; max-width: 100% !important; }
+        .urenstaat-doc > div:first-child { background-size: 100% auto !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .batch-page-break { break-after: page; page-break-after: always; }
     }
     .urenstaat-doc { font-family: Arial, sans-serif; color: #000; max-width: 960px; }
