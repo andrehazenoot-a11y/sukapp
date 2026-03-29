@@ -933,7 +933,7 @@ function MandagRegister({ allUsers }) {
     const [fromMonth, setFromMonth]             = useState(Math.max(1, curMonth - 2));
     const [toMonth, setToMonth]                 = useState(curMonth);
     const [showTypes, setShowTypes]             = useState(true);
-    const [showUrenstaat, setShowUrenstaat]     = useState(false);
+    const [showUrenstaat, setShowUrenstaat]     = useState(null); // null of user-object
 
     const MONTH_NAMES = ['Januari','Februari','Maart','April','Mei','Juni','Juli','Augustus','September','Oktober','November','December'];
     const MONTH_SHORT = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
@@ -1010,8 +1010,8 @@ function MandagRegister({ allUsers }) {
     const canUrenstaat  = viewMode === 'week' && urenstaatUser;
 
     // Als urenstaat-modus actief is, toon alleen dat document
-    if (showUrenstaat && urenstaatUser) {
-        return <UrenstaatPrint user={urenstaatUser} week={fromWeek} year={year} onBack={() => setShowUrenstaat(false)} />;
+    if (showUrenstaat) {
+        return <UrenstaatPrint user={showUrenstaat} week={fromWeek} year={year} onBack={() => setShowUrenstaat(null)} />;
     }
 
     return (
@@ -1105,7 +1105,7 @@ function MandagRegister({ allUsers }) {
 
                     <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                         {canUrenstaat && (
-                            <button onClick={() => setShowUrenstaat(true)}
+                            <button onClick={() => setShowUrenstaat(urenstaatUser)}
                                 title={`Urenstaat afdrukken voor ${urenstaatUser?.name}`}
                                 style={{ padding: '9px 18px', borderRadius: '10px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
                                 <i className="fa-solid fa-file-lines" /> Urenstaat
@@ -1149,6 +1149,7 @@ function MandagRegister({ allUsers }) {
                                 <th style={{ ...thStyle, textAlign: 'left', minWidth: '100px' }}>Rol</th>
                                 {columns.map(col => <th key={col.key} style={{ ...thStyle, minWidth: viewMode === 'maand' ? '90px' : '75px' }}>{col.label}</th>)}
                                 <th style={{ ...thStyle, background: 'rgba(245,133,10,0.06)', color: '#F5850A', minWidth: '70px' }}>Totaal</th>
+                                <th style={{ ...thStyle, minWidth: '80px' }}></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1172,6 +1173,12 @@ function MandagRegister({ allUsers }) {
                                                 </td>
                                             ))}
                                             <td style={{ ...tdStyle(true, '#F5850A'), background: 'rgba(245,133,10,0.06)' }}>{u.userTotal}</td>
+                                            <td style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #f8fafc' }}>
+                                                <button onClick={() => setShowUrenstaat(u)} title={`Urenstaat ${u.name}`}
+                                                    style={{ padding: '4px 10px', borderRadius: '7px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.72rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                                                    <i className="fa-solid fa-file-lines" style={{ fontSize: '0.65rem' }} /> Urenstaat
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 }
@@ -1208,6 +1215,14 @@ function MandagRegister({ allUsers }) {
                                             <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 700, color: typeInfo.color, background: `${typeInfo.color}08`, borderBottom: '1px solid #f8fafc', fontSize: '0.85rem' }}>
                                                 {typeTotal > 0 ? typeTotal : '—'}
                                             </td>
+                                            <td style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #f8fafc' }}>
+                                                {tIdx === 0 && (
+                                                    <button onClick={() => setShowUrenstaat(u)} title={`Urenstaat ${u.name}`}
+                                                        style={{ padding: '4px 10px', borderRadius: '7px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.72rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                                                        <i className="fa-solid fa-file-lines" style={{ fontSize: '0.65rem' }} /> Urenstaat
+                                                    </button>
+                                                )}
+                                            </td>
                                         </tr>
                                     );
                                 });
@@ -1224,9 +1239,11 @@ function MandagRegister({ allUsers }) {
                                         {t > 0 ? t : '—'}
                                     </td>
                                 ))}
+                                {/* lege cel voor urenstaat-kolom */}
                                 <td style={{ padding: '10px', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#F5850A', background: 'rgba(245,133,10,0.08)' }}>
                                     {grandTotal}
                                 </td>
+                                <td style={{ padding: '10px' }} />
                             </tr>
                         </tbody>
                     </table>
