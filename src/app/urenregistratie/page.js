@@ -810,7 +810,7 @@ function UrenstaatBody({ user, week, year }) {
     const PB = briefpapier ? 100 : 40;
     const PS = 48;
 
-    const tdH = { border: '1px solid #c8d2da', padding: '4px 7px', fontSize: '11px', fontFamily: FONT, color: '#2c3b4e' };
+    const tdH = { border: '1px solid #c8d2da', padding: '2px 5px', fontSize: '10px', fontFamily: FONT, color: '#2c3b4e' };
     const thH = { ...tdH, background: '#e8ecf0', fontWeight: 700, whiteSpace: 'nowrap', borderBottom: '2px solid #9aaab8' };
 
     return (
@@ -830,18 +830,18 @@ function UrenstaatBody({ user, week, year }) {
             )}
             <div style={{ position: 'relative', zIndex: 1, padding: `${PT}px ${PS}px ${PB}px`, fontFamily: FONT }}>
                 {/* Titel */}
-                <h1 style={{ fontSize: '13px', fontWeight: 800, margin: '0 0 14px', color: '#1e293b', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '2px solid #1e293b', paddingBottom: '6px', fontFamily: FONT }}>
+                <h1 style={{ fontSize: '12px', fontWeight: 800, margin: '0 0 8px', color: '#1e293b', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '2px solid #1e293b', paddingBottom: '4px', fontFamily: FONT }}>
                     Urenstaat
                 </h1>
 
                 {/* Medewerker + weekinfo naast elkaar */}
-                <div style={{ display: 'flex', gap: '32px', marginBottom: '18px', alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', gap: '32px', marginBottom: '10px', alignItems: 'flex-start' }}>
                     <table style={{ borderCollapse: 'collapse', flex: 1 }}>
                         <tbody>
                             {[['Werkkracht', user.name], ['BSN nummer', bsn]].map(([label, value]) => (
                                 <tr key={label}>
-                                    <td style={{ fontWeight: 700, fontSize: '11px', padding: '2px 14px 2px 0', color: '#2c3b4e', width: '110px', fontFamily: FONT, verticalAlign: 'top' }}>{label}</td>
-                                    <td style={{ fontSize: '11px', color: '#2c3b4e', fontFamily: FONT, padding: '2px 0' }}>{value}</td>
+                                    <td style={{ fontWeight: 700, fontSize: '10px', padding: '1px 10px 1px 0', color: '#2c3b4e', width: '90px', fontFamily: FONT, verticalAlign: 'top' }}>{label}</td>
+                                    <td style={{ fontSize: '10px', color: '#2c3b4e', fontFamily: FONT, padding: '1px 0' }}>{value}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -859,11 +859,11 @@ function UrenstaatBody({ user, week, year }) {
                 </div>
 
                 {/* Urentabel */}
-                <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '16px' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '10px' }}>
                     <thead>
                         <tr>
                             {['Opdrachtgever','Project','Type uur','Ma','Di','Wo','Do','Vr','Totaal'].map(h => (
-                                <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '10px' }}>{h}</th>
+                                <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '9px' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
@@ -899,11 +899,11 @@ function UrenstaatBody({ user, week, year }) {
                 </table>
 
                 {/* Handtekening blokken */}
-                <div style={{ display: 'flex', gap: '40px', marginTop: '28px' }}>
+                <div style={{ display: 'flex', gap: '40px', marginTop: '16px' }}>
                     {['Handtekening medewerker', 'Handtekening leidinggevende'].map(label => (
                         <div key={label} style={{ flex: 1 }}>
-                            <div style={{ height: '42px', borderBottom: '1.5px solid #2c3b4e', marginBottom: '5px' }}></div>
-                            <div style={{ fontSize: '9px', color: '#64748b', fontFamily: FONT, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>{label}</div>
+                            <div style={{ height: '30px', borderBottom: '1.5px solid #2c3b4e', marginBottom: '4px' }}></div>
+                            <div style={{ fontSize: '8px', color: '#64748b', fontFamily: FONT, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>{label}</div>
                         </div>
                     ))}
                 </div>
