@@ -774,16 +774,13 @@ function TeamOverzicht({ weekNum, yearNum, setWeekNum, setYearNum, allUsers, cur
 // ══════════════════════════════════════════
 // ── Herbruikbaar urenstaat document (zonder knoppen) ──
 function UrenstaatBody({ user, week, year }) {
-    const today    = new Date();
-    const monday   = getMondayOfWeek(week, year);
-    const sunday   = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    const today  = new Date();
+    const monday = getMondayOfWeek(week, year);
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
 
-    // BSN ophalen uit profiel (localStorage heeft voorrang op user.bsn)
-    const profielRaw = typeof window !== 'undefined' ? localStorage.getItem(`schildersapp_profiel_${user.id}`) : null;
-    const profiel = profielRaw ? JSON.parse(profielRaw) : null;
-    const bsn = profiel?.bsn || user.bsn || '—';
-
-    // Briefpapier achtergrond (zelfde als modelovereenkomsten)
+    const profielRaw  = typeof window !== 'undefined' ? localStorage.getItem(`schildersapp_profiel_${user.id}`) : null;
+    const profiel     = profielRaw ? JSON.parse(profielRaw) : null;
+    const bsn         = profiel?.bsn || user.bsn || '—';
     const briefpapier = typeof window !== 'undefined' ? localStorage.getItem('wa_briefpapier') : null;
 
     const ALL_DAYS = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
@@ -806,116 +803,165 @@ function UrenstaatBody({ user, week, year }) {
 
     const typeTotals = {};
     rows.forEach(r => { typeTotals[r.type] = (typeTotals[r.type] || 0) + r.total; });
+    const grandTotal = Object.values(typeTotals).reduce((a, b) => a + b, 0);
 
-    const tdH = { border: '1px solid #ccc', padding: '5px 8px', fontSize: '12px' };
-    const thH = { ...tdH, background: '#f0f0f0', fontWeight: 700, whiteSpace: 'nowrap' };
+    const FONT = "'Carlito','Calibri','Segoe UI',Arial,sans-serif";
+    const PT = briefpapier ? 110 : 40;
+    const PB = briefpapier ? 100 : 40;
+    const PS = 48;
+
+    const tdH = { border: '1px solid #c8d2da', padding: '4px 7px', fontSize: '11px', fontFamily: FONT, color: '#2c3b4e' };
+    const thH = { ...tdH, background: '#e8ecf0', fontWeight: 700, whiteSpace: 'nowrap', borderBottom: '2px solid #9aaab8' };
 
     return (
-        <div className="urenstaat-doc" style={{ position: 'relative' }}>
-            {/* Briefpapier achtergrond — zelfde als modelovereenkomsten */}
+        <div className="urenstaat-doc" style={{
+            position: 'relative', width: '620px', minHeight: '876px',
+            margin: '0 auto', background: '#fff',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', borderRadius: '8px',
+            overflow: 'hidden',
+        }}>
             {briefpapier && (
                 <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                     backgroundImage: `url(${briefpapier})`,
-                    backgroundSize: '100% auto',
-                    backgroundPosition: 'top center',
-                    backgroundRepeat: 'no-repeat',
+                    backgroundSize: '100% auto', backgroundPosition: 'top center', backgroundRepeat: 'no-repeat',
                     pointerEvents: 'none', zIndex: 0,
                 }} />
             )}
-            <div style={{ position: 'relative', zIndex: 1, paddingTop: briefpapier ? '110px' : '0' }}>
-            <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 16px', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
-                De schilders uit Katwijk urenstaat
-            </h1>
-            <table style={{ borderCollapse: 'collapse', marginBottom: '16px', width: '100%' }}>
-                <tbody>
-                    <tr>
-                        <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', width: '200px', verticalAlign: 'top' }}>Werkkracht</td>
-                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.name}</td>
-                    </tr>
-                    <tr>
-                        <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', verticalAlign: 'top' }}>BSN nummer</td>
-                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{bsn}</td>
-                    </tr>
-                </tbody>
-            </table>
-            <table style={{ borderCollapse: 'collapse', marginBottom: '16px', width: '50%' }}>
-                <tbody>
-                    {[['Weeknummer', week], ['Jaar', year], ['Periode', `${fmtDate(monday)} naar ${fmtDate(sunday)}`]].map(([label, value]) => (
-                        <tr key={label}>
-                            <td style={{ ...thH, width: '140px' }}>{label}</td>
-                            <td style={tdH}>{value}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '16px' }}>
-                <thead>
-                    <tr>
-                        {['Opdrachtgever','Project','Type','Ma','Di','Wo','Do','Vr','Za','Zo','Totalen','Werkbon'].map(h => (
-                            <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Za','Zo','Totalen'].includes(h) ? 'center' : 'left' }}>{h}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.length === 0 ? (
-                        <tr><td colSpan={12} style={{ ...tdH, textAlign: 'center', color: '#666', padding: '16px' }}>Geen uren ingevuld voor deze week</td></tr>
-                    ) : rows.map((r, ri) => (
-                        <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
-                            <td style={tdH}>{r.opdrachtgever}</td>
-                            <td style={tdH}>{r.project}</td>
-                            <td style={tdH}>{r.type}</td>
-                            {r.dayHours.map((h, di) => (
-                                <td key={di} style={{ ...tdH, textAlign: 'center' }}>{h > 0 ? h : ''}</td>
+            <div style={{ position: 'relative', zIndex: 1, padding: `${PT}px ${PS}px ${PB}px`, fontFamily: FONT }}>
+                {/* Titel */}
+                <h1 style={{ fontSize: '13px', fontWeight: 800, margin: '0 0 14px', color: '#1e293b', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '2px solid #1e293b', paddingBottom: '6px', fontFamily: FONT }}>
+                    Urenstaat
+                </h1>
+
+                {/* Medewerker + weekinfo naast elkaar */}
+                <div style={{ display: 'flex', gap: '32px', marginBottom: '18px', alignItems: 'flex-start' }}>
+                    <table style={{ borderCollapse: 'collapse', flex: 1 }}>
+                        <tbody>
+                            {[['Werkkracht', user.name], ['BSN nummer', bsn]].map(([label, value]) => (
+                                <tr key={label}>
+                                    <td style={{ fontWeight: 700, fontSize: '11px', padding: '2px 14px 2px 0', color: '#2c3b4e', width: '110px', fontFamily: FONT, verticalAlign: 'top' }}>{label}</td>
+                                    <td style={{ fontSize: '11px', color: '#2c3b4e', fontFamily: FONT, padding: '2px 0' }}>{value}</td>
+                                </tr>
                             ))}
-                            <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{r.total}</td>
-                            <td style={tdH}></td>
+                        </tbody>
+                    </table>
+                    <table style={{ borderCollapse: 'collapse' }}>
+                        <tbody>
+                            {[['Weeknummer', week], ['Jaar', year], ['Periode', `${fmtDate(monday)} – ${fmtDate(sunday)}`]].map(([label, value]) => (
+                                <tr key={label}>
+                                    <td style={{ ...thH, width: '100px', textAlign: 'left' }}>{label}</td>
+                                    <td style={{ ...tdH, whiteSpace: 'nowrap' }}>{value}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Urentabel */}
+                <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '16px' }}>
+                    <thead>
+                        <tr>
+                            {['Opdrachtgever','Project','Type uur','Ma','Di','Wo','Do','Vr','Za','Zo','Totaal','Werkbon'].map(h => (
+                                <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Za','Zo','Totaal'].includes(h) ? 'center' : 'left', fontSize: '10px' }}>{h}</th>
+                            ))}
                         </tr>
+                    </thead>
+                    <tbody>
+                        {rows.length === 0 ? (
+                            <tr><td colSpan={12} style={{ ...tdH, textAlign: 'center', color: '#94a3b8', padding: '20px', fontStyle: 'italic' }}>Geen uren ingevuld voor deze week</td></tr>
+                        ) : rows.map((r, ri) => (
+                            <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                                <td style={tdH}>{r.opdrachtgever}</td>
+                                <td style={{ ...tdH, maxWidth: '120px' }}>{r.project}</td>
+                                <td style={tdH}>{r.type}</td>
+                                {r.dayHours.map((h, di) => (
+                                    <td key={di} style={{ ...tdH, textAlign: 'center', fontWeight: h > 0 ? 700 : 400, color: h > 0 ? '#1e293b' : '#d1d5db' }}>{h > 0 ? h : ''}</td>
+                                ))}
+                                <td style={{ ...tdH, textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>{r.total}</td>
+                                <td style={{ ...tdH, minWidth: '60px' }}></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    {rows.length > 0 && (
+                        <tfoot>
+                            {Object.entries(typeTotals).map(([type, tot]) => (
+                                <tr key={type} style={{ background: '#e8ecf0' }}>
+                                    <td colSpan={10} style={{ ...tdH, textAlign: 'right', fontStyle: 'italic', color: '#4a5568', fontWeight: 600 }}>{type} subtotaal</td>
+                                    <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{tot}</td>
+                                    <td style={tdH}></td>
+                                </tr>
+                            ))}
+                            <tr style={{ background: '#2c3b4e' }}>
+                                <td colSpan={10} style={{ ...tdH, textAlign: 'right', color: '#fff', fontWeight: 700, border: '1px solid #1e293b' }}>Totaal uren</td>
+                                <td style={{ ...tdH, textAlign: 'center', fontWeight: 800, color: '#fff', border: '1px solid #1e293b' }}>{grandTotal}</td>
+                                <td style={{ ...tdH, border: '1px solid #1e293b', color: '#fff' }}></td>
+                            </tr>
+                        </tfoot>
+                    )}
+                </table>
+
+                {/* Handtekening blokken */}
+                <div style={{ display: 'flex', gap: '40px', marginTop: '28px' }}>
+                    {['Handtekening medewerker', 'Handtekening leidinggevende'].map(label => (
+                        <div key={label} style={{ flex: 1 }}>
+                            <div style={{ height: '42px', borderBottom: '1.5px solid #2c3b4e', marginBottom: '5px' }}></div>
+                            <div style={{ fontSize: '9px', color: '#64748b', fontFamily: FONT, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>{label}</div>
+                        </div>
                     ))}
-                    {Object.entries(typeTotals).map(([type, tot]) => (
-                        <tr key={type} style={{ background: '#f5f5f5' }}>
-                            <td colSpan={9} style={{ ...tdH, textAlign: 'right', fontWeight: 400, color: '#555', fontStyle: 'italic' }}>{type}</td>
-                            <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{tot}</td>
-                            <td style={tdH}></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            <p style={{ fontSize: '11px', color: '#666', margin: 0 }}>
-                Afgedrukt op {today.toLocaleDateString('nl-NL')} {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.
-            </p>
-            </div>{/* einde content-wrapper */}
+                </div>
+
+                <p style={{ fontSize: '9px', color: '#94a3b8', margin: '20px 0 0', fontFamily: FONT }}>
+                    Afgedrukt op {today.toLocaleDateString('nl-NL')} om {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+            </div>
         </div>
     );
 }
 
 const URENSTAAT_PRINT_STYLE = `
     @media print {
+        @page { size: A4 portrait; margin: 0; }
         .sidebar, .topbar, .no-print { display: none !important; }
         .content-area { padding: 0 !important; margin: 0 !important; }
+        .urenstaat-preview-bg { background: white !important; padding: 0 !important; }
         body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .urenstaat-doc { font-family: Arial, sans-serif !important; max-width: 100% !important; }
-        .urenstaat-doc > div:first-child { background-size: 100% auto !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .urenstaat-doc {
+            width: 100% !important; min-height: 100vh !important;
+            box-shadow: none !important; border: none !important;
+            border-radius: 0 !important; margin: 0 !important;
+        }
         .batch-page-break { break-after: page; page-break-after: always; }
     }
-    .urenstaat-doc { font-family: Arial, sans-serif; color: #000; max-width: 960px; }
 `;
 
 function UrenstaatPrint({ user, week, year, onBack }) {
     return (
         <>
             <style>{URENSTAAT_PRINT_STYLE}</style>
-            <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center' }}>
+            {/* Toolbar */}
+            <div className="no-print" style={{
+                position: 'sticky', top: 0, zIndex: 10,
+                background: '#1e293b', padding: '10px 24px',
+                display: 'flex', gap: '10px', alignItems: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            }}>
                 <button onClick={onBack}
-                    style={{ padding: '8px 18px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '7px', color: '#64748b' }}>
-                    <i className="fa-solid fa-arrow-left" /> Terug naar Mandagregister
+                    style={{ padding: '7px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#e2e8f0' }}>
+                    <i className="fa-solid fa-arrow-left" /> Terug
                 </button>
+                <span style={{ color: '#94a3b8', fontSize: '0.85rem', flex: 1 }}>
+                    Urenstaat — {user.name} · Week {week} {year}
+                </span>
                 <button onClick={() => window.print()}
-                    style={{ padding: '8px 20px', borderRadius: '9px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                    style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
                     <i className="fa-solid fa-print" /> Afdrukken
                 </button>
             </div>
-            <UrenstaatBody user={user} week={week} year={year} />
+            {/* Grijze preview-achtergrond, wit A4-vel gecentreerd */}
+            <div className="urenstaat-preview-bg" style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px' }}>
+                <UrenstaatBody user={user} week={week} year={year} />
+            </div>
         </>
     );
 }
@@ -924,25 +970,35 @@ function BatchUrenstaatPrint({ entries, year, onBack }) {
     return (
         <>
             <style>{URENSTAAT_PRINT_STYLE}</style>
-            <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="no-print" style={{
+                position: 'sticky', top: 0, zIndex: 10,
+                background: '#1e293b', padding: '10px 24px',
+                display: 'flex', gap: '10px', alignItems: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            }}>
                 <button onClick={onBack}
-                    style={{ padding: '8px 18px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '7px', color: '#64748b' }}>
-                    <i className="fa-solid fa-arrow-left" /> Terug naar Mandagregister
+                    style={{ padding: '7px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#e2e8f0' }}>
+                    <i className="fa-solid fa-arrow-left" /> Terug
                 </button>
-                <button onClick={() => window.print()}
-                    style={{ padding: '8px 20px', borderRadius: '9px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <i className="fa-solid fa-print" /> Afdrukken ({entries.length} urenstaten)
-                </button>
-                <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
-                    <i className="fa-solid fa-info-circle" style={{ marginRight: '4px' }} />
-                    Elke medewerker verschijnt op een aparte pagina
+                <span style={{ color: '#94a3b8', fontSize: '0.85rem', flex: 1 }}>
+                    Batch afdrukken · {entries.length} urenstaten
                 </span>
+                <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                    <i className="fa-solid fa-info-circle" style={{ marginRight: '4px' }} />
+                    Elke medewerker op aparte pagina
+                </span>
+                <button onClick={() => window.print()}
+                    style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                    <i className="fa-solid fa-print" /> Afdrukken ({entries.length})
+                </button>
             </div>
-            {entries.map(({ user, week }, i) => (
-                <div key={`${user.id}:${week}`} className={i < entries.length - 1 ? 'batch-page-break' : ''} style={{ marginBottom: i < entries.length - 1 ? '40px' : 0 }}>
-                    <UrenstaatBody user={user} week={week} year={year} />
-                </div>
-            ))}
+            <div className="urenstaat-preview-bg" style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                {entries.map(({ user, week }, i) => (
+                    <div key={`${user.id}:${week}`} className={i < entries.length - 1 ? 'batch-page-break' : ''}>
+                        <UrenstaatBody user={user} week={week} year={year} />
+                    </div>
+                ))}
+            </div>
         </>
     );
 }
