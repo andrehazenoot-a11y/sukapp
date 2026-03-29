@@ -898,7 +898,7 @@ function UrenstaatPrint({ user, week, year, onBack }) {
     );
 }
 
-function BatchUrenstaatPrint({ users, week, year, onBack }) {
+function BatchUrenstaatPrint({ entries, year, onBack }) {
     return (
         <>
             <style>{URENSTAAT_PRINT_STYLE}</style>
@@ -909,16 +909,16 @@ function BatchUrenstaatPrint({ users, week, year, onBack }) {
                 </button>
                 <button onClick={() => window.print()}
                     style={{ padding: '8px 20px', borderRadius: '9px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <i className="fa-solid fa-print" /> Afdrukken ({users.length} urenstaten)
+                    <i className="fa-solid fa-print" /> Afdrukken ({entries.length} urenstaten)
                 </button>
                 <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
                     <i className="fa-solid fa-info-circle" style={{ marginRight: '4px' }} />
                     Elke medewerker verschijnt op een aparte pagina
                 </span>
             </div>
-            {users.map((u, i) => (
-                <div key={u.id} className={i < users.length - 1 ? 'batch-page-break' : ''} style={{ marginBottom: i < users.length - 1 ? '40px' : 0 }}>
-                    <UrenstaatBody user={u} week={week} year={year} />
+            {entries.map(({ user, week }, i) => (
+                <div key={`${user.id}:${week}`} className={i < entries.length - 1 ? 'batch-page-break' : ''} style={{ marginBottom: i < entries.length - 1 ? '40px' : 0 }}>
+                    <UrenstaatBody user={user} week={week} year={year} />
                 </div>
             ))}
         </>
@@ -988,11 +988,16 @@ function MandagRegister({ allUsers }) {
 
     // ── Render guards ──
     if (showBatch && printSelectie.size > 0) {
-        const toPrint = allUsers.filter(u => printSelectie.has(u.id));
-        return <BatchUrenstaatPrint users={toPrint} week={fromWeek} year={year} onBack={() => setShowBatch(false)} />;
+        // printSelectie bevat strings "userId:week"
+        const toPrint = [...printSelectie].map(key => {
+            const [uid, w] = key.split(':');
+            const u = allUsers.find(u => String(u.id) === uid);
+            return u ? { user: u, week: Number(w) } : null;
+        }).filter(Boolean);
+        return <BatchUrenstaatPrint entries={toPrint} year={year} onBack={() => setShowBatch(false)} />;
     }
     if (showUrenstaat) {
-        return <UrenstaatPrint user={showUrenstaat} week={fromWeek} year={year} onBack={() => setShowUrenstaat(null)} />;
+        return <UrenstaatPrint user={showUrenstaat.user} week={showUrenstaat.week} year={year} onBack={() => setShowUrenstaat(null)} />;
     }
 
     const thS = { padding: '8px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e8f5e9', whiteSpace: 'nowrap', textAlign: 'center' };
@@ -1131,12 +1136,12 @@ function MandagRegister({ allUsers }) {
                                             <td style={{ ...tdS, textAlign: 'center' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
                                                     <input type="checkbox"
-                                                        checked={printSelectie.has(r.user.id)}
-                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(r.user.id) : s.delete(r.user.id); return s; })}
+                                                        checked={printSelectie.has(`${r.user.id}:${week}`)}
+                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(`${r.user.id}:${week}`) : s.delete(`${r.user.id}:${week}`); return s; })}
                                                         style={{ cursor: 'pointer', width: '14px', height: '14px' }}
                                                         title={`Selecteer ${r.user.name}`}
                                                     />
-                                                    <button onClick={() => setShowUrenstaat(r.user)} title={`Urenstaat ${r.user.name}`}
+                                                    <button onClick={() => setShowUrenstaat({ user: r.user, week })} title={`Urenstaat ${r.user.name}`}
                                                         style={{ padding: '3px 8px', borderRadius: '6px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.68rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }}>
                                                         <i className="fa-solid fa-file-lines" style={{ fontSize: '0.6rem' }} /> Urenstaat
                                                     </button>
