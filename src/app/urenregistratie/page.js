@@ -763,64 +763,117 @@ function TeamOverzicht({ weekNum, yearNum, setWeekNum, setYearNum, allUsers, cur
 // ══════════════════════════════════════════
 // URENSTAAT PRINT — A4 per persoon / week
 // ══════════════════════════════════════════
-function UrenstaatPrint({ user, week, year, onBack }) {
+// ── Herbruikbaar urenstaat document (zonder knoppen) ──
+function UrenstaatBody({ user, week, year }) {
     const today    = new Date();
     const monday   = getMondayOfWeek(week, year);
     const sunday   = new Date(monday); sunday.setDate(monday.getDate() + 6);
 
     const ALL_DAYS = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
     const fmtDate  = d => `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-    const dayDates = ALL_DAYS.map((name, i) => {
-        const d = new Date(monday); d.setDate(monday.getDate() + i);
-        return { name, date: d };
-    });
 
-    // Laad uren (5 werkdagen opgeslagen, za/zo = 0)
     const rawProjects = loadData(user.id, week, year) || [];
-
-    // Bouw rijen op: per project + type
     const rows = [];
     rawProjects.forEach((proj, pi) => {
         const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
-        const typeKeys = Object.keys(proj.types || {});
-        typeKeys.forEach(tid => {
+        Object.keys(proj.types || {}).forEach(tid => {
             const typeInfo = UREN_TYPES.find(t => t.id === tid);
             if (!typeInfo || typeInfo.inputType === 'icon') return;
             const hrs = proj.types[tid] || [];
             const dayHours = ALL_DAYS.map((_, di) => parseVal(hrs[di] || 0));
             const total = dayHours.reduce((a, b) => a + b, 0);
             if (total === 0) return;
-            rows.push({
-                opdrachtgever: `${pi + 1}. Projecten`,
-                project: projName,
-                type: typeInfo.label,
-                dayHours,
-                total,
-            });
+            rows.push({ opdrachtgever: `${pi + 1}. Projecten`, project: projName, type: typeInfo.label, dayHours, total });
         });
     });
 
-    // Totalen per type
     const typeTotals = {};
     rows.forEach(r => { typeTotals[r.type] = (typeTotals[r.type] || 0) + r.total; });
-    const grandTotal = rows.reduce((a, r) => a + r.total, 0);
 
     const tdH = { border: '1px solid #ccc', padding: '5px 8px', fontSize: '12px' };
     const thH = { ...tdH, background: '#f0f0f0', fontWeight: 700, whiteSpace: 'nowrap' };
 
     return (
-        <>
-            <style>{`
-                @media print {
-                    .sidebar, .topbar, .no-print { display: none !important; }
-                    .content-area { padding: 0 !important; margin: 0 !important; }
-                    body { background: white !important; -webkit-print-color-adjust: exact; }
-                    .urenstaat-doc { font-family: Arial, sans-serif !important; max-width: 100% !important; }
-                }
-                .urenstaat-doc { font-family: Arial, sans-serif; color: #000; max-width: 960px; }
-            `}</style>
+        <div className="urenstaat-doc">
+            <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 16px', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
+                De schilders uit Katwijk urenstaat
+            </h1>
+            <table style={{ borderCollapse: 'collapse', marginBottom: '16px', width: '100%' }}>
+                <tbody>
+                    <tr>
+                        <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', width: '200px', verticalAlign: 'top' }}>Werkkracht</td>
+                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.name} {user.bsn || ''}</td>
+                    </tr>
+                    <tr>
+                        <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', verticalAlign: 'top' }}>Registratienummer</td>
+                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.bsn || '—'}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table style={{ borderCollapse: 'collapse', marginBottom: '16px', width: '50%' }}>
+                <tbody>
+                    {[['Weeknummer', week], ['Jaar', year], ['Periode', `${fmtDate(monday)} naar ${fmtDate(sunday)}`]].map(([label, value]) => (
+                        <tr key={label}>
+                            <td style={{ ...thH, width: '140px' }}>{label}</td>
+                            <td style={tdH}>{value}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '16px' }}>
+                <thead>
+                    <tr>
+                        {['Opdrachtgever','Project','Type','Ma','Di','Wo','Do','Vr','Za','Zo','Totalen','Werkbon'].map(h => (
+                            <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Za','Zo','Totalen'].includes(h) ? 'center' : 'left' }}>{h}</th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.length === 0 ? (
+                        <tr><td colSpan={12} style={{ ...tdH, textAlign: 'center', color: '#666', padding: '16px' }}>Geen uren ingevuld voor deze week</td></tr>
+                    ) : rows.map((r, ri) => (
+                        <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={tdH}>{r.opdrachtgever}</td>
+                            <td style={tdH}>{r.project}</td>
+                            <td style={tdH}>{r.type}</td>
+                            {r.dayHours.map((h, di) => (
+                                <td key={di} style={{ ...tdH, textAlign: 'center' }}>{h > 0 ? h : ''}</td>
+                            ))}
+                            <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{r.total}</td>
+                            <td style={tdH}></td>
+                        </tr>
+                    ))}
+                    {Object.entries(typeTotals).map(([type, tot]) => (
+                        <tr key={type} style={{ background: '#f5f5f5' }}>
+                            <td colSpan={9} style={{ ...tdH, textAlign: 'right', fontWeight: 400, color: '#555', fontStyle: 'italic' }}>{type}</td>
+                            <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{tot}</td>
+                            <td style={tdH}></td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            <p style={{ fontSize: '11px', color: '#666', margin: 0 }}>
+                Afgedrukt op {today.toLocaleDateString('nl-NL')} {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.
+            </p>
+        </div>
+    );
+}
 
-            {/* Back + Print balk */}
+const URENSTAAT_PRINT_STYLE = `
+    @media print {
+        .sidebar, .topbar, .no-print { display: none !important; }
+        .content-area { padding: 0 !important; margin: 0 !important; }
+        body { background: white !important; -webkit-print-color-adjust: exact; }
+        .urenstaat-doc { font-family: Arial, sans-serif !important; max-width: 100% !important; }
+        .batch-page-break { break-after: page; page-break-after: always; }
+    }
+    .urenstaat-doc { font-family: Arial, sans-serif; color: #000; max-width: 960px; }
+`;
+
+function UrenstaatPrint({ user, week, year, onBack }) {
+    return (
+        <>
+            <style>{URENSTAAT_PRINT_STYLE}</style>
             <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center' }}>
                 <button onClick={onBack}
                     style={{ padding: '8px 18px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '7px', color: '#64748b' }}>
@@ -831,86 +884,34 @@ function UrenstaatPrint({ user, week, year, onBack }) {
                     <i className="fa-solid fa-print" /> Afdrukken
                 </button>
             </div>
+            <UrenstaatBody user={user} week={week} year={year} />
+        </>
+    );
+}
 
-            {/* Document */}
-            <div className="urenstaat-doc">
-                {/* Titel */}
-                <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 16px', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
-                    De schilders uit Katwijk urenstaat
-                </h1>
-
-                {/* Persoonsinfo */}
-                <table style={{ borderCollapse: 'collapse', marginBottom: '16px', width: '100%' }}>
-                    <tbody>
-                        <tr>
-                            <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', width: '200px', verticalAlign: 'top' }}>Werkkracht</td>
-                            <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.name} {user.bsn || ''}</td>
-                        </tr>
-                        <tr>
-                            <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', verticalAlign: 'top' }}>Registratienummer</td>
-                            <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.bsn || '—'}</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                {/* Week-info blok */}
-                <table style={{ borderCollapse: 'collapse', marginBottom: '16px', width: '50%' }}>
-                    <tbody>
-                        {[
-                            ['Weeknummer', week],
-                            ['Jaar', year],
-                            ['Periode', `${fmtDate(monday)} naar ${fmtDate(sunday)}`],
-                        ].map(([label, value]) => (
-                            <tr key={label}>
-                                <td style={{ ...thH, width: '140px' }}>{label}</td>
-                                <td style={tdH}>{value}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-
-                {/* Uren tabel */}
-                <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '16px' }}>
-                    <thead>
-                        <tr>
-                            {['Opdrachtgever','Project','Type','Ma','Di','Wo','Do','Vr','Za','Zo','Totalen','Werkbon'].map(h => (
-                                <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Za','Zo','Totalen'].includes(h) ? 'center' : 'left' }}>{h}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.length === 0 ? (
-                            <tr><td colSpan={12} style={{ ...tdH, textAlign: 'center', color: '#666', padding: '16px' }}>Geen uren ingevuld voor deze week</td></tr>
-                        ) : (
-                            rows.map((r, ri) => (
-                                <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
-                                    <td style={tdH}>{r.opdrachtgever}</td>
-                                    <td style={tdH}>{r.project}</td>
-                                    <td style={tdH}>{r.type}</td>
-                                    {r.dayHours.map((h, di) => (
-                                        <td key={di} style={{ ...tdH, textAlign: 'center' }}>{h > 0 ? h : ''}</td>
-                                    ))}
-                                    <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{r.total}</td>
-                                    <td style={tdH}></td>
-                                </tr>
-                            ))
-                        )}
-                        {/* Totaalrij per type */}
-                        {Object.entries(typeTotals).map(([type, tot]) => (
-                            <tr key={type} style={{ background: '#f5f5f5' }}>
-                                <td colSpan={9} style={{ ...tdH, textAlign: 'right', fontWeight: 400, color: '#555', fontStyle: 'italic' }}>{type}</td>
-                                <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{tot}</td>
-                                <td style={tdH}></td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-
-                {/* Export footer */}
-                <p style={{ fontSize: '11px', color: '#666', margin: 0 }}>
-                    Afgedrukt op {today.toLocaleDateString('nl-NL')} {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.
-                </p>
+function BatchUrenstaatPrint({ users, week, year, onBack }) {
+    return (
+        <>
+            <style>{URENSTAAT_PRINT_STYLE}</style>
+            <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button onClick={onBack}
+                    style={{ padding: '8px 18px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '7px', color: '#64748b' }}>
+                    <i className="fa-solid fa-arrow-left" /> Terug naar Mandagregister
+                </button>
+                <button onClick={() => window.print()}
+                    style={{ padding: '8px 20px', borderRadius: '9px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                    <i className="fa-solid fa-print" /> Afdrukken ({users.length} urenstaten)
+                </button>
+                <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                    <i className="fa-solid fa-info-circle" style={{ marginRight: '4px' }} />
+                    Elke medewerker verschijnt op een aparte pagina
+                </span>
             </div>
+            {users.map((u, i) => (
+                <div key={u.id} className={i < users.length - 1 ? 'batch-page-break' : ''} style={{ marginBottom: i < users.length - 1 ? '40px' : 0 }}>
+                    <UrenstaatBody user={u} week={week} year={year} />
+                </div>
+            ))}
         </>
     );
 }
@@ -934,6 +935,8 @@ function MandagRegister({ allUsers }) {
     const [toMonth, setToMonth]                 = useState(curMonth);
     const [showTypes, setShowTypes]             = useState(true);
     const [showUrenstaat, setShowUrenstaat]     = useState(null); // null of user-object
+    const [printSelectie, setPrintSelectie]     = useState(new Set());
+    const [showBatch, setShowBatch]             = useState(false);
 
     const MONTH_NAMES = ['Januari','Februari','Maart','April','Mei','Juni','Juli','Augustus','September','Oktober','November','December'];
     const MONTH_SHORT = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
@@ -1010,6 +1013,11 @@ function MandagRegister({ allUsers }) {
     const canUrenstaat  = viewMode === 'week' && urenstaatUser;
 
     // Als urenstaat-modus actief is, toon alleen dat document
+    if (showBatch && printSelectie.size > 0) {
+        const toPrint = allUsers.filter(u => printSelectie.has(u.id));
+        return <BatchUrenstaatPrint users={toPrint} week={fromWeek} year={year} onBack={() => setShowBatch(false)} />;
+    }
+
     if (showUrenstaat) {
         return <UrenstaatPrint user={showUrenstaat} week={fromWeek} year={year} onBack={() => setShowUrenstaat(null)} />;
     }
@@ -1104,6 +1112,12 @@ function MandagRegister({ allUsers }) {
                     </div>
 
                     <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                        {printSelectie.size > 0 && (
+                            <button onClick={() => setShowBatch(true)}
+                                style={{ padding: '9px 18px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                <i className="fa-solid fa-print" /> Print selectie ({printSelectie.size})
+                            </button>
+                        )}
                         {canUrenstaat && (
                             <button onClick={() => setShowUrenstaat(urenstaatUser)}
                                 title={`Urenstaat afdrukken voor ${urenstaatUser?.name}`}
@@ -1112,7 +1126,7 @@ function MandagRegister({ allUsers }) {
                             </button>
                         )}
                         <button onClick={() => window.print()}
-                            style={{ padding: '9px 20px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                            style={{ padding: '9px 20px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
                             <i className="fa-solid fa-print" /> Afdrukken
                         </button>
                     </div>
@@ -1145,7 +1159,18 @@ function MandagRegister({ allUsers }) {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                         <thead>
                             <tr>
-                                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '20px', minWidth: '180px' }}>Naam</th>
+                                <th style={{ ...thStyle, width: '36px', paddingLeft: '14px' }}>
+                                    <input type="checkbox"
+                                        title="Alles selecteren"
+                                        checked={activeRows.length > 0 && activeRows.every(u => printSelectie.has(u.id))}
+                                        onChange={e => {
+                                            const ids = activeRows.map(u => u.id);
+                                            setPrintSelectie(e.target.checked ? new Set(ids) : new Set());
+                                        }}
+                                        style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+                                    />
+                                </th>
+                                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '10px', minWidth: '180px' }}>Naam</th>
                                 <th style={{ ...thStyle, textAlign: 'left', minWidth: '100px' }}>Rol</th>
                                 {columns.map(col => <th key={col.key} style={{ ...thStyle, minWidth: viewMode === 'maand' ? '90px' : '75px' }}>{col.label}</th>)}
                                 <th style={{ ...thStyle, background: 'rgba(245,133,10,0.06)', color: '#F5850A', minWidth: '70px' }}>Totaal</th>
@@ -1162,7 +1187,14 @@ function MandagRegister({ allUsers }) {
                                 if (!showTypes || activeTypes.length <= 1) {
                                     return (
                                         <tr key={u.id} style={{ background: ui % 2 === 0 ? '#fff' : '#fafffe' }}>
-                                            <td style={{ ...tdStyle(true), textAlign: 'left', paddingLeft: '20px', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid #f8fafc' }}>
+                                            <td style={{ padding: '8px 10px 8px 14px', borderBottom: '1px solid #f8fafc', textAlign: 'center' }}>
+                                                <input type="checkbox"
+                                                    checked={printSelectie.has(u.id)}
+                                                    onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(u.id) : s.delete(u.id); return s; })}
+                                                    style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+                                                />
+                                            </td>
+                                            <td style={{ ...tdStyle(true), textAlign: 'left', paddingLeft: '10px', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid #f8fafc' }}>
                                                 <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.7rem', flexShrink: 0 }}>{u.initials}</div>
                                                 {u.name}
                                             </td>
@@ -1190,7 +1222,16 @@ function MandagRegister({ allUsers }) {
                                     if (typeTotal === 0) return null;
                                     return (
                                         <tr key={`${u.id}-${tid}`} style={{ background: ui % 2 === 0 ? '#fff' : '#fafffe' }}>
-                                            <td style={{ textAlign: 'left', paddingLeft: '20px', padding: '7px 10px 7px 20px', borderBottom: '1px solid #f8fafc' }}>
+                                            <td style={{ padding: '7px 10px 7px 14px', borderBottom: '1px solid #f8fafc', textAlign: 'center', verticalAlign: 'middle' }}>
+                                                {tIdx === 0 && (
+                                                    <input type="checkbox"
+                                                        checked={printSelectie.has(u.id)}
+                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(u.id) : s.delete(u.id); return s; })}
+                                                        style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+                                                    />
+                                                )}
+                                            </td>
+                                            <td style={{ textAlign: 'left', paddingLeft: '10px', padding: '7px 10px 7px 10px', borderBottom: '1px solid #f8fafc' }}>
                                                 {tIdx === 0 && (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: '#1e293b', fontSize: '0.85rem' }}>
                                                         <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.68rem', flexShrink: 0 }}>{u.initials}</div>
@@ -1230,7 +1271,8 @@ function MandagRegister({ allUsers }) {
 
                             {/* Totaalrij */}
                             <tr style={{ background: '#fafafa', borderTop: '2px solid #f1f5f9' }}>
-                                <td colSpan={2} style={{ padding: '10px 20px', fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>
+                                <td style={{ padding: '10px 14px' }} />
+                                <td colSpan={2} style={{ padding: '10px 10px', fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>
                                     <i className="fa-solid fa-sigma" style={{ color: '#F5850A', marginRight: '6px' }} />
                                     {viewMode === 'week' ? 'Week totaal' : 'Maand totaal'}
                                 </td>
