@@ -72,17 +72,18 @@ const defaultProjects = () => [{ id: 'p' + Date.now(), projectId: '1', types: { 
 const parseVal = v => parseFloat(String(v).replace(',', '.')) || 0;
 
 // ── Zoekbaar project dropdown ──
-function ProjectPicker({ value, onChange }) {
+function ProjectPicker({ value, onChange, showAll = false }) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
     const projects = getAppProjects();
-    const sel = projects.find(p => p.id === value);
+    const sel = value === 'all' ? null : projects.find(p => p.id === value);
     const filtered = projects.filter(p => p.name.toLowerCase().includes(q.toLowerCase()));
+    const displayLabel = value === 'all' ? '— Alle projecten —' : (sel ? sel.name : 'Selecteer project...');
     return (
         <div style={{ position: 'relative', flex: 1 }}>
             <div onClick={() => { setOpen(!open); setQ(''); }}
-                style={{ padding: '7px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 600, fontSize: '0.82rem', color: '#1e293b', gap: '6px' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sel ? sel.name : 'Selecteer project...'}</span>
+                style={{ padding: '7px 10px', background: '#fff', border: `1px solid ${value === 'all' ? '#e2e8f0' : '#FA9F52'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 600, fontSize: '0.82rem', color: value === 'all' ? '#64748b' : '#1e293b', gap: '6px' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayLabel}</span>
                 <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: '0.55rem', color: '#94a3b8', flexShrink: 0 }} />
             </div>
             {open && (<>
@@ -93,6 +94,14 @@ function ProjectPicker({ value, onChange }) {
                             placeholder="Zoek project..." style={{ width: '100%', padding: '6px 10px', fontSize: '0.8rem', border: '1.5px solid #FA9F52', borderRadius: '6px', outline: 'none', boxSizing: 'border-box' }} />
                     </div>
                     <ul style={{ listStyle: 'none', margin: 0, padding: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                        {showAll && (
+                            <li onClick={() => { onChange('all'); setOpen(false); }}
+                                style={{ padding: '7px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: value === 'all' ? 700 : 400, background: value === 'all' ? 'rgba(100,116,139,0.08)' : 'transparent', color: '#64748b', fontStyle: 'italic' }}
+                                onMouseOver={e => { if (value !== 'all') e.currentTarget.style.background = '#f8fafc'; }}
+                                onMouseOut={e => { if (value !== 'all') e.currentTarget.style.background = 'transparent'; }}>
+                                — Alle projecten —
+                            </li>
+                        )}
                         {filtered.length === 0 && <li style={{ padding: '7px 12px', fontSize: '0.8rem', color: '#94a3b8' }}>Geen projecten gevonden</li>}
                         {filtered.map(p => (
                             <li key={p.id} onClick={() => { onChange(p.id); setOpen(false); }}
@@ -920,107 +929,74 @@ function BatchUrenstaatPrint({ users, week, year, onBack }) {
 // MANDAGREGISTER — Afdrukbaar per project
 // ══════════════════════════════════════════
 function MandagRegister({ allUsers }) {
-    const today     = new Date();
-    const curWeek   = getISOWeekNumber(today);
-    const curYear   = today.getFullYear();
-    const curMonth  = today.getMonth() + 1; // 1-12
+    const today   = new Date();
+    const curWeek = getISOWeekNumber(today);
+    const curYear = today.getFullYear();
 
-    const [selectedProject, setSelectedProject] = useState(() => getAppProjects()[0]?.id || '');
+    const [selectedProject, setSelectedProject] = useState('all');
     const [selectedUser, setSelectedUser]       = useState('all');
-    const [viewMode, setViewMode]               = useState('week'); // 'week' | 'maand'
     const [year, setYear]                       = useState(curYear);
-    const [fromWeek, setFromWeek]               = useState(Math.max(1, curWeek - 3));
+    const [fromWeek, setFromWeek]               = useState(Math.max(1, curWeek - 2));
     const [toWeek, setToWeek]                   = useState(curWeek);
-    const [fromMonth, setFromMonth]             = useState(Math.max(1, curMonth - 2));
-    const [toMonth, setToMonth]                 = useState(curMonth);
-    const [showTypes, setShowTypes]             = useState(true);
-    const [showUrenstaat, setShowUrenstaat]     = useState(null); // null of user-object
+    const [showUrenstaat, setShowUrenstaat]     = useState(null);
     const [printSelectie, setPrintSelectie]     = useState(new Set());
     const [showBatch, setShowBatch]             = useState(false);
 
-    const MONTH_NAMES = ['Januari','Februari','Maart','April','Mei','Juni','Juli','Augustus','September','Oktober','November','December'];
     const MONTH_SHORT = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+    const ALL_DAYS    = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
 
-    // Hulpfuncties
-    const getMondayOfWeek = (w) => {
+    const getMon = (w) => {
         const jan4 = new Date(year, 0, 4);
-        const dow = jan4.getDay() || 7;
-        const mon = new Date(jan4);
+        const dow  = jan4.getDay() || 7;
+        const mon  = new Date(jan4);
         mon.setDate(jan4.getDate() - (dow - 1) + (w - 1) * 7);
         return mon;
     };
-    const getWeekLabel = (w) => `Week ${w} — ${MONTH_SHORT[getMondayOfWeek(w).getMonth()]}`;
+    const fmtD = d => `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
+    const selStyle = { padding: '8px 12px', borderRadius: '9px', border: '1.5px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' };
+    const labelStyle = { display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' };
 
-    // Aggregeer uren van een user op een project voor een set weken
-    const sumWeeks = (userId, wList) => {
-        const byType = {};
-        let total = 0;
-        wList.forEach(w => {
-            const projects = loadData(userId, w, year) || [];
-            const proj = projects.find(p => p.projectId === selectedProject);
-            if (!proj) return;
-            Object.entries(proj.types || {}).forEach(([tid, hrs]) => {
-                const typeInfo = UREN_TYPES.find(t => t.id === tid);
-                if (typeInfo?.inputType === 'icon') return;
-                const sum = (hrs || []).slice(0, 5).reduce((a, h) => a + parseVal(h), 0);
-                if (sum > 0) byType[tid] = (byType[tid] || 0) + sum;
-                total += sum;
+    // ── Dataverzameling: week-secties ──
+    const wFrom = Math.min(fromWeek, toWeek);
+    const wTo   = Math.max(fromWeek, toWeek);
+    const usersToShow = selectedUser === 'all' ? allUsers : allUsers.filter(u => String(u.id) === selectedUser);
+
+    const weekSections = [];
+    for (let w = wFrom; w <= wTo; w++) {
+        const monday = getMon(w);
+        const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+        const rows = [];
+        usersToShow.forEach(u => {
+            const userData = loadData(u.id, w, year) || [];
+            userData.forEach((proj, pi) => {
+                if (selectedProject !== 'all' && proj.projectId !== selectedProject) return;
+                const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
+                Object.entries(proj.types || {}).forEach(([tid, hrs]) => {
+                    const typeInfo = UREN_TYPES.find(t => t.id === tid);
+                    if (!typeInfo) return;
+                    const dayHours = [0,1,2,3,4,5,6].map(i => parseVal(hrs[i] || 0));
+                    const total = dayHours.reduce((a, b) => a + b, 0);
+                    if (total === 0) return;
+                    rows.push({ user: u, projName, category: `${pi + 1}. Projecten`, typeInfo, dayHours, total });
+                });
             });
         });
-        return { total, byType };
-    };
-
-    // Kolommen bouwen afhankelijk van viewMode
-    let columns; // [{ key, label, weeks }]
-    if (viewMode === 'week') {
-        const wFrom = Math.min(fromWeek, toWeek);
-        const wTo   = Math.max(fromWeek, toWeek);
-        columns = Array.from({ length: wTo - wFrom + 1 }, (_, i) => {
-            const w = wFrom + i;
-            return { key: `w${w}`, label: getWeekLabel(w), weeks: [w] };
-        });
-    } else {
-        const mFrom = Math.min(fromMonth, toMonth);
-        const mTo   = Math.max(fromMonth, toMonth);
-        columns = Array.from({ length: mTo - mFrom + 1 }, (_, i) => {
-            const m = mFrom + i;
-            const weeksInMonth = Array.from({ length: 52 }, (_, j) => j + 1)
-                .filter(w => { const mon = getMondayOfWeek(w); return mon.getFullYear() === year && mon.getMonth() + 1 === m; });
-            return { key: `m${m}`, label: MONTH_NAMES[m - 1], weeks: weeksInMonth };
-        });
+        if (rows.length > 0) weekSections.push({ week: w, monday, sunday, rows });
     }
 
-    // Data per user per kolom — gebruik == voor HTML-string vs number ID vergelijking
-    const usersToShow = selectedUser === 'all' ? allUsers : allUsers.filter(u => String(u.id) === selectedUser);
-    const reportData = usersToShow.map(u => {
-        const colData = columns.map(col => sumWeeks(u.id, col.weeks));
-        const userTotal = colData.reduce((a, c) => a + c.total, 0);
-        return { ...u, colData, userTotal };
-    });
+    const grandTotal = weekSections.reduce((a, s) => a + s.rows.reduce((b, r) => b + r.total, 0), 0);
 
-    const colTotals  = columns.map((_, ci) => reportData.reduce((a, u) => a + u.colData[ci].total, 0));
-    const grandTotal = colTotals.reduce((a, b) => a + b, 0);
-    const projName   = getAppProjects().find(p => p.id === selectedProject)?.name || '—';
-    const userName   = selectedUser === 'all' ? null : (allUsers.find(u => u.id === selectedUser)?.name || '—');
-    const activeRows = reportData.filter(u => u.userTotal > 0);
-
-    const thStyle = { padding: '8px 10px', textAlign: 'center', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', background: '#fafafa', whiteSpace: 'nowrap' };
-    const tdStyle = (bold, color) => ({ padding: '8px 10px', textAlign: 'center', fontSize: '0.85rem', fontWeight: bold ? 700 : 400, color: color || (bold ? '#1e293b' : '#94a3b8'), borderBottom: '1px solid #f8fafc' });
-    const selStyle = { padding: '8px 12px', borderRadius: '9px', border: '1.5px solid #e2e8f0', fontSize: '0.88rem', fontWeight: 600, color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' };
-
-    // Urenstaat: haal volledige user op (incl. bsn) — String() voor HTML-dropdown type compatibiliteit
-    const urenstaatUser = selectedUser !== 'all' ? allUsers.find(u => String(u.id) === selectedUser) : null;
-    const canUrenstaat  = viewMode === 'week' && urenstaatUser;
-
-    // Als urenstaat-modus actief is, toon alleen dat document
+    // ── Render guards ──
     if (showBatch && printSelectie.size > 0) {
         const toPrint = allUsers.filter(u => printSelectie.has(u.id));
         return <BatchUrenstaatPrint users={toPrint} week={fromWeek} year={year} onBack={() => setShowBatch(false)} />;
     }
-
     if (showUrenstaat) {
         return <UrenstaatPrint user={showUrenstaat} week={fromWeek} year={year} onBack={() => setShowUrenstaat(null)} />;
     }
+
+    const thS = { padding: '8px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e8f5e9', whiteSpace: 'nowrap', textAlign: 'center' };
+    const tdS = { padding: '8px 10px', borderBottom: '1px solid #f1f5f9', fontSize: '0.83rem', verticalAlign: 'middle' };
 
     return (
         <>
@@ -1029,266 +1005,161 @@ function MandagRegister({ allUsers }) {
                     .sidebar, .topbar, .no-print { display: none !important; }
                     .content-area { padding: 0 !important; margin: 0 !important; }
                     body { background: white !important; }
-                    .print-table { box-shadow: none !important; border: 1px solid #ccc !important; }
                 }
             `}</style>
 
-            {/* Filter panel */}
-            <div className="no-print" style={{ background: '#fff', borderRadius: '14px', padding: '18px 22px', marginBottom: '16px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
-                {/* Rij 1: Project + Medewerker + Jaar + Modus */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '16px', marginBottom: '14px' }}>
-                    <div style={{ minWidth: '240px' }}>
-                        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Project</label>
-                        <ProjectPicker value={selectedProject} onChange={setSelectedProject} />
+            {/* ── Filter panel ── */}
+            <div className="no-print" style={{ background: '#fff', borderRadius: '14px', padding: '16px 20px', marginBottom: '16px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '14px' }}>
+                    <div style={{ minWidth: '230px' }}>
+                        <label style={labelStyle}>Project</label>
+                        <ProjectPicker value={selectedProject} onChange={setSelectedProject} showAll />
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Medewerker</label>
+                        <label style={labelStyle}>Medewerker</label>
                         <select value={selectedUser} onChange={e => setSelectedUser(e.target.value)}
-                            style={{ ...selStyle, minWidth: '180px', border: `1.5px solid ${selectedUser !== 'all' ? '#F5850A' : '#e2e8f0'}`, color: selectedUser !== 'all' ? '#F5850A' : '#1e293b', background: selectedUser !== 'all' ? 'rgba(245,133,10,0.05)' : '#fff' }}>
+                            style={{ ...selStyle, minWidth: '180px', border: `1.5px solid ${selectedUser !== 'all' ? '#F5850A' : '#e2e8f0'}`, color: selectedUser !== 'all' ? '#F5850A' : '#1e293b' }}>
                             <option value="all">— Alle medewerkers —</option>
-                            {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                            {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Jaar</label>
-                        <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ ...selStyle, width: '95px' }}>
+                        <label style={labelStyle}>Van week</label>
+                        <select value={fromWeek} onChange={e => setFromWeek(Number(e.target.value))} style={{ ...selStyle, minWidth: '120px' }}>
+                            {Array.from({ length: 52 }, (_, i) => i + 1).map(w => <option key={w} value={w}>Week {w}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>T/m week</label>
+                        <select value={toWeek} onChange={e => setToWeek(Number(e.target.value))} style={{ ...selStyle, minWidth: '120px' }}>
+                            {Array.from({ length: 52 }, (_, i) => i + 1).map(w => <option key={w} value={w}>Week {w}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Jaar</label>
+                        <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ ...selStyle, width: '90px' }}>
                             {[2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     </div>
-
-                    {/* Week / Maand toggle */}
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Periode</label>
-                        <div style={{ display: 'flex', borderRadius: '9px', border: '1.5px solid #e2e8f0', overflow: 'hidden' }}>
-                            {[{ id: 'week', label: '📅 Per week' }, { id: 'maand', label: '🗓️ Per maand' }].map(m => (
-                                <button key={m.id} onClick={() => setViewMode(m.id)}
-                                    style={{ padding: '7px 16px', border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700, background: viewMode === m.id ? '#F5850A' : '#fff', color: viewMode === m.id ? '#fff' : '#64748b', transition: 'all 0.15s' }}>
-                                    {m.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Rij 2: Periode-filter (week of maand) + Weergave + Afdrukken */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '16px' }}>
-                    {viewMode === 'week' ? (<>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Van week</label>
-                            <select value={fromWeek} onChange={e => setFromWeek(Number(e.target.value))} style={{ ...selStyle, minWidth: '160px' }}>
-                                {Array.from({ length: 52 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{getWeekLabel(w)}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>T/m week</label>
-                            <select value={toWeek} onChange={e => setToWeek(Number(e.target.value))} style={{ ...selStyle, minWidth: '160px' }}>
-                                {Array.from({ length: 52 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{getWeekLabel(w)}</option>)}
-                            </select>
-                        </div>
-                    </>) : (<>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Van maand</label>
-                            <select value={fromMonth} onChange={e => setFromMonth(Number(e.target.value))} style={{ ...selStyle, minWidth: '140px' }}>
-                                {MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>T/m maand</label>
-                            <select value={toMonth} onChange={e => setToMonth(Number(e.target.value))} style={{ ...selStyle, minWidth: '140px' }}>
-                                {MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-                            </select>
-                        </div>
-                    </>)}
-
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Weergave</label>
-                        <button onClick={() => setShowTypes(t => !t)}
-                            style={{ padding: '8px 14px', borderRadius: '9px', border: `1.5px solid ${showTypes ? '#F5850A' : '#e2e8f0'}`, background: showTypes ? 'rgba(245,133,10,0.08)' : '#fff', color: showTypes ? '#F5850A' : '#64748b', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}>
-                            <i className={`fa-solid fa-${showTypes ? 'layer-group' : 'sigma'}`} style={{ marginRight: '5px' }} />
-                            {showTypes ? 'Per type' : 'Totaal'}
-                        </button>
-                    </div>
-
                     <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                         {printSelectie.size > 0 && (
                             <button onClick={() => setShowBatch(true)}
-                                style={{ padding: '9px 18px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                style={{ padding: '9px 18px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
                                 <i className="fa-solid fa-print" /> Print selectie ({printSelectie.size})
                             </button>
                         )}
-                        {canUrenstaat && (
-                            <button onClick={() => setShowUrenstaat(urenstaatUser)}
-                                title={`Urenstaat afdrukken voor ${urenstaatUser?.name}`}
-                                style={{ padding: '9px 18px', borderRadius: '10px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                                <i className="fa-solid fa-file-lines" /> Urenstaat
-                            </button>
-                        )}
                         <button onClick={() => window.print()}
-                            style={{ padding: '9px 20px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                            style={{ padding: '9px 16px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <i className="fa-solid fa-print" /> Afdrukken
                         </button>
                     </div>
                 </div>
             </div>
 
-            {/* Rapport */}
-            <div className="print-table" style={{ background: '#fff', borderRadius: '14px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9', overflow: 'auto' }}>
-                <div style={{ padding: '18px 22px', borderBottom: '2px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                    <div>
-                        <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fa-solid fa-folder-open" style={{ color: '#F5850A' }} />
-                            Mandagregister — {projName}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
-                            {year} · {viewMode === 'week' ? `Week ${Math.min(fromWeek, toWeek)} t/m ${Math.max(fromWeek, toWeek)}` : `${MONTH_NAMES[Math.min(fromMonth, toMonth) - 1]} t/m ${MONTH_NAMES[Math.max(fromMonth, toMonth) - 1]}`}
-                            {userName && <span style={{ color: '#F5850A', fontWeight: 600 }}> · {userName}</span>}
-                            <span> · {activeRows.length} medewerker(s) actief · {grandTotal} uur totaal</span>
-                        </div>
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Afgedrukt op {today.toLocaleDateString('nl-NL')}</div>
-                </div>
-
-                {activeRows.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                        <i className="fa-regular fa-clock" style={{ fontSize: '2rem', display: 'block', marginBottom: '10px' }} />
-                        Geen uren gevonden voor dit project in de geselecteerde periode.
-                    </div>
-                ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                        <thead>
-                            <tr>
-                                <th style={{ ...thStyle, width: '36px', paddingLeft: '14px' }}>
-                                    <input type="checkbox"
-                                        title="Alles selecteren"
-                                        checked={activeRows.length > 0 && activeRows.every(u => printSelectie.has(u.id))}
-                                        onChange={e => {
-                                            const ids = activeRows.map(u => u.id);
-                                            setPrintSelectie(e.target.checked ? new Set(ids) : new Set());
-                                        }}
-                                        style={{ cursor: 'pointer', width: '15px', height: '15px' }}
-                                    />
-                                </th>
-                                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: '10px', minWidth: '180px' }}>Naam</th>
-                                <th style={{ ...thStyle, textAlign: 'left', minWidth: '100px' }}>Rol</th>
-                                {columns.map(col => <th key={col.key} style={{ ...thStyle, minWidth: viewMode === 'maand' ? '90px' : '75px' }}>{col.label}</th>)}
-                                <th style={{ ...thStyle, background: 'rgba(245,133,10,0.06)', color: '#F5850A', minWidth: '70px' }}>Totaal</th>
-                                <th style={{ ...thStyle, minWidth: '80px' }}></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {reportData.map((u, ui) => {
-                                if (u.userTotal === 0) return null;
-                                const activeTypes = showTypes
-                                    ? [...new Set(u.colData.flatMap(cd => Object.keys(cd.byType)))]
-                                    : [];
-
-                                if (!showTypes || activeTypes.length <= 1) {
-                                    return (
-                                        <tr key={u.id} style={{ background: ui % 2 === 0 ? '#fff' : '#fafffe' }}>
-                                            <td style={{ padding: '8px 10px 8px 14px', borderBottom: '1px solid #f8fafc', textAlign: 'center' }}>
-                                                <input type="checkbox"
-                                                    checked={printSelectie.has(u.id)}
-                                                    onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(u.id) : s.delete(u.id); return s; })}
-                                                    style={{ cursor: 'pointer', width: '15px', height: '15px' }}
-                                                />
-                                            </td>
-                                            <td style={{ ...tdStyle(true), textAlign: 'left', paddingLeft: '10px', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid #f8fafc' }}>
-                                                <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.7rem', flexShrink: 0 }}>{u.initials}</div>
-                                                {u.name}
-                                            </td>
-                                            <td style={{ ...tdStyle(false), textAlign: 'left' }}>{u.role}</td>
-                                            {u.colData.map((cd, ci) => (
-                                                <td key={ci} style={tdStyle(cd.total > 0, cd.total > 0 ? '#F5850A' : undefined)}>
-                                                    {cd.total > 0 ? cd.total : '—'}
-                                                </td>
-                                            ))}
-                                            <td style={{ ...tdStyle(true, '#F5850A'), background: 'rgba(245,133,10,0.06)' }}>{u.userTotal}</td>
-                                            <td style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #f8fafc' }}>
-                                                <button onClick={() => setShowUrenstaat(u)} title={`Urenstaat ${u.name}`}
-                                                    style={{ padding: '4px 10px', borderRadius: '7px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.72rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
-                                                    <i className="fa-solid fa-file-lines" style={{ fontSize: '0.65rem' }} /> Urenstaat
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                }
-
-                                return activeTypes.map((tid, tIdx) => {
-                                    const typeInfo = UREN_TYPES.find(t => t.id === tid) || UREN_TYPES[0];
-                                    const typeColTotals = u.colData.map(cd => cd.byType[tid] || 0);
-                                    const typeTotal = typeColTotals.reduce((a, b) => a + b, 0);
-                                    if (typeTotal === 0) return null;
-                                    return (
-                                        <tr key={`${u.id}-${tid}`} style={{ background: ui % 2 === 0 ? '#fff' : '#fafffe' }}>
-                                            <td style={{ padding: '7px 10px 7px 14px', borderBottom: '1px solid #f8fafc', textAlign: 'center', verticalAlign: 'middle' }}>
-                                                {tIdx === 0 && (
-                                                    <input type="checkbox"
-                                                        checked={printSelectie.has(u.id)}
-                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(u.id) : s.delete(u.id); return s; })}
-                                                        style={{ cursor: 'pointer', width: '15px', height: '15px' }}
-                                                    />
-                                                )}
-                                            </td>
-                                            <td style={{ textAlign: 'left', paddingLeft: '10px', padding: '7px 10px 7px 10px', borderBottom: '1px solid #f8fafc' }}>
-                                                {tIdx === 0 && (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: '#1e293b', fontSize: '0.85rem' }}>
-                                                        <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.68rem', flexShrink: 0 }}>{u.initials}</div>
-                                                        {u.name}
-                                                    </div>
-                                                )}
-                                                {tIdx > 0 && (
-                                                    <div style={{ paddingLeft: '36px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: typeInfo.color, fontWeight: 600 }}>
-                                                        <i className={`fa-solid ${typeInfo.icon}`} style={{ fontSize: '0.6rem' }} />
-                                                        {typeInfo.label}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #f8fafc', color: tIdx === 0 ? '#64748b' : typeInfo.color, fontSize: tIdx === 0 ? '0.82rem' : '0.72rem', fontWeight: tIdx === 0 ? 500 : 600 }}>
-                                                {tIdx === 0 ? u.role : typeInfo.label}
-                                            </td>
-                                            {typeColTotals.map((h, ci) => (
-                                                <td key={ci} style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f8fafc', fontWeight: h > 0 ? 700 : 400, color: h > 0 ? typeInfo.color : '#e2e8f0', fontSize: '0.85rem' }}>
-                                                    {h > 0 ? h : '—'}
-                                                </td>
-                                            ))}
-                                            <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 700, color: typeInfo.color, background: `${typeInfo.color}08`, borderBottom: '1px solid #f8fafc', fontSize: '0.85rem' }}>
-                                                {typeTotal > 0 ? typeTotal : '—'}
-                                            </td>
-                                            <td style={{ padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #f8fafc' }}>
-                                                {tIdx === 0 && (
-                                                    <button onClick={() => setShowUrenstaat(u)} title={`Urenstaat ${u.name}`}
-                                                        style={{ padding: '4px 10px', borderRadius: '7px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.72rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
-                                                        <i className="fa-solid fa-file-lines" style={{ fontSize: '0.65rem' }} /> Urenstaat
-                                                    </button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    );
-                                });
-                            })}
-
-                            {/* Totaalrij */}
-                            <tr style={{ background: '#fafafa', borderTop: '2px solid #f1f5f9' }}>
-                                <td style={{ padding: '10px 14px' }} />
-                                <td colSpan={2} style={{ padding: '10px 10px', fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>
-                                    <i className="fa-solid fa-sigma" style={{ color: '#F5850A', marginRight: '6px' }} />
-                                    {viewMode === 'week' ? 'Week totaal' : 'Maand totaal'}
-                                </td>
-                                {colTotals.map((t, ci) => (
-                                    <td key={ci} style={{ padding: '10px', textAlign: 'center', fontWeight: t > 0 ? 800 : 400, fontSize: '0.9rem', color: t > 0 ? '#F5850A' : '#d1d5db' }}>
-                                        {t > 0 ? t : '—'}
-                                    </td>
-                                ))}
-                                {/* lege cel voor urenstaat-kolom */}
-                                <td style={{ padding: '10px', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#F5850A', background: 'rgba(245,133,10,0.08)' }}>
-                                    {grandTotal}
-                                </td>
-                                <td style={{ padding: '10px' }} />
-                            </tr>
-                        </tbody>
-                    </table>
-                )}
+            {/* ── Samenvatting ── */}
+            <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '12px', fontSize: '0.8rem', color: '#64748b', alignItems: 'center' }}>
+                <span><strong style={{ color: '#1e293b' }}>{weekSections.length}</strong> week{weekSections.length !== 1 ? 'en' : ''} met uren</span>
+                <span>·</span>
+                <span><strong style={{ color: '#F5850A' }}>{grandTotal.toFixed(1)}</strong> uur totaal</span>
+                {selectedProject !== 'all' && <span>· <strong style={{ color: '#1e293b' }}>{getAppProjects().find(p => p.id === selectedProject)?.name}</strong></span>}
             </div>
+
+            {/* ── Week secties ── */}
+            {weekSections.length === 0 ? (
+                <div style={{ background: '#fff', borderRadius: '14px', padding: '48px', textAlign: 'center', color: '#94a3b8', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                    <i className="fa-regular fa-clock" style={{ fontSize: '2.5rem', display: 'block', marginBottom: '12px' }} />
+                    <div style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '4px' }}>Geen uren gevonden</div>
+                    <div style={{ fontSize: '0.85rem' }}>Pas de filters aan om uren te zien.</div>
+                </div>
+            ) : weekSections.map(({ week, monday, sunday, rows }) => {
+                const weekTotal = rows.reduce((a, r) => a + r.total, 0);
+                const weekUsers = [...new Set(rows.map(r => r.user.id))];
+                return (
+                    <div key={week} style={{ marginBottom: '16px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', border: '1px solid #d1fae5' }}>
+                        {/* Groene week-header */}
+                        <div style={{ background: 'linear-gradient(135deg,#16a34a,#15803d)', color: '#fff', padding: '10px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <span style={{ fontWeight: 800, fontSize: '1rem', letterSpacing: '0.02em' }}>Week {week}</span>
+                                <span style={{ fontSize: '0.82rem', opacity: 0.85, background: 'rgba(255,255,255,0.15)', borderRadius: '6px', padding: '2px 8px' }}>
+                                    {fmtD(monday)} – {fmtD(sunday)} {year}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.82rem', opacity: 0.92 }}>
+                                <span><i className="fa-solid fa-users" style={{ marginRight: '4px' }} />{weekUsers.length} medewerker{weekUsers.length !== 1 ? 's' : ''}</span>
+                                <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>{weekTotal.toFixed(1)} uur</span>
+                            </div>
+                        </div>
+
+                        {/* Tabel */}
+                        <div style={{ overflowX: 'auto', background: '#fff' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem' }}>
+                                <thead>
+                                    <tr>
+                                        <th style={{ ...thS, textAlign: 'left', paddingLeft: '16px', minWidth: '200px' }}>Project</th>
+                                        <th style={{ ...thS, textAlign: 'left', minWidth: '160px' }}>Werkkracht</th>
+                                        <th style={{ ...thS, textAlign: 'left', minWidth: '140px' }}>Type uur</th>
+                                        {ALL_DAYS.map(d => <th key={d} style={{ ...thS, minWidth: '42px' }}>{d}</th>)}
+                                        <th style={{ ...thS, minWidth: '60px', color: '#16a34a' }}>Totaal</th>
+                                        <th style={{ ...thS, minWidth: '90px' }}></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rows.map((r, ri) => (
+                                        <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#f0fdf4' }}>
+                                            <td style={{ ...tdS, paddingLeft: '16px' }}>
+                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>{r.projName}</div>
+                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '1px' }}>{r.category}</div>
+                                            </td>
+                                            <td style={{ ...tdS }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                                    <div style={{ width: '26px', height: '26px', borderRadius: '7px', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.6rem', flexShrink: 0 }}>{r.user.initials}</div>
+                                                    <span style={{ fontWeight: 600, color: '#1e293b' }}>{r.user.name}</span>
+                                                </div>
+                                            </td>
+                                            <td style={{ ...tdS }}>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: r.typeInfo.color, fontWeight: 600, fontSize: '0.78rem', background: `${r.typeInfo.color}12`, borderRadius: '5px', padding: '2px 7px' }}>
+                                                    <i className={`fa-solid ${r.typeInfo.icon}`} style={{ fontSize: '0.6rem' }} />
+                                                    {r.typeInfo.label}
+                                                </span>
+                                            </td>
+                                            {r.dayHours.map((h, di) => (
+                                                <td key={di} style={{ ...tdS, textAlign: 'center', fontWeight: h > 0 ? 700 : 400, color: h > 0 ? '#1e293b' : '#e2e8f0', fontSize: h > 0 ? '0.85rem' : '0.75rem' }}>
+                                                    {h > 0 ? h : ''}
+                                                </td>
+                                            ))}
+                                            <td style={{ ...tdS, textAlign: 'center', fontWeight: 800, color: '#16a34a', fontSize: '0.9rem' }}>{r.total.toFixed(1)}</td>
+                                            <td style={{ ...tdS, textAlign: 'center' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
+                                                    <input type="checkbox"
+                                                        checked={printSelectie.has(r.user.id)}
+                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(r.user.id) : s.delete(r.user.id); return s; })}
+                                                        style={{ cursor: 'pointer', width: '14px', height: '14px' }}
+                                                        title={`Selecteer ${r.user.name}`}
+                                                    />
+                                                    <button onClick={() => setShowUrenstaat(r.user)} title={`Urenstaat ${r.user.name}`}
+                                                        style={{ padding: '3px 8px', borderRadius: '6px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.68rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }}>
+                                                        <i className="fa-solid fa-file-lines" style={{ fontSize: '0.6rem' }} /> Urenstaat
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    <tr style={{ background: '#f0fdf4', borderTop: '2px solid #d1fae5' }}>
+                                        <td colSpan={10} style={{ padding: '8px 16px', fontWeight: 700, color: '#15803d', fontSize: '0.82rem', textAlign: 'right' }}>
+                                            <i className="fa-solid fa-sigma" style={{ marginRight: '5px' }} />
+                                            Week {week} totaal
+                                        </td>
+                                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: '#16a34a', fontSize: '0.95rem' }}>{weekTotal.toFixed(1)}</td>
+                                        <td />
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                );
+            })}
         </>
     );
 }
