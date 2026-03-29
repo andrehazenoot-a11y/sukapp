@@ -919,34 +919,21 @@ function UrenstaatBody({ user, week, year }) {
     );
 }
 
-const URENSTAAT_PRINT_STYLE = `
-    @media print {
-        @page { size: A4 portrait; margin: 0; }
-        body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        .no-print, .sidebar, .global-topnav {
-            display: none !important;
-        }
-        .urenstaat-preview-bg, .batch-print-container {
-            background: none !important;
-            padding: 0 !important;
-            margin: 0 !important;
-        }
-        .urenstaat-doc {
-            width: 100% !important;
-            min-height: 100vh !important;
-            box-shadow: none !important;
-            border: none !important;
-            border-radius: 0 !important;
-            margin: 0 !important;
-        }
-        .batch-page-break { break-after: page; page-break-after: always; }
-    }
-`;
+// Print wordt afgehandeld via window.open() — zelfde aanpak als modelovereenkomsten
+const URENSTAAT_PRINT_STYLE = ``;
 
 function UrenstaatPrint({ user, week, year, onBack }) {
+    const handlePrint = () => {
+        const docEl = document.querySelector('.urenstaat-doc');
+        if (!docEl) return;
+        const win = window.open('', '_blank', 'width=900,height=700');
+        const titel = `Urenstaat ${user.name} - Week ${week} ${year}`;
+        win.document.write(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"/><title>${titel}</title><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}html,body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}.urenstaat-doc{position:relative;width:620px!important;height:876px!important;zoom:1.28!important;overflow:hidden!important;margin:0!important;border:none!important;box-shadow:none!important;border-radius:0!important;}@page{size:A4 portrait;margin:0;}</style></head><body>${docEl.outerHTML}<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
+        win.document.close();
+    };
+
     return (
         <>
-            <style>{URENSTAAT_PRINT_STYLE}</style>
             {/* Toolbar */}
             <div className="no-print" style={{
                 position: 'sticky', top: 0, zIndex: 10,
@@ -961,13 +948,13 @@ function UrenstaatPrint({ user, week, year, onBack }) {
                 <span style={{ color: '#94a3b8', fontSize: '0.85rem', flex: 1 }}>
                     Urenstaat — {user.name} · Week {week} {year}
                 </span>
-                <button onClick={() => window.print()}
+                <button onClick={handlePrint}
                     style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
                     <i className="fa-solid fa-print" /> Afdrukken
                 </button>
             </div>
             {/* Grijze preview-achtergrond, wit A4-vel gecentreerd */}
-            <div className="urenstaat-preview-bg" style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px' }}>
+            <div style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px' }}>
                 <UrenstaatBody user={user} week={week} year={year} />
             </div>
         </>
@@ -975,9 +962,18 @@ function UrenstaatPrint({ user, week, year, onBack }) {
 }
 
 function BatchUrenstaatPrint({ entries, year, onBack }) {
+    const handlePrint = () => {
+        const docs = document.querySelectorAll('.urenstaat-doc');
+        if (!docs.length) return;
+        const pageStyle = `*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}html,body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}.urenstaat-doc{position:relative;width:620px!important;height:876px!important;zoom:1.28!important;overflow:hidden!important;margin:0!important;border:none!important;box-shadow:none!important;border-radius:0!important;page-break-after:always;break-after:page;}.urenstaat-doc:last-child{page-break-after:auto;break-after:auto;}@page{size:A4 portrait;margin:0;}`;
+        const html = [...docs].map(d => d.outerHTML).join('');
+        const win = window.open('', '_blank', 'width=900,height=700');
+        win.document.write(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"/><title>Batch urenstaten</title><style>${pageStyle}</style></head><body>${html}<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
+        win.document.close();
+    };
+
     return (
         <>
-            <style>{URENSTAAT_PRINT_STYLE}</style>
             <div className="no-print" style={{
                 position: 'sticky', top: 0, zIndex: 10,
                 background: '#1e293b', padding: '10px 24px',
@@ -991,18 +987,18 @@ function BatchUrenstaatPrint({ entries, year, onBack }) {
                 <span style={{ color: '#94a3b8', fontSize: '0.85rem', flex: 1 }}>
                     Batch afdrukken · {entries.length} urenstaten
                 </span>
-                <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
                     <i className="fa-solid fa-info-circle" style={{ marginRight: '4px' }} />
                     Elke medewerker op aparte pagina
                 </span>
-                <button onClick={() => window.print()}
+                <button onClick={handlePrint}
                     style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
                     <i className="fa-solid fa-print" /> Afdrukken ({entries.length})
                 </button>
             </div>
-            <div className="urenstaat-preview-bg batch-print-container" style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+            <div style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
                 {entries.map(({ user, week }, i) => (
-                    <div key={`${user.id}:${week}`} className={i < entries.length - 1 ? 'batch-page-break' : ''}>
+                    <div key={`${user.id}:${week}`}>
                         <UrenstaatBody user={user} week={week} year={year} />
                     </div>
                 ))}
