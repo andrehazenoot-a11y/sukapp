@@ -144,7 +144,7 @@ function AddTypeMenu({ existingTypes, onAdd }) {
 // (Progress card van Urenregistratie +
 //  project+types grid van Urenstaat)
 // ══════════════════════════════════════════
-function MijnUren({ userId, adminMode = false, adminUserName = null }) {
+function MijnUren({ userId, userObj, adminMode = false, adminUserName = null }) {
     const today = new Date();
     const curWeek = getISOWeekNumber(today);
     const curYear = today.getFullYear();
@@ -157,6 +157,7 @@ function MijnUren({ userId, adminMode = false, adminUserName = null }) {
     const [showToast, setShowToast] = useState('');
     const [showSubmit, setShowSubmit] = useState(false);
     const [noteModal, setNoteModal] = useState(null); // { pi, typeId, di, value }
+    const [showUrenstaat, setShowUrenstaat] = useState(false);
 
     const DAYS = getDaysForWeek(weekNum, yearNum);
     const isCurWeek = weekNum === curWeek && yearNum === curYear;
@@ -221,6 +222,10 @@ function MijnUren({ userId, adminMode = false, adminUserName = null }) {
     };
     const sc = statusCfg[status] || statusCfg.concept;
 
+    if (showUrenstaat && userObj) {
+        return <UrenstaatPrint user={userObj} week={weekNum} year={yearNum} onBack={() => setShowUrenstaat(false)} />;
+    }
+
     return (
         <div>
             {/* Beheerder-banner: uren invullen namens medewerker */}
@@ -270,7 +275,7 @@ function MijnUren({ userId, adminMode = false, adminUserName = null }) {
                         <button onClick={quickFill75} title="7.5u per dag" style={{ padding: '5px 12px', borderRadius: '7px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <i className="fa-solid fa-bolt" style={{ color: '#f59e0b', fontSize: '0.6rem' }} /> 7.5u × 5
                         </button>
-                        <button onClick={() => window.print()} title="Weekstaat afdrukken" style={{ padding: '5px 12px', borderRadius: '7px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button onClick={() => setShowUrenstaat(true)} title="Weekstaat afdrukken" style={{ padding: '5px 12px', borderRadius: '7px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <i className="fa-solid fa-print" style={{ fontSize: '0.6rem' }} /> Afdrukken
                         </button>
                         {status === 'concept' && weekTotal > 0 && (
@@ -1471,7 +1476,7 @@ export default function UrenregistratiePage() {
                             </div>
                         </div>
                     )}
-                    <MijnUren userId={effectiveUserId} adminMode={isBeheerder && !!adminEditUserId} adminUserName={adminEditUserId ? allUsers.find(u => u.id === adminEditUserId)?.name : null} />
+                    <MijnUren userId={effectiveUserId} userObj={(isBeheerder && adminEditUserId) ? allUsers.find(u => u.id === adminEditUserId) : user} adminMode={isBeheerder && !!adminEditUserId} adminUserName={adminEditUserId ? allUsers.find(u => u.id === adminEditUserId)?.name : null} />
                 </>
             )}
             {activeTab === 'maand' && (
