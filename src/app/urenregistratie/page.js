@@ -1037,11 +1037,9 @@ function MandagRegister({ allUsers }) {
             <div className="no-print" style={{ background: '#fff', borderRadius: '14px', padding: '18px 22px', marginBottom: '16px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
                 {/* Rij 1: Project + Medewerker + Jaar + Modus */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '16px', marginBottom: '14px' }}>
-                    <div>
+                    <div style={{ minWidth: '240px' }}>
                         <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Project</label>
-                        <select value={selectedProject} onChange={e => setSelectedProject(e.target.value)} style={{ ...selStyle, minWidth: '220px' }}>
-                            {getAppProjects().map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
+                        <ProjectPicker value={selectedProject} onChange={setSelectedProject} />
                     </div>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' }}>Medewerker</label>
