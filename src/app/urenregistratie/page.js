@@ -773,10 +773,9 @@ function TeamOverzicht({ weekNum, yearNum, setWeekNum, setYearNum, allUsers, cur
 // URENSTAAT PRINT — A4 per persoon / week
 // ══════════════════════════════════════════
 // ── Herbruikbaar urenstaat document (zonder knoppen) ──
-function UrenstaatBody({ user, week, year }) {
-    const today  = new Date();
-    const monday = getMondayOfWeek(week, year);
-    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+function UrenstaatBody({ user, week, weeks, year }) {
+    const today = new Date();
+    const allWeeks = weeks || [week];
 
     const profielRaw  = typeof window !== 'undefined' ? localStorage.getItem(`schildersapp_profiel_${user.id}`) : null;
     const profiel     = profielRaw ? JSON.parse(profielRaw) : null;
@@ -786,24 +785,31 @@ function UrenstaatBody({ user, week, year }) {
     const ALL_DAYS = ['Ma','Di','Wo','Do','Vr'];
     const fmtDate  = d => `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 
-    const rawProjects = loadData(user.id, week, year) || [];
-    const rows = [];
-    rawProjects.forEach((proj, pi) => {
-        const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
-        Object.keys(proj.types || {}).forEach(tid => {
-            const typeInfo = UREN_TYPES.find(t => t.id === tid);
-            if (!typeInfo || typeInfo.inputType === 'icon') return;
-            const hrs = proj.types[tid] || [];
-            const dayHours = ALL_DAYS.map((_, di) => parseVal(hrs[di] || 0));
-            const total = dayHours.reduce((a, b) => a + b, 0);
-            if (total === 0) return;
-            rows.push({ opdrachtgever: `${pi + 1}. Projecten`, project: projName, type: typeInfo.label, dayHours, total });
+    // Bouw per-week data op
+    const weekData = allWeeks.map(w => {
+        const monday = getMondayOfWeek(w, year);
+        const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+        const rows = [];
+        (loadData(user.id, w, year) || []).forEach((proj, pi) => {
+            const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
+            Object.keys(proj.types || {}).forEach(tid => {
+                const typeInfo = UREN_TYPES.find(t => t.id === tid);
+                if (!typeInfo || typeInfo.inputType === 'icon') return;
+                const hrs = proj.types[tid] || [];
+                const dayHours = ALL_DAYS.map((_, di) => parseVal(hrs[di] || 0));
+                const total = dayHours.reduce((a, b) => a + b, 0);
+                if (total === 0) return;
+                rows.push({ opdrachtgever: `${pi + 1}. Projecten`, project: projName, type: typeInfo.label, dayHours, total });
+            });
         });
-    });
+        const weekTotal = rows.reduce((a, r) => a + r.total, 0);
+        return { week: w, monday, sunday, rows, weekTotal };
+    }).filter(d => d.rows.length > 0);
 
-    const typeTotals = {};
-    rows.forEach(r => { typeTotals[r.type] = (typeTotals[r.type] || 0) + r.total; });
-    const grandTotal = Object.values(typeTotals).reduce((a, b) => a + b, 0);
+    const grandTotal = weekData.reduce((a, d) => a + d.weekTotal, 0);
+    const periodeLabel = weekData.length > 0
+        ? `${fmtDate(weekData[0].monday)} – ${fmtDate(weekData[weekData.length - 1].sunday)}`
+        : '—';
 
     const FONT = "'Carlito','Calibri','Segoe UI',Arial,sans-serif";
     const PT = briefpapier ? 110 : 40;
@@ -812,6 +818,7 @@ function UrenstaatBody({ user, week, year }) {
 
     const tdH = { border: '1px solid #c8d2da', padding: '2px 5px', fontSize: '10px', fontFamily: FONT, color: '#2c3b4e' };
     const thH = { ...tdH, background: '#e8ecf0', fontWeight: 700, whiteSpace: 'nowrap', borderBottom: '2px solid #9aaab8' };
+    const weekThS = { fontSize: '9px', fontWeight: 700, color: '#fff', background: '#4a5568', padding: '3px 5px', letterSpacing: '0.04em', textTransform: 'uppercase' };
 
     return (
         <div className="urenstaat-doc" style={{
@@ -834,7 +841,7 @@ function UrenstaatBody({ user, week, year }) {
                     Urenstaat
                 </h1>
 
-                {/* Medewerker + weekinfo naast elkaar */}
+                {/* Medewerker + periode naast elkaar */}
                 <div style={{ display: 'flex', gap: '32px', marginBottom: '10px', alignItems: 'flex-start' }}>
                     <table style={{ borderCollapse: 'collapse', flex: 1 }}>
                         <tbody>
@@ -848,7 +855,11 @@ function UrenstaatBody({ user, week, year }) {
                     </table>
                     <table style={{ borderCollapse: 'collapse' }}>
                         <tbody>
-                            {[['Weeknummer', week], ['Jaar', year], ['Periode', `${fmtDate(monday)} – ${fmtDate(sunday)}`]].map(([label, value]) => (
+                            {[
+                                allWeeks.length === 1 ? ['Weeknummer', allWeeks[0]] : ['Weken', `${allWeeks[0]} – ${allWeeks[allWeeks.length-1]}`],
+                                ['Jaar', year],
+                                ['Periode', periodeLabel],
+                            ].map(([label, value]) => (
                                 <tr key={label}>
                                     <td style={{ ...thH, width: '100px', textAlign: 'left' }}>{label}</td>
                                     <td style={{ ...tdH, whiteSpace: 'nowrap' }}>{value}</td>
@@ -858,45 +869,49 @@ function UrenstaatBody({ user, week, year }) {
                     </table>
                 </div>
 
-                {/* Urentabel */}
-                <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '10px' }}>
-                    <thead>
-                        <tr>
-                            {['Opdrachtgever','Project','Type uur','Ma','Di','Wo','Do','Vr','Totaal'].map(h => (
-                                <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '9px' }}>{h}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.length === 0 ? (
-                            <tr><td colSpan={9} style={{ ...tdH, textAlign: 'center', color: '#94a3b8', padding: '20px', fontStyle: 'italic' }}>Geen uren ingevuld voor deze week</td></tr>
-                        ) : rows.map((r, ri) => (
-                            <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                                <td style={tdH}>{r.opdrachtgever}</td>
-                                <td style={{ ...tdH, maxWidth: '120px' }}>{r.project}</td>
-                                <td style={tdH}>{r.type}</td>
-                                {r.dayHours.map((h, di) => (
-                                    <td key={di} style={{ ...tdH, textAlign: 'center', fontWeight: h > 0 ? 700 : 400, color: h > 0 ? '#1e293b' : '#d1d5db' }}>{h > 0 ? h : ''}</td>
+                {/* Per-week secties */}
+                {weekData.length === 0 ? (
+                    <p style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic', fontFamily: FONT }}>Geen uren ingevuld voor deze periode</p>
+                ) : (
+                    <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '10px' }}>
+                        <thead>
+                            <tr>
+                                {['Opdrachtgever','Project','Type uur','Ma','Di','Wo','Do','Vr','Totaal'].map(h => (
+                                    <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '9px' }}>{h}</th>
                                 ))}
-                                <td style={{ ...tdH, textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>{r.total}</td>
                             </tr>
-                        ))}
-                    </tbody>
-                    {rows.length > 0 && (
-                        <tfoot>
-                            {Object.entries(typeTotals).map(([type, tot]) => (
-                                <tr key={type} style={{ background: '#e8ecf0' }}>
-                                    <td colSpan={8} style={{ ...tdH, textAlign: 'right', fontStyle: 'italic', color: '#4a5568', fontWeight: 600 }}>{type} subtotaal</td>
-                                    <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{tot}</td>
-                                </tr>
+                        </thead>
+                        <tbody>
+                            {weekData.map(({ week: w, monday, sunday, rows, weekTotal }) => (
+                                <>
+                                    {/* Week-header rij */}
+                                    <tr key={`wh-${w}`}>
+                                        <td colSpan={9} style={{ ...weekThS, border: '1px solid #374151' }}>
+                                            Week {w} &nbsp;·&nbsp; {fmtDate(monday)} – {fmtDate(sunday)} &nbsp;·&nbsp; {weekTotal} uur
+                                        </td>
+                                    </tr>
+                                    {rows.map((r, ri) => (
+                                        <tr key={`${w}-${ri}`} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                                            <td style={tdH}>{r.opdrachtgever}</td>
+                                            <td style={{ ...tdH, maxWidth: '120px' }}>{r.project}</td>
+                                            <td style={tdH}>{r.type}</td>
+                                            {r.dayHours.map((h, di) => (
+                                                <td key={di} style={{ ...tdH, textAlign: 'center', fontWeight: h > 0 ? 700 : 400, color: h > 0 ? '#1e293b' : '#d1d5db' }}>{h > 0 ? h : ''}</td>
+                                            ))}
+                                            <td style={{ ...tdH, textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>{r.total}</td>
+                                        </tr>
+                                    ))}
+                                </>
                             ))}
+                        </tbody>
+                        <tfoot>
                             <tr style={{ background: '#2c3b4e' }}>
                                 <td colSpan={8} style={{ ...tdH, textAlign: 'right', color: '#fff', fontWeight: 700, border: '1px solid #1e293b' }}>Totaal uren</td>
                                 <td style={{ ...tdH, textAlign: 'center', fontWeight: 800, color: '#fff', border: '1px solid #1e293b' }}>{grandTotal}</td>
                             </tr>
                         </tfoot>
-                    )}
-                </table>
+                    </table>
+                )}
 
                 {/* Handtekening blokken */}
                 <div style={{ display: 'flex', gap: '40px', marginTop: '16px' }}>
@@ -919,12 +934,13 @@ function UrenstaatBody({ user, week, year }) {
 // Print wordt afgehandeld via window.open() — zelfde aanpak als modelovereenkomsten
 const URENSTAAT_PRINT_STYLE = ``;
 
-function UrenstaatPrint({ user, week, year, onBack }) {
+function UrenstaatPrint({ user, week, weeks, year, onBack }) {
     const handlePrint = () => {
         const docEl = document.querySelector('.urenstaat-doc');
         if (!docEl) return;
         const win = window.open('', '_blank', 'width=900,height=700');
-        const titel = `Urenstaat ${user.name} - Week ${week} ${year}`;
+        const allW = weeks || [week];
+        const titel = `Urenstaat ${user.name} - ${allW.length === 1 ? 'Week ' + allW[0] : 'Weken ' + allW[0] + '-' + allW[allW.length-1]} ${year}`;
         win.document.write(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"/><title>${titel}</title><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}html,body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}.urenstaat-doc{position:relative;width:620px!important;height:876px!important;zoom:1.28!important;overflow:hidden!important;margin:0!important;border:none!important;box-shadow:none!important;border-radius:0!important;}@page{size:A4 portrait;margin:0;}</style></head><body>${docEl.outerHTML}<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
         win.document.close();
     };
@@ -943,7 +959,7 @@ function UrenstaatPrint({ user, week, year, onBack }) {
                     <i className="fa-solid fa-arrow-left" /> Terug
                 </button>
                 <span style={{ color: '#94a3b8', fontSize: '0.85rem', flex: 1 }}>
-                    Urenstaat — {user.name} · Week {week} {year}
+                    Urenstaat — {user.name} · {weeks ? `Weken ${weeks[0]}–${weeks[weeks.length-1]}` : `Week ${week}`} {year}
                 </span>
                 <button onClick={handlePrint}
                     style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
@@ -952,7 +968,7 @@ function UrenstaatPrint({ user, week, year, onBack }) {
             </div>
             {/* Grijze preview-achtergrond, wit A4-vel gecentreerd */}
             <div style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px' }}>
-                <UrenstaatBody user={user} week={week} year={year} />
+                <UrenstaatBody user={user} week={week} weeks={weeks} year={year} />
             </div>
         </>
     );
@@ -994,9 +1010,9 @@ function BatchUrenstaatPrint({ entries, year, onBack }) {
                 </button>
             </div>
             <div style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                {entries.map(({ user, week }, i) => (
-                    <div key={`${user.id}:${week}`}>
-                        <UrenstaatBody user={user} week={week} year={year} />
+                {entries.map(({ user, weeks: entryWeeks }, i) => (
+                    <div key={user.id}>
+                        <UrenstaatBody user={user} weeks={entryWeeks} year={year} />
                     </div>
                 ))}
             </div>
@@ -1067,16 +1083,17 @@ function MandagRegister({ allUsers }) {
 
     // ── Render guards ──
     if (showBatch && printSelectie.size > 0) {
-        // printSelectie bevat strings "userId:week"
-        const toPrint = [...printSelectie].map(key => {
-            const [uid, w] = key.split(':');
-            const u = allUsers.find(u => String(u.id) === uid);
-            return u ? { user: u, week: Number(w) } : null;
+        // printSelectie bevat userId's — verzamel alle weken per user uit weekSections
+        const toPrint = [...printSelectie].map(uid => {
+            const u = allUsers.find(u => String(u.id) === String(uid));
+            const userWeeks = weekSections.filter(s => s.rows.some(r => String(r.user.id) === String(uid))).map(s => s.week);
+            return (u && userWeeks.length > 0) ? { user: u, weeks: userWeeks } : null;
         }).filter(Boolean);
         return <BatchUrenstaatPrint entries={toPrint} year={year} onBack={() => setShowBatch(false)} />;
     }
     if (showUrenstaat) {
-        return <UrenstaatPrint user={showUrenstaat.user} week={showUrenstaat.week} year={year} onBack={() => setShowUrenstaat(null)} />;
+        const userWeeks = weekSections.filter(s => s.rows.some(r => String(r.user.id) === String(showUrenstaat.id))).map(s => s.week);
+        return <UrenstaatPrint user={showUrenstaat} weeks={userWeeks} year={year} onBack={() => setShowUrenstaat(null)} />;
     }
 
     const thS = { padding: '8px 10px', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e8f5e9', whiteSpace: 'nowrap', textAlign: 'center' };
@@ -1215,12 +1232,12 @@ function MandagRegister({ allUsers }) {
                                             <td style={{ ...tdS, textAlign: 'center' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
                                                     <input type="checkbox"
-                                                        checked={printSelectie.has(`${r.user.id}:${week}`)}
-                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(`${r.user.id}:${week}`) : s.delete(`${r.user.id}:${week}`); return s; })}
+                                                        checked={printSelectie.has(r.user.id)}
+                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(r.user.id) : s.delete(r.user.id); return s; })}
                                                         style={{ cursor: 'pointer', width: '14px', height: '14px' }}
-                                                        title={`Selecteer ${r.user.name}`}
+                                                        title={`Selecteer ${r.user.name} (alle weken)`}
                                                     />
-                                                    <button onClick={() => setShowUrenstaat({ user: r.user, week })} title={`Urenstaat ${r.user.name}`}
+                                                    <button onClick={() => setShowUrenstaat(r.user)} title={`Urenstaat ${r.user.name} (alle weken)`}
                                                         style={{ padding: '3px 8px', borderRadius: '6px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.68rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }}>
                                                         <i className="fa-solid fa-file-lines" style={{ fontSize: '0.6rem' }} /> Urenstaat
                                                     </button>
