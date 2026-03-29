@@ -922,30 +922,24 @@ function UrenstaatBody({ user, week, year }) {
 const URENSTAAT_PRINT_STYLE = `
     @media print {
         @page { size: A4 portrait; margin: 0; }
-        -webkit-print-color-adjust: exact; print-color-adjust: exact;
-
-        /* Verberg ALLES, toon alleen de urenstaat */
-        body * { visibility: hidden !important; }
-        .urenstaat-doc, .urenstaat-doc * { visibility: visible !important; }
-
-        /* Enkelvoudige urenstaat: vul de volledige pagina */
-        .urenstaat-doc {
-            position: fixed !important;
-            top: 0 !important; left: 0 !important;
-            width: 100vw !important; height: 100vh !important;
+        body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        .no-print, .sidebar, .global-topnav {
+            display: none !important;
+        }
+        .urenstaat-preview-bg, .batch-print-container {
+            background: none !important;
+            padding: 0 !important;
             margin: 0 !important;
-            box-shadow: none !important; border: none !important; border-radius: 0 !important;
-            -webkit-print-color-adjust: exact; print-color-adjust: exact;
         }
-
-        /* Batch: elke urenstaat op eigen pagina */
-        .batch-print-container { visibility: visible !important; }
-        .batch-print-container .urenstaat-doc {
-            position: relative !important;
-            width: 100vw !important; height: 100vh !important;
-            border-radius: 0 !important; box-shadow: none !important; border: none !important;
+        .urenstaat-doc {
+            width: 100% !important;
+            min-height: 100vh !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
         }
-        .batch-page-break { break-after: page; page-break-after: always; visibility: visible !important; }
+        .batch-page-break { break-after: page; page-break-after: always; }
     }
 `;
 
