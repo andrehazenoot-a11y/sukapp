@@ -783,7 +783,7 @@ function UrenstaatBody({ user, week, year }) {
     const bsn         = profiel?.bsn || user.bsn || '—';
     const briefpapier = typeof window !== 'undefined' ? localStorage.getItem('wa_briefpapier') : null;
 
-    const ALL_DAYS = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
+    const ALL_DAYS = ['Ma','Di','Wo','Do','Vr'];
     const fmtDate  = d => `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 
     const rawProjects = loadData(user.id, week, year) || [];
@@ -862,14 +862,14 @@ function UrenstaatBody({ user, week, year }) {
                 <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '16px' }}>
                     <thead>
                         <tr>
-                            {['Opdrachtgever','Project','Type uur','Ma','Di','Wo','Do','Vr','Za','Zo','Totaal','Werkbon'].map(h => (
-                                <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Za','Zo','Totaal'].includes(h) ? 'center' : 'left', fontSize: '10px' }}>{h}</th>
+                            {['Opdrachtgever','Project','Type uur','Ma','Di','Wo','Do','Vr','Totaal'].map(h => (
+                                <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '10px' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
-                            <tr><td colSpan={12} style={{ ...tdH, textAlign: 'center', color: '#94a3b8', padding: '20px', fontStyle: 'italic' }}>Geen uren ingevuld voor deze week</td></tr>
+                            <tr><td colSpan={9} style={{ ...tdH, textAlign: 'center', color: '#94a3b8', padding: '20px', fontStyle: 'italic' }}>Geen uren ingevuld voor deze week</td></tr>
                         ) : rows.map((r, ri) => (
                             <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>
                                 <td style={tdH}>{r.opdrachtgever}</td>
@@ -879,7 +879,6 @@ function UrenstaatBody({ user, week, year }) {
                                     <td key={di} style={{ ...tdH, textAlign: 'center', fontWeight: h > 0 ? 700 : 400, color: h > 0 ? '#1e293b' : '#d1d5db' }}>{h > 0 ? h : ''}</td>
                                 ))}
                                 <td style={{ ...tdH, textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>{r.total}</td>
-                                <td style={{ ...tdH, minWidth: '60px' }}></td>
                             </tr>
                         ))}
                     </tbody>
@@ -887,15 +886,13 @@ function UrenstaatBody({ user, week, year }) {
                         <tfoot>
                             {Object.entries(typeTotals).map(([type, tot]) => (
                                 <tr key={type} style={{ background: '#e8ecf0' }}>
-                                    <td colSpan={10} style={{ ...tdH, textAlign: 'right', fontStyle: 'italic', color: '#4a5568', fontWeight: 600 }}>{type} subtotaal</td>
+                                    <td colSpan={8} style={{ ...tdH, textAlign: 'right', fontStyle: 'italic', color: '#4a5568', fontWeight: 600 }}>{type} subtotaal</td>
                                     <td style={{ ...tdH, textAlign: 'center', fontWeight: 700 }}>{tot}</td>
-                                    <td style={tdH}></td>
                                 </tr>
                             ))}
                             <tr style={{ background: '#2c3b4e' }}>
-                                <td colSpan={10} style={{ ...tdH, textAlign: 'right', color: '#fff', fontWeight: 700, border: '1px solid #1e293b' }}>Totaal uren</td>
+                                <td colSpan={8} style={{ ...tdH, textAlign: 'right', color: '#fff', fontWeight: 700, border: '1px solid #1e293b' }}>Totaal uren</td>
                                 <td style={{ ...tdH, textAlign: 'center', fontWeight: 800, color: '#fff', border: '1px solid #1e293b' }}>{grandTotal}</td>
-                                <td style={{ ...tdH, border: '1px solid #1e293b', color: '#fff' }}></td>
                             </tr>
                         </tfoot>
                     )}
