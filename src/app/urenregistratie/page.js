@@ -778,6 +778,11 @@ function UrenstaatBody({ user, week, year }) {
     const monday   = getMondayOfWeek(week, year);
     const sunday   = new Date(monday); sunday.setDate(monday.getDate() + 6);
 
+    // BSN ophalen uit profiel (localStorage heeft voorrang op user.bsn)
+    const profielRaw = typeof window !== 'undefined' ? localStorage.getItem(`schildersapp_profiel_${user.id}`) : null;
+    const profiel = profielRaw ? JSON.parse(profielRaw) : null;
+    const bsn = profiel?.bsn || user.bsn || '—';
+
     const ALL_DAYS = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
     const fmtDate  = d => `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 
@@ -811,11 +816,11 @@ function UrenstaatBody({ user, week, year }) {
                 <tbody>
                     <tr>
                         <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', width: '200px', verticalAlign: 'top' }}>Werkkracht</td>
-                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.name} {user.bsn || ''}</td>
+                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.name}</td>
                     </tr>
                     <tr>
-                        <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', verticalAlign: 'top' }}>Registratienummer</td>
-                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{user.bsn || '—'}</td>
+                        <td style={{ fontWeight: 700, padding: '3px 12px 3px 0', fontSize: '13px', verticalAlign: 'top' }}>BSN nummer</td>
+                        <td style={{ fontSize: '13px', padding: '3px 0' }}>{bsn}</td>
                     </tr>
                 </tbody>
             </table>
