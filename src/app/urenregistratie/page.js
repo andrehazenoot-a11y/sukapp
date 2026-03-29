@@ -922,16 +922,30 @@ function UrenstaatBody({ user, week, year }) {
 const URENSTAAT_PRINT_STYLE = `
     @media print {
         @page { size: A4 portrait; margin: 0; }
-        .sidebar, .topbar, .no-print { display: none !important; }
-        .content-area { padding: 0 !important; margin: 0 !important; }
-        .urenstaat-preview-bg { background: white !important; padding: 0 !important; }
-        body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+
+        /* Verberg ALLES, toon alleen de urenstaat */
+        body * { visibility: hidden !important; }
+        .urenstaat-doc, .urenstaat-doc * { visibility: visible !important; }
+
+        /* Enkelvoudige urenstaat: vul de volledige pagina */
         .urenstaat-doc {
-            width: 100% !important; min-height: 100vh !important;
-            box-shadow: none !important; border: none !important;
-            border-radius: 0 !important; margin: 0 !important;
+            position: fixed !important;
+            top: 0 !important; left: 0 !important;
+            width: 100vw !important; height: 100vh !important;
+            margin: 0 !important;
+            box-shadow: none !important; border: none !important; border-radius: 0 !important;
+            -webkit-print-color-adjust: exact; print-color-adjust: exact;
         }
-        .batch-page-break { break-after: page; page-break-after: always; }
+
+        /* Batch: elke urenstaat op eigen pagina */
+        .batch-print-container { visibility: visible !important; }
+        .batch-print-container .urenstaat-doc {
+            position: relative !important;
+            width: 100vw !important; height: 100vh !important;
+            border-radius: 0 !important; box-shadow: none !important; border: none !important;
+        }
+        .batch-page-break { break-after: page; page-break-after: always; visibility: visible !important; }
     }
 `;
 
@@ -992,7 +1006,7 @@ function BatchUrenstaatPrint({ entries, year, onBack }) {
                     <i className="fa-solid fa-print" /> Afdrukken ({entries.length})
                 </button>
             </div>
-            <div className="urenstaat-preview-bg" style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+            <div className="urenstaat-preview-bg batch-print-container" style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
                 {entries.map(({ user, week }, i) => (
                     <div key={`${user.id}:${week}`} className={i < entries.length - 1 ? 'batch-page-break' : ''}>
                         <UrenstaatBody user={user} week={week} year={year} />
