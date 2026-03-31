@@ -1844,7 +1844,6 @@ export default function ProjectenPage() {
                     { id: 'personeel', icon: 'fa-users', label: 'Personeelsplanning' },
                     { id: 'jaar', icon: 'fa-calendar', label: 'Jaarplanning' },
                     { id: 'mappen', icon: 'fa-folder-open', label: 'Projectmappen' },
-                    { id: 'communicatie', icon: 'fa-envelope', label: 'Communicatie' },
                     { id: 'dossier', icon: 'fa-briefcase', label: 'Dossier' },
                 ].map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
@@ -1853,14 +1852,6 @@ export default function ProjectenPage() {
                         onMouseLeave={e => { if (tab !== t.id) e.currentTarget.style.background = 'transparent'; }}>
                         <i className={`fa-solid ${t.icon}`} style={{ fontSize: '0.7rem' }} />
                         {t.label}
-                        {t.id === 'communicatie' && (() => {
-                            const acties = projects.flatMap(p => (p.emails || []).filter(e => e.status === 'actie')).length;
-                            return acties > 0 ? (
-                                <span style={{ background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: '0.55rem', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, marginLeft: 2 }}>
-                                    {acties}
-                                </span>
-                            ) : null;
-                        })()}
                     </button>
                 ))}
 
