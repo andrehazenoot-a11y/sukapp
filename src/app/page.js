@@ -76,9 +76,38 @@ export default function Home() {
       return null;
     };
     return [
+      m.kvkTrackingActive !== false ? checkDate(m.kvkVerloopdatum, 'KVK') : null,
+      m.vogTrackingActive !== false ? checkDate(m.vogVerloopdatum, 'VOG') : null,
       checkDate(m.vcaVerloopdatum, 'VCA'),
       checkDate(m.avbVerloopdatum, 'AVB'),
       checkDate(m.cavVerloopdatum, 'CAV'),
+      ...(m.afspraken || [])
+        .filter(a => a.herinneringActief !== false)
+        .filter(a => {
+          if (a.waarschuwWie === 'mijzelf' && m.naam !== currentUser) return false;
+          return true;
+        })
+        .map(a => {
+        if (!a.datum) return null;
+        let cDate = new Date(a.datum);
+        const today = new Date();
+        // Today at midnight for accurate while loop computation
+        today.setHours(0,0,0,0);
+        cDate.setHours(0,0,0,0);
+        
+        const type = a.herhaalType || 'geen';
+        const num = Math.max(1, a.herhaalAantal || 1);
+        
+        if (type !== 'geen' && cDate < today) {
+          while (cDate <= today) {
+            if (type === 'dagen') cDate.setDate(cDate.getDate() + num);
+            if (type === 'weken') cDate.setDate(cDate.getDate() + num * 7);
+            if (type === 'maanden') cDate.setMonth(cDate.getMonth() + num);
+            if (type === 'jaren') cDate.setFullYear(cDate.getFullYear() + num);
+          }
+        }
+        return checkDate(cDate.toISOString().split('T')[0], `Herinnering: ${a.onderwerp || 'Zonder titel'}`);
+      })
     ].filter(Boolean);
   });
 

@@ -39,7 +39,7 @@ export async function POST(req) {
         let kanaalId, kanaalUrl;
         const kanaalRes = await fetch(`https://graph.microsoft.com/v1.0/teams/${teamId}/channels`, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept-Language': 'en-US' },
             body: JSON.stringify({
                 displayName: projectNaam,
                 description: `Project kanaal voor ${projectNaam}`,
@@ -63,7 +63,7 @@ export async function POST(req) {
         let plannerPlanId = null;
         const planRes = await fetch('https://graph.microsoft.com/v1.0/planner/plans', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept-Language': 'en-US' },
             body: JSON.stringify({ owner: teamId, title: projectNaam }),
         });
 
@@ -77,7 +77,7 @@ export async function POST(req) {
             for (const bucket of teGebruikenBuckets) {
                 const bucketRes = await fetch('https://graph.microsoft.com/v1.0/planner/buckets', {
                     method: 'POST',
-                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept-Language': 'en-US' },
                     body: JSON.stringify({ name: bucket.naam, planId: plannerPlanId, orderHint }),
                 });
                 if (bucketRes.ok) {
@@ -86,10 +86,31 @@ export async function POST(req) {
                     for (const taakNaam of bucket.taken) {
                         await fetch('https://graph.microsoft.com/v1.0/planner/tasks', {
                             method: 'POST',
-                            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept-Language': 'en-US' },
                             body: JSON.stringify({ planId: plannerPlanId, title: taakNaam, bucketId: bucketData.id }),
                         }).catch(() => {});
                     }
+                }
+            }
+            // 4. Bouw direct het tabblad in het Teams kanaal op, zodat je in MS Teams geen foutmeldingen krijgt
+            if (kanaalId) {
+                try {
+                    await fetch(`https://graph.microsoft.com/v1.0/teams/${teamId}/channels/${kanaalId}/tabs`, {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            displayName: "Planner",
+                            "teamsApp@odata.bind": "https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/com.microsoft.teamspace.tab.planner",
+                            configuration: {
+                                entityId: plannerPlanId,
+                                contentUrl: `https://tasks.teams.microsoft.com/teamsui/{tid}/Home/PlannerFrame?page=7&planId=${plannerPlanId}&auth_pvr=OrgId&auth_upn={userPrincipalName}&mkt={locale}`,
+                                removeUrl: `https://tasks.teams.microsoft.com/teamsui/{tid}/Home/PlannerFrame?page=13&planId=${plannerPlanId}&auth_pvr=OrgId&auth_upn={userPrincipalName}&mkt={locale}`,
+                                websiteUrl: `https://tasks.office.com/{tid}/nl-NL/Home/Planner/#/plantaskboard?planId=${plannerPlanId}`
+                            }
+                        })
+                    });
+                } catch (e) {
+                    console.error("Kon tabblad in kanaal niet maken:", e);
                 }
             }
         }

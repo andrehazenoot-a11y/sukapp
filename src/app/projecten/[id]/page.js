@@ -229,6 +229,93 @@ function CircleProgress({ pct, color, size = 80 }) {
     );
 }
 
+// ===== AI OCR Factuur Analyser =====
+const parseFactuurBestand = async (file) => {
+    try {
+        let rawText = '';
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        
+        if (isPdf) {
+            // Turbopack ondersteunt geen dynamic import() van externe CDN URLs — laad via script tag (UMD build)
+            const pdfjsLib = await new Promise((resolve, reject) => {
+                if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+                script.onload = () => {
+                    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                    resolve(window.pdfjsLib);
+                };
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            for (let p = 1; p <= pdf.numPages; p++) {
+                const page = await pdf.getPage(p);
+                const tc = await page.getTextContent();
+                rawText += tc.items.map(item => item.str).join(' ') + '\n';
+            }
+        } else if (file.type && file.type.startsWith('image/')) {
+            const Tesseract = (await import('tesseract.js')).default;
+            const dataUrl = await new Promise((res, rej) => {
+                const r = new FileReader();
+                r.onload = e => res(e.target.result);
+                r.onerror = e => rej(e);
+                r.readAsDataURL(file);
+            });
+            const result = await Tesseract.recognize(dataUrl, 'nld+eng');
+            rawText = result.data.text;
+        } else {
+            throw new Error(`Bestandstype (${file.type || 'onbekend'}) wordt niet ondersteund. Sleep een PDF of Afbeelding.`);
+        }
+
+        const extractLines = [];
+        let total = 0;
+        
+        const lines = rawText.split('\n');
+        lines.forEach(l => {
+            const trimmed = l.trim();
+            if(!trimmed) return;
+            
+            const totaalMatch = trimmed.match(/(?:Totaal|Te betalen|Bedrag|Total)[\s:*]?\€?\s*(\d+[\.,]\d{2})/i);
+            if(totaalMatch) {
+               const val = parseFloat(totaalMatch[1].replace(',','.'));
+               if(val > total) total = val;
+            }
+            
+            const itemMatch = trimmed.match(/^(\d+)(?:\s*x|\s*stuks?)?\s+(.+?)\s+\€?\s*(\d+[\.,]\d{2})$/i);
+            if(itemMatch) {
+               extractLines.push({ qty: parseInt(itemMatch[1]), name: itemMatch[2].trim(), price: parseFloat(itemMatch[3].replace(',','.')).toFixed(2) });
+            }
+        });
+
+        if (extractLines.length === 0) {
+            const priceMatches = rawText.match(/(\d+[\.,]\d{2})/g);
+            if(priceMatches) {
+                const uniquePrices = [...new Set(priceMatches.map(p => parseFloat(p.replace(',','.'))))].sort((a,b)=>b-a);
+                if (uniquePrices.length > 0 && total === 0) total = uniquePrices[0];
+                if (uniquePrices.length > 1) {
+                    uniquePrices.slice(1, 4).forEach((p, i) => {
+                       extractLines.push({ qty: 1, name: `Geëxtraheerd Artikel ${i+1}`, price: p.toFixed(2) });
+                    });
+                }
+            }
+        }
+        
+        if (total === 0 && extractLines.length > 0) {
+            total = extractLines.reduce((s, l) => s + (parseFloat(l.price) * l.qty), 0);
+        }
+        if (total === 0 && extractLines.length === 0) {
+           return { total: 0, extractLines: [{ qty: 1, name: 'Ongelezen factuurregel (handmatig invullen)', price: '0.00' }] };
+        }
+        
+        return { total, extractLines };
+    } catch(err) {
+        console.error("Factuur scan error:", err);
+        return { total: 0, extractLines: [{ qty: 1, name: 'Fout bij OCR extractie', price: '0.00' }] };
+    }
+};
+
 // ===== EML (email) parser =====
 function decodeTransfer(text, encoding) {
     const enc = (encoding || '').toLowerCase().trim();
@@ -424,11 +511,17 @@ function AttachmentItem({ att, onLightbox }) {
 export default function ProjectDossierPage() {
     const { id } = useParams();
     const router = useRouter();
-    const { getAllUsers, user } = useAuth();
+    const { getAllUsers, user, getProfile } = useAuth();
     const allUsers = getAllUsers();
     const [project, setProject] = useState(null);
     const [projects, setProjects] = useState([]);
-    const [activeTab, setActiveTab] = useState('overzicht');
+    const [activeTab, setActiveTab] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const t = new URLSearchParams(window.location.search).get('tab');
+            if (t) return t;
+        }
+        return 'overzicht';
+    });
     const [notes, setNotes] = useState([]);
     const [newNote, setNewNote] = useState('');
     const [noteType, setNoteType] = useState('info');
@@ -437,6 +530,80 @@ export default function ProjectDossierPage() {
     const [noteReplyInput, setNoteReplyInput] = useState('');
     const [termijnen, setTermijnen] = useState(DEMO_TERMIJNEN);
     const [offerteBedrag, setOfferteBedrag] = useState('');
+    const [akPercentage, setAkPercentage] = useState(() => { try { return Number(localStorage.getItem(`schildersapp_project_ak_${id}`)) || 10; } catch { return 10; } });
+    const handleSetAk = (v) => {
+        let n = parseInt(v) || 0;
+        if (n < 0) n = 0;
+        setAkPercentage(n);
+        localStorage.setItem(`schildersapp_project_ak_${id}`, n);
+    };
+    const [materiaalItems, setMateriaalItems] = useState(() => { 
+        try { 
+            const stored = JSON.parse(localStorage.getItem(`schildersapp_project_matlijst_${id}`));
+            if (stored && Array.isArray(stored)) return stored;
+            const oldFixed = Number(localStorage.getItem(`schildersapp_project_mat_${id}`));
+            if (oldFixed) return [{ id: Date.now(), omschrijving: 'Diverse inkoop / Migratie', bedrag: oldFixed }];
+            return [];
+        } catch { return []; } 
+    });
+    const [materiaalKostenType, setMateriaalKostenType] = useState(() => {
+        try { return localStorage.getItem(`schildersapp_project_mattype_${id}`) || 'lijst'; } catch { return 'lijst'; }
+    });
+    const handleSetMatType = (v) => {
+        setMateriaalKostenType(v);
+        localStorage.setItem(`schildersapp_project_mattype_${id}`, v);
+    };
+    const [isDraggingInvoice, setIsDraggingInvoice] = useState(false);
+    const [isScanningInvoice, setIsScanningInvoice] = useState(false);
+    const [expandedMats, setExpandedMats] = useState({});
+    const toggleMatExpand = (id) => setExpandedMats(prev => ({ ...prev, [id]: !prev[id] }));
+    const updateMateriaalLijst = (newItems) => {
+        setMateriaalItems(newItems);
+        localStorage.setItem(`schildersapp_project_matlijst_${id}`, JSON.stringify(newItems));
+    };
+    const voegMateriaalToe = () => updateMateriaalLijst([...materiaalItems, { id: Date.now(), omschrijving: '', bedrag: 0 }]);
+    const wisMateriaal = (matId) => updateMateriaalLijst(materiaalItems.filter(i => i.id !== matId));
+    const wijzigMateriaalVelden = (matId, veld, val) => updateMateriaalLijst(materiaalItems.map(i => i.id === matId ? { ...i, [veld]: veld === 'bedrag' ? (parseFloat(val) || 0) : val } : i));
+    const wijzigGeextraheerdeRegel = (itemId, lineIndex, veld, val) => {
+        const nieuweItems = materiaalItems.map(item => {
+            if (item.id === itemId && item.extractedLines) {
+                const upLines = [...item.extractedLines];
+                upLines[lineIndex] = { ...upLines[lineIndex], [veld]: val };
+                const bedrag = upLines.reduce((s, l) => s + (parseFloat(l.price) * (parseFloat(l.qty) || 1) || 0), 0);
+                return { ...item, bedrag, extractedLines: upLines };
+            }
+            return item;
+        });
+        updateMateriaalLijst(nieuweItems);
+    };
+    const wisGeextraheerdeRegel = (itemId, lineIndex) => {
+        const nieuweItems = materiaalItems.map(item => {
+            if (item.id === itemId && item.extractedLines) {
+                const upLines = item.extractedLines.filter((_, i) => i !== lineIndex);
+                const bedrag = upLines.reduce((s, l) => s + (parseFloat(l.price) * (parseFloat(l.qty) || 1) || 0), 0);
+                return { ...item, bedrag, extractedLines: upLines };
+            }
+            return item;
+        });
+        updateMateriaalLijst(nieuweItems);
+    };
+    const voegGeextraheerdeRegelToe = (itemId) => {
+        const nieuweItems = materiaalItems.map(item => {
+            if (item.id === itemId && item.extractedLines) {
+                const upLines = [...item.extractedLines, { qty: 1, name: '', price: 0 }];
+                return { ...item, extractedLines: upLines };
+            }
+            return item;
+        });
+        updateMateriaalLijst(nieuweItems);
+    };
+    const [wrPercentage, setWrPercentage] = useState(() => { try { return Number(localStorage.getItem(`schildersapp_project_wr_${id}`)) || 10; } catch { return 10; } });
+    const handleSetWr = (v) => {
+        let n = parseInt(v) || 0;
+        if (n < 0) n = 0;
+        setWrPercentage(n);
+        localStorage.setItem(`schildersapp_project_wr_${id}`, n);
+    };
     const [showAddTask, setShowAddTask] = useState(false);
     const [dossierFilter, setDossierFilter] = useState('taken');
     const [dossierExpanded, setDossierExpanded] = useState(new Set());
@@ -453,6 +620,12 @@ export default function ProjectDossierPage() {
     const [showTemplateMenu, setShowTemplateMenu] = useState(false);
     const [photos, setPhotos] = useState([]);
     const [photoFilter, setPhotoFilter] = useState('alle');
+    const [toasts, setToasts] = useState([]);
+    const showToast = (msg, type = 'error') => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, msg, type }]);
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    };
     const fileInputRef = useRef(null);
     const emailUploadRef = useRef(null);
     const dragTaskRef = useRef(null);
@@ -470,6 +643,8 @@ export default function ProjectDossierPage() {
         return localStorage.getItem('schilders_teams_team_id') || '';
     });
     const [teamsLijst, setTeamsLijst] = useState(null); // null=niet geladen, []= leeg, [{id,naam}]
+    const [kanaalBerichtenLaden, setKanaalBerichtenLaden] = useState(false);
+    const [kanaalBerichtenData, setKanaalBerichtenData] = useState(null);
     const [teamsLijstBezig, setTeamsLijstBezig] = useState(false);
     const [plannerTaken, setPlannerTaken] = useState(null); // null=niet geladen
     const [plannerTakenBezig, setPlannerTakenBezig] = useState(false);
@@ -483,6 +658,16 @@ export default function ProjectDossierPage() {
     const [plannerSnelToevoeg, setPlannerSnelToevoeg] = useState(null); // { bucketId, inputVal }
     const [plannerDetails, setPlannerDetails] = useState({}); // { [taskId]: { description, etag, laden } }
     const [plannerSjabloon, setPlannerSjabloon] = useState('schilderwerk'); // gekozen sjabloon bij aanmaken
+    const [plannerKoppelModus, setPlannerKoppelModus] = useState('nieuw'); // 'nieuw' | 'bestaand'
+    const [plannerBestaandeLijst, setPlannerBestaandeLijst] = useState(null); // null = nog niet geladen
+    const [plannerBestaandBezig, setPlannerBestaandBezig] = useState(false);
+    const [plannerBestaandGeselecteerd, setPlannerBestaandGeselecteerd] = useState(null); // geselecteerd plan id
+    const [kanaalKoppelModus, setKanaalKoppelModus] = useState('nieuw'); // 'nieuw' | 'bestaand'
+    const [kanaalBestaandeLijst, setKanaalBestaandeLijst] = useState(null);
+    const [kanaalBestaandBezig, setKanaalBestaandBezig] = useState(false);
+    const [kanaalBestaandGeselecteerd, setKanaalBestaandGeselecteerd] = useState(null);
+    const [teamsIframeOpen, setTeamsIframeOpen] = useState(false);
+    const [teamsIframeFout, setTeamsIframeFout] = useState(false);
     const [plannerSjablonenState, setPlannerSjablonenState] = useState(() => {
         try {
             const op = localStorage.getItem('schildersapp_planner_sjablonen');
@@ -515,7 +700,14 @@ export default function ProjectDossierPage() {
     const [plannerPaletData, setPlannerPaletData] = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_palet_data') || '{}'); } catch { return {}; } });
     const [plannerPaletSelectie, setPlannerPaletSelectie] = useState(new Set());
     const [plannerPaletAssignPopup, setPlannerPaletAssignPopup] = useState(null);
+    const [paletZoek, setPaletZoek] = useState('');
     const [teamsLeden, setTeamsLeden] = useState([]);
+    // Label-namen (plan-niveau) — gesynchroniseerd met MS Planner categoryDescriptions
+    const LABEL_DEFAULTS = { category1: 'Urgent', category2: 'Materiaal', category3: 'Wachten', category4: 'Gereed', category5: 'Klant', category6: 'Intern' };
+    const [plannerLabelNamen, setPlannerLabelNamen] = useState({ ...LABEL_DEFAULTS });
+    const [plannerLabelEtag, setPlannerLabelEtag] = useState(null);
+    const [plannerLabelEditKey, setPlannerLabelEditKey] = useState(null); // welk label wordt bewerkt
+
     const savePlannerSjablonen = (nieuweSet) => { setPlannerSjablonenState(nieuweSet); try { localStorage.setItem('schildersapp_planner_sjablonen', JSON.stringify(nieuweSet)); } catch {} };
     const [outlookCategories, setOutlookCategories] = useState({}); // { naam: kleurHex }
     const [catPickerEmailId, setCatPickerEmailId] = useState(null);
@@ -573,7 +765,7 @@ export default function ProjectDossierPage() {
         if (!newEmailContact.naam || !newEmailContact.email) return;
         // Voorkom dubbele email-adressen
         if (emailContacten.some(c => c.email.toLowerCase() === newEmailContact.email.toLowerCase())) {
-            alert(`Dit e-mailadres (${newEmailContact.email}) is al toegevoegd.`);
+            showToast(`Dit e-mailadres (${newEmailContact.email}) is al toegevoegd.`);
             return;
         }
         saveEmailContacten([...emailContacten, { ...newEmailContact, id: Date.now() }]);
@@ -1081,6 +1273,42 @@ export default function ProjectDossierPage() {
             }
             setPlannerBuckets(b);
             if (b[0]) setPlannerBucketKeuze(b[0].id);
+
+            // Label-namen bidirectioneel synchroniseren met MS Planner plan-details
+            try {
+                const ldRes = await fetch(`/api/teams/planner-plan-details?planId=${project.plannerPlanId}`);
+                if (ldRes.ok) {
+                    const ld = await ldRes.json();
+                    setPlannerLabelEtag(ld.etag);
+                    const cats = ld.categoryDescriptions || {};
+                    const DEFAULTS = { category1: 'Urgent', category2: 'Materiaal', category3: 'Wachten', category4: 'Gereed', category5: 'Klant', category6: 'Intern' };
+
+                    // Welke categorieën heeft Planner al ingevuld?
+                    const gevuld = Object.fromEntries(Object.entries(cats).filter(([, v]) => v));
+                    const ontbreken = Object.entries(DEFAULTS).filter(([k]) => !gevuld[k]);
+
+                    if (Object.keys(gevuld).length > 0) {
+                        // Planner heeft namen → overnemen in app
+                        setPlannerLabelNamen(prev => ({ ...prev, ...gevuld }));
+                    }
+
+                    if (ontbreken.length > 0) {
+                        // Planner heeft (deels) lege namen → onze defaults ernaar schrijven
+                        const nieuweCats = Object.fromEntries(ontbreken);
+                        const patchRes = await fetch('/api/teams/planner-plan-details', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ planId: project.plannerPlanId, etag: ld.etag, categoryDescriptions: nieuweCats }),
+                        });
+                        if (patchRes.ok) {
+                            // Verse etag ophalen na PATCH
+                            const r2 = await fetch(`/api/teams/planner-plan-details?planId=${project.plannerPlanId}`);
+                            if (r2.ok) { const d2 = await r2.json(); setPlannerLabelEtag(d2.etag); }
+                        }
+                    }
+                }
+            } catch {}
+
         }).catch(() => setPlannerTaken([])).finally(() => setPlannerTakenBezig(false));
     }, [project?.plannerPlanId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1100,18 +1328,26 @@ export default function ProjectDossierPage() {
 
             // Details ophalen voor alle gekoppelde taken
             const gekoppeld = (proj.tasks || []).filter(t => t.plannerTaskId);
+            const verlopenIds = new Set();
             const detailsMap = {};
             await Promise.all(gekoppeld.map(async t => {
                 try {
                     const dr = await fetch(`/api/teams/planner-taak-details?taskId=${t.plannerTaskId}`);
                     if (dr.ok) detailsMap[t.plannerTaskId] = await dr.json();
+                    else if (dr.status === 404) verlopenIds.add(t.id); // taak verwijderd uit Planner
                 } catch {}
             }));
+            // Verwijder verouderde plannerTaskId's in setProject (zodat React state ook bijgewerkt wordt)
 
             setProject(prev => {
                 if (!prev) return prev;
                 let veranderd = false;
                 const gesync = prev.tasks.map(t => {
+                    // Verouderde plannerTaskId opruimen (404 van MS Graph)
+                    if (t.plannerTaskId && verlopenIds.has(t.id)) {
+                        veranderd = true;
+                        return { ...t, plannerTaskId: null };
+                    }
                     if (!t.plannerTaskId) return t;
                     const pt = taken?.find(p => p.id === t.plannerTaskId);
                     const det = detailsMap[t.plannerTaskId];
@@ -1144,13 +1380,17 @@ export default function ProjectDossierPage() {
                 try { const all = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); localStorage.setItem('schildersapp_projecten', JSON.stringify(all.map(x => String(x.id) === String(bijgewerkt.id) ? bijgewerkt : x))); } catch {}
                 return bijgewerkt;
             });
+
         } catch {}
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!project?.plannerPlanId) return;
         const interval = setInterval(syncVanPlannerNaarApp, 30000);
-        return () => clearInterval(interval);
+        // Direct syncen zodra gebruiker terugkomt van MS Planner (tab-wissel)
+        const handleTabFocus = () => { if (document.visibilityState === 'visible') syncVanPlannerNaarApp(); };
+        document.addEventListener('visibilitychange', handleTabFocus);
+        return () => { clearInterval(interval); document.removeEventListener('visibilitychange', handleTabFocus); };
     }, [project?.plannerPlanId, syncVanPlannerNaarApp]);
 
     // Auto-refresh meerwerk als de chatbot (of ander tabblad) iets opslaat
@@ -1194,6 +1434,8 @@ export default function ProjectDossierPage() {
 
     // Stuur een taak naar Microsoft Planner
     const stuurNaarPlanner = async (taskId, title, bucketId) => {
+        console.log('[stuurNaarPlanner] title:', title, '| bucketId:', bucketId, '| plannerBucketKeuze:', plannerBucketKeuze);
+        console.log('[stuurNaarPlanner] plannerBuckets:', plannerBuckets.map(b => b.name));
         if (!project.plannerPlanId) return;
         setPlannerVerstuurd(prev => ({ ...prev, [taskId]: 'bezig' }));
         try {
@@ -1295,8 +1537,48 @@ export default function ProjectDossierPage() {
         if (!project?.plannerPlanId) return;
         setPlannerPaletBezig(prev => ({ ...prev, [key]: true }));
         setPlannerPaletAssignPopup(null);
-        const matchBucket = plannerBuckets.find(b => b.name === bucketNaam);
-        const bucketId = matchBucket?.id || plannerBucketKeuze || undefined;
+        // Haal altijd live buckets op zodat de state nooit verouderd is
+        let liveBuckets = plannerBuckets;
+        try {
+            const bRes = await fetch(`/api/teams/planner-buckets?planId=${project.plannerPlanId}`);
+            if (bRes.ok) {
+                liveBuckets = await bRes.json();
+                setPlannerBuckets(liveBuckets);
+            }
+        } catch {}
+
+        const fuzzyMatch = (b, naam) =>
+            b.name === naam ||
+            b.name?.toLowerCase().includes(naam?.toLowerCase()) ||
+            naam?.toLowerCase().includes(b.name?.toLowerCase());
+
+        const matchBucket = liveBuckets.find(b => fuzzyMatch(b, bucketNaam));
+        let bucketId = matchBucket?.id || undefined;
+
+        console.log('[PALET] bucketNaam:', bucketNaam);
+        console.log('[PALET] liveBuckets:', liveBuckets.map(b => b.name));
+        console.log('[PALET] matchBucket:', matchBucket?.name, '| bucketId:', bucketId);
+
+        // Bucket bestaat nog niet in Planner → automatisch aanmaken
+        if (!matchBucket && bucketNaam && project?.plannerPlanId) {
+            console.log('[PALET] Bucket niet gevonden, aanmaken:', bucketNaam);
+            try {
+                const bucketRes = await fetch('/api/teams/planner-buckets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ planId: project.plannerPlanId, name: bucketNaam }),
+                });
+                const bucketBody = await bucketRes.json();
+                console.log('[PALET] nieuweBucket response:', bucketRes.status, bucketBody);
+                if (bucketRes.ok) {
+                    bucketId = bucketBody.id;
+                    setPlannerBuckets(prev => [...(prev || []), bucketBody]);
+                }
+            } catch (e) { console.error('[PALET] bucket aanmaken fout:', e); }
+        }
+
+        console.log('[PALET] Taak aanmaken met bucketId:', bucketId);
+
         try {
             const r = await fetch('/api/teams/planner-taken', {
                 method: 'POST',
@@ -1398,19 +1680,55 @@ export default function ProjectDossierPage() {
     const stuurProjectTaakNaarPlanner = async (taak) => {
         if (!project?.plannerPlanId) return;
         setProjTaakPlannerBezig(prev => new Set([...prev, taak.id]));
-        const matchBucket = plannerBuckets.find(b => b.name === taak.bucketNaam);
-        const bucketId = matchBucket?.id || plannerBucketKeuze || undefined;
+
+        // Haal altijd live buckets op
+        let liveBuckets = plannerBuckets;
+        try {
+            const bRes = await fetch(`/api/teams/planner-buckets?planId=${project.plannerPlanId}`);
+            if (bRes.ok) { liveBuckets = await bRes.json(); setPlannerBuckets(liveBuckets); }
+        } catch {}
+
+        const fuzzy = (b, naam) => !!(naam && (
+            b.name === naam ||
+            b.name?.toLowerCase().includes(naam.toLowerCase()) ||
+            naam.toLowerCase().includes(b.name?.toLowerCase())
+        ));
+
+        let matchBucket = liveBuckets.find(b => fuzzy(b, taak.bucketNaam));
+        let bucketId = matchBucket?.id;
+
+        console.log('[stuurProject] taak.bucketNaam:', taak.bucketNaam, '| match:', matchBucket?.name, '| bucketId:', bucketId);
+
+        // Bucket bestaat nog niet → aanmaken
+        if (!matchBucket && taak.bucketNaam) {
+            try {
+                const bucketRes = await fetch('/api/teams/planner-buckets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ planId: project.plannerPlanId, name: taak.bucketNaam }),
+                });
+                const bucketBody = await bucketRes.json();
+                console.log('[stuurProject] bucket aanmaken status:', bucketRes.status, bucketBody);
+                if (bucketRes.ok && bucketBody.id) {
+                    bucketId = bucketBody.id;
+                    setPlannerBuckets(prev => [...(prev || []), bucketBody]);
+                } else {
+                    console.error('[stuurProject] bucket aanmaken mislukt:', bucketRes.status, bucketBody);
+                }
+            } catch (e) { console.error('[stuurProject] bucket aanmaken fout:', e); }
+        }
+
         try {
             // Taak aanmaken in Planner
             const postBody = { planId: project.plannerPlanId, title: taak.name };
             if (bucketId) postBody.bucketId = bucketId;
             if (taak.startDate) postBody.startDateTime = new Date(taak.startDate + 'T00:00:00').toISOString();
             if (taak.endDate) postBody.dueDateTime = new Date(taak.endDate + 'T00:00:00').toISOString();
-            // Toewijzing meesturen zodat Microsoft een email stuurt — alleen als het een geldig Azure AD ID is
             const toegewezenId = taak.assignedTo?.[0];
             const isGeldigId = toegewezenId && typeof toegewezenId === 'string' && toegewezenId.includes('-');
             if (isGeldigId) postBody.assignments = { [toegewezenId]: { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' } };
 
+            console.log('[stuurProject] POST taak met bucketId:', bucketId);
             const r = await fetch('/api/teams/planner-taken', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1442,7 +1760,11 @@ export default function ProjectDossierPage() {
                 }
             } catch {}
 
-            saveProject({ ...project, tasks: (project.tasks || []).map(t => t.id === taak.id ? { ...t, plannerTaskId: nieuw.id } : t) });
+            // plannerTaskId terugschrijven — gebruik projectRef om stale closure te vermijden
+            const huidigProject = projectRef.current;
+            const bijgewerkteTaken = (huidigProject?.tasks || []).map(t => t.id === taak.id ? { ...t, plannerTaskId: nieuw.id } : t);
+            saveProject({ ...huidigProject, tasks: bijgewerkteTaken });
+
         } catch (err) {
             console.error('stuurProjectTaakNaarPlanner fout:', err);
         }
@@ -1485,7 +1807,7 @@ export default function ProjectDossierPage() {
 
     const sendMeerwerkEmail = (item) => {
         if (allEmailTargets.length === 0) {
-            alert('Nog geen e-mailcontacten. Voeg er een toe via Overzicht → E-mailcontacten.');
+            showToast('Nog geen e-mailcontacten. Voeg er een toe via Overzicht → E-mailcontacten.', 'warning');
             return;
         }
         if (allEmailTargets.length === 1) {
@@ -1498,7 +1820,7 @@ export default function ProjectDossierPage() {
     const sendMeerwerkBulk = () => {
         if (geselecteerdeItems.length === 0) return;
         if (allEmailTargets.length === 0) {
-            alert('Nog geen e-mailcontacten. Voeg er een toe via Overzicht → E-mailcontacten.');
+            showToast('Nog geen e-mailcontacten. Voeg er een toe via Overzicht → E-mailcontacten.', 'warning');
             return;
         }
         if (allEmailTargets.length === 1) {
@@ -1637,7 +1959,7 @@ export default function ProjectDossierPage() {
 
     // ── Uren berekenen uit urenregistratie voor dit project ──
     const calcUrenVoorProject = () => {
-        if (!allUsers || !project) return { totaal: 0, perPersoon: [] };
+        if (!allUsers || !project) return { totaal: 0, perPersoon: [], alleRegistraties: [] };
         const parseVal = v => parseFloat(String(v).replace(',', '.')) || 0;
         const parseType = (typeId) => {
             const ICON_TYPES = ['ziek', 'vrij'];
@@ -1649,19 +1971,41 @@ export default function ProjectDossierPage() {
         const weekSet = new Set();
         const cursor = new Date(startD);
         cursor.setDate(cursor.getDate() - cursor.getDay() + 1); // naar maandag
-        while (cursor <= today) {
-            const d = new Date(cursor);
+        
+        // Zorg dat we ook recente weken hebben onafhankelijk van startdatum
+        let minDate = cursor;
+        const maxWeeksBack = new Date();
+        maxWeeksBack.setMonth(maxWeeksBack.getMonth() - 3);
+        if (minDate > maxWeeksBack) minDate = maxWeeksBack;
+        
+        const processDate = new Date(minDate);
+        while (processDate <= today || weekSet.size === 0) {
+            const d = new Date(processDate);
             const jan4 = new Date(d.getFullYear(), 0, 4);
             const dow = jan4.getDay() || 7;
             const wk = Math.ceil(((d - new Date(d.getFullYear(), 0, 1)) / 86400000 + dow) / 7);
             weekSet.add(`${wk}_${d.getFullYear()}`);
-            cursor.setDate(cursor.getDate() + 7);
+            processDate.setDate(processDate.getDate() + 7);
         }
+        
+        // Voor de zekerheid ook de huidige week toevoegen
+        const now = new Date();
+        const j4 = new Date(now.getFullYear(), 0, 4);
+        const wNow = Math.ceil(((now - new Date(now.getFullYear(), 0, 1)) / 86400000 + (j4.getDay() || 7)) / 7);
+        weekSet.add(`${wNow}_${now.getFullYear()}`);
+
         const weeks = [...weekSet];
         const perPersoon = [];
+        const alleRegistraties = [];
+
         allUsers.forEach(u => {
             let urenTotaal = 0;
+            let kostenTotaal = 0;
             let weekBreakdown = [];
+            const profiel = getProfile(u.id) || {};
+            // Interne kostprijs (fallback waarden voor simulatie als uurtarief onbekend is)
+            const uurKosten = profiel.uurtarief || (u.role === "ZZP'er" ? 45 : u.role === "Voorman" ? 40 : 35);
+
             weeks.forEach(wk => {
                 const [weekNum, yearNum] = wk.split('_').map(Number);
                 const key = `schildersapp_urv2_u${u.id}_w${weekNum}_${yearNum}`;
@@ -1674,25 +2018,71 @@ export default function ProjectDossierPage() {
                         if (String(row.projectId) !== String(id)) return;
                         Object.entries(row.types || {}).forEach(([tid, hrs]) => {
                             if (!parseType(tid)) return;
-                            (hrs || []).slice(0, 5).forEach(h => { weekUren += parseVal(h); });
+                            (hrs || []).slice(0, 7).forEach((h, i) => {
+                                const val = parseVal(h);
+                                if (val > 0) {
+                                    weekUren += val;
+                                    const valKosten = val * uurKosten;
+                                    const akKosten = valKosten * (akPercentage / 100);
+                                    const dagen = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'];
+                                    alleRegistraties.push({
+                                        id: `${u.id}_${wk}_${tid}_${Math.random()}`,
+                                        medewerker: u.name,
+                                        week: weekNum,
+                                        jaar: yearNum,
+                                        dag: dagen[i] || `Dag ${i+1}`,
+                                        type: tid === 'regulier' ? 'Regulier' : tid === 'meerwerk' ? 'Meerwerk' : tid,
+                                        uren: val,
+                                        kosten: valKosten,
+                                        ak: akKosten
+                                    });
+                                }
+                            });
                         });
                     });
                     if (weekUren > 0) {
                         urenTotaal += weekUren;
-                        weekBreakdown.push({ weekNum, yearNum, uren: weekUren });
+                        kostenTotaal += weekUren * uurKosten;
+                        weekBreakdown.push({ weekNum, yearNum, uren: weekUren, kosten: weekUren * uurKosten, ak: (weekUren * uurKosten) * (akPercentage / 100) });
                     }
                 } catch { /* skip */ }
             });
             if (urenTotaal > 0) {
-                perPersoon.push({ ...u, uren: urenTotaal, weekBreakdown });
+                perPersoon.push({ ...u, uren: urenTotaal, kosten: kostenTotaal, weekBreakdown });
             }
         });
+
+        // Sorteer van nieuw naar oud
+        alleRegistraties.sort((a, b) => {
+            if (b.jaar !== a.jaar) return b.jaar - a.jaar;
+            return b.week - a.week;
+        });
+
         const totaal = perPersoon.reduce((s, p) => s + p.uren, 0);
-        return { totaal: Math.round(totaal * 10) / 10, perPersoon };
+        const totaalKosten = perPersoon.reduce((s, p) => s + p.kosten, 0);
+        const totaalAK = totaalKosten * (akPercentage / 100);
+        return { totaal: Math.round(totaal * 10) / 10, totaalKosten, totaalAK, perPersoon, alleRegistraties };
     };
     const urenData = calcUrenVoorProject();
     const werkelijkeUren = urenData.totaal;
+    const werkelijkeKosten = urenData.totaalKosten;
+    const werkelijkeAK = urenData.totaalAK;
     const urenPerPersoon = urenData.perPersoon;
+    const alleRegistraties = urenData.alleRegistraties;
+
+    // Nacalculatie Derived Values
+    const materiaalLijstKosten = materiaalItems.reduce((s, c) => s + c.bedrag, 0);
+    const materiaalKosten = materiaalKostenType === '10' ? werkelijkeKosten * 0.10 :
+                            materiaalKostenType === '15' ? werkelijkeKosten * 0.15 :
+                            materiaalKostenType === '20' ? werkelijkeKosten * 0.20 :
+                            materiaalLijstKosten;
+    const totaleKostprijs = werkelijkeKosten + werkelijkeAK + materiaalKosten;
+    const werkelijkeWR = totaleKostprijs * (wrPercentage / 100);
+    const totaleProjectKosten = totaleKostprijs + werkelijkeWR;
+    const offerteTarget = parseFloat(project?.prijs) || (project?.estimatedHours * 55) || 0;
+    const budgetPct = offerteTarget > 0 ? Math.round((totaleProjectKosten / offerteTarget) * 100) : 0;
+    const overBudget = budgetPct > 100;
+    const nearBudget = budgetPct >= 90 && budgetPct <= 100;
 
 
     useEffect(() => {
@@ -1829,14 +2219,36 @@ export default function ProjectDossierPage() {
             const plannerTaak = (plannerTakenRef.current || []).find(t => t.id === pid);
             const etag = plannerTaak?.['@odata.etag'];
             if (!etag) return; // etag nog niet geladen — auto-sync pakt het op
-            fetch('/api/teams/planner-taken', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ taskId: pid, etag, ...taakVelden }),
-            }).then(r => {
-                if (!r.ok && r.status !== 412) r.text().then(t => console.error('[sync taak PATCH fout]', r.status, t));
-                // Na PATCH is de etag verlopen — auto-sync (elke 30s) vernieuwt hem
-            }).catch(() => {});
+
+            const doPatch = async (etagToUse) => {
+                const r = await fetch('/api/teams/planner-taken', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskId: pid, etag: etagToUse, ...taakVelden }),
+                });
+                if (r.status === 409 || r.status === 412) {
+                    // Etag verouderd → haal verse lijst op en probeer opnieuw
+                    try {
+                        const planId = projectRef.current?.plannerPlanId;
+                        if (!planId) return;
+                        const planTaken = await fetch(`/api/teams/planner-taken?planId=${planId}`);
+                        if (!planTaken.ok) return;
+                        const taken = await planTaken.json();
+                        const verseTaak = taken.find(t => t.id === pid);
+                        if (verseTaak?.['@odata.etag']) {
+                            setPlannerTaken(prev => (prev || []).map(t => t.id === pid ? verseTaak : t));
+                            await fetch('/api/teams/planner-taken', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ taskId: pid, etag: verseTaak['@odata.etag'], ...taakVelden }),
+                            });
+                        }
+                    } catch {}
+                } else if (!r.ok) {
+                    r.text().then(t => console.error('[sync taak PATCH fout]', r.status, t));
+                }
+            };
+            doPatch(etag).catch(() => {});
         }
         // Details-niveau (notitie, checklist)
         if (Object.keys(detailsVelden).length > 0) {
@@ -2097,6 +2509,15 @@ export default function ProjectDossierPage() {
     const gefactureerd = termijnen.reduce((s, t) => s + t.bedrag, 0);
     const openstaand = gefactureerd - betaald;
 
+    // Bewaking-metrics beschikbaar buiten de bewaking IIFE (ook gebruikt in Overzicht tab)
+    const ovBudgetPct = offerte > 0 ? Math.round((gefactureerd / offerte) * 100) : 0;
+    const ovUrenPct   = project.estimatedHours > 0 ? Math.round((werkelijkeUren / project.estimatedHours) * 100) : 0;
+    const ovStartD    = new Date((project.startDate || new Date().toISOString().slice(0,10)) + 'T00:00:00');
+    const ovEndD      = new Date((project.endDate   || new Date().toISOString().slice(0,10)) + 'T00:00:00');
+    const ovTotalDays = Math.max(1, Math.ceil((ovEndD - ovStartD) / 86400000));
+    const ovElapsed   = Math.min(ovTotalDays, Math.max(0, Math.ceil((new Date() - ovStartD) / 86400000)));
+    const ovPlanPct   = Math.round((ovElapsed / ovTotalDays) * 100);
+
     const TABS = [
         { id: 'overzicht', label: 'Overzicht', icon: 'fa-house' },
         { id: 'planning', label: 'Planning', icon: 'fa-chart-gantt' },
@@ -2108,6 +2529,7 @@ export default function ProjectDossierPage() {
         { id: 'bewaking', label: 'Bewaking', icon: 'fa-shield-halved' },
         { id: 'dossier', label: 'Dossier', icon: 'fa-briefcase' },
         { id: 'teams', label: 'Teams', icon: 'fa-brands fa-microsoft' },
+        { id: 'planner', label: 'Planner', icon: 'fa-list-check' },
     ];
 
     const mainContent = (
@@ -2122,56 +2544,56 @@ export default function ProjectDossierPage() {
             </div>
 
             {/* Project Header */}
-            <div style={{ background: '#fff', borderRadius: '16px', padding: '24px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', marginBottom: '20px', border: '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ width: '52px', height: '52px', borderRadius: '14px', background: project.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <i className="fa-solid fa-folder-open" style={{ fontSize: '1.4rem', color: '#fff' }} />
+            <div style={{ background: '#fff', borderRadius: '14px', padding: '14px 18px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', marginBottom: '14px', border: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: project.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <i className="fa-solid fa-folder-open" style={{ fontSize: '1.1rem', color: '#fff' }} />
                         </div>
                         <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                <h1 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700, color: '#1e293b' }}>{project.name}</h1>
-                                <span style={{ background: statusCfg.bg, color: statusCfg.color, padding: '3px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>{project.name}</h1>
+                                <span style={{ background: statusCfg.bg, color: statusCfg.color, padding: '2px 8px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <i className={`fa-solid ${statusCfg.icon}`} /> {statusCfg.label}
                                 </span>
                             </div>
-                            <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span><i className="fa-solid fa-user" style={{ marginRight: '4px' }} />{project.client}</span>
+                            <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span><i className="fa-solid fa-user" style={{ marginRight: '3px' }} />{project.client}</span>
                                 <span>•</span>
-                                <span><i className="fa-solid fa-location-dot" style={{ marginRight: '4px' }} />{project.address}</span>
+                                <span><i className="fa-solid fa-location-dot" style={{ marginRight: '3px' }} />{project.address}</span>
                             </p>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                         <select value={project.status} onChange={e => saveProject({ ...project, status: e.target.value })}
-                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.8rem', fontWeight: 600, background: '#fff', cursor: 'pointer', color: '#1e293b' }}>
+                            style={{ padding: '6px 10px', borderRadius: '7px', border: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 600, background: '#fff', cursor: 'pointer', color: '#1e293b' }}>
                             <option value="planning">In Planning</option>
                             <option value="active">Actief</option>
                             <option value="paused">Gepauzeerd</option>
                             <option value="completed">Afgerond</option>
                         </select>
-                        <Link href="/projecten" style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: '0.8rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Link href="/projecten" style={{ padding: '6px 12px', borderRadius: '7px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: '0.75rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
                             <i className="fa-solid fa-chart-gantt" /> Gantt
                         </Link>
                     </div>
                 </div>
 
                 {/* Stats row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
                     {[
                         { icon: 'fa-circle-check', color: '#F5850A', bg: 'rgba(245,133,10,0.1)', label: 'Voortgang', value: `${progress}%`, sub: `${completedTasks}/${totalTasks} taken` },
                         { icon: 'fa-calendar-days', color: daysLeft < 0 ? '#ef4444' : daysLeft < 14 ? '#f59e0b' : '#3b82f6', bg: daysLeft < 0 ? '#fef2f2' : daysLeft < 14 ? '#fffbeb' : '#eff6ff', label: 'Resterende tijd', value: daysLeft < 0 ? 'Verlopen' : `${daysLeft} dagen`, sub: `Oplevering ${formatDate(project.endDate)}` },
                         { icon: 'fa-clock', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', label: 'Geschatte uren', value: `${project.estimatedHours}u`, sub: `Start ${formatDate(project.startDate)}` },
                         { icon: 'fa-users', color: '#10b981', bg: 'rgba(16,185,129,0.1)', label: 'Team', value: `${teamUsers.length} pers.`, sub: teamUsers.map(u => u.name.split(' ')[0]).join(', ') || 'Niemand' },
                     ].map((s, i) => (
-                        <div key={i} style={{ background: '#f8fafc', borderRadius: '12px', padding: '14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: s.bg, color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+                        <div key={i} style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: s.bg, color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', flexShrink: 0 }}>
                                 <i className={`fa-solid ${s.icon}`} />
                             </div>
                             <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>{s.value}</div>
-                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 500 }}>{s.label}</div>
-                                <div style={{ fontSize: '0.67rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.sub}</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{s.value}</div>
+                                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 500 }}>{s.label}</div>
+                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.sub}</div>
                             </div>
                         </div>
                     ))}
@@ -2215,15 +2637,15 @@ export default function ProjectDossierPage() {
 
 {/* ===== OVERZICHT ===== */}
             {activeTab === 'overzicht' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {/* Klantgegevens */}
                     <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                             <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-user-tie" style={{ color: '#F5850A' }} /> Klantgegevens
+                                <i className="fa-solid fa-user-tie" style={{ color: '#F5850A' }} /> Klant- & Bedrijfsgegevens
                             </h3>
                             {!editingClient ? (
-                                <button onClick={() => { setEditForm({ client: project.client, address: project.address, phone: project.phone || '', email: project.email || '', startDate: project.startDate, endDate: project.endDate, estimatedHours: project.estimatedHours }); setEditingClient(true); }}
+                                <button onClick={() => { setEditForm({ client: project.client, address: project.address, clientType: project.clientType || 'zakelijk', name: project.name || '', phone: project.phone || '', email: project.email || '', projectnummer: project.projectnummer || '', bedrijfsnaam: project.bedrijfsnaam || '', contactpersoon: project.contactpersoon || '', werkAdres: project.werkAdres || '', kvk: project.kvk || '', btw: project.btw || '', startDate: project.startDate, endDate: project.endDate, estimatedHours: project.estimatedHours }); setEditingClient(true); }}
                                     style={{ padding: '5px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s' }}
                                     onMouseEnter={e => { e.currentTarget.style.background = '#F5850A'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#F5850A'; }}
                                     onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}>
@@ -2235,7 +2657,7 @@ export default function ProjectDossierPage() {
                                         style={{ padding: '5px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
                                         Annuleer
                                     </button>
-                                    <button onClick={() => { saveProject({ ...project, ...editForm, estimatedHours: Number(editForm.estimatedHours) }); setEditingClient(false); }}
+                                    <button onClick={() => { let finalName = editForm.name || project.name || ''; if (editForm.projectnummer && !finalName.startsWith(editForm.projectnummer)) { finalName = `${editForm.projectnummer} - ${finalName}`; } saveProject({ ...project, ...editForm, name: finalName, estimatedHours: Number(editForm.estimatedHours) }); setEditingClient(false); }}
                                         style={{ padding: '5px 14px', borderRadius: '8px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                         <i className="fa-solid fa-check" /> Opslaan
                                     </button>
@@ -2243,16 +2665,23 @@ export default function ProjectDossierPage() {
                             )}
                         </div>
                         {!editingClient && (
-                            [
-                                { icon: 'fa-user', label: 'Naam', value: project.client },
-                                { icon: 'fa-location-dot', label: 'Adres', value: project.address },
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
+                            {[
+                                { icon: 'fa-hashtag', label: 'Projectnummer', value: project.projectnummer || '—' },
+                                { icon: 'fa-user', label: 'Opdrachtgever', value: project.client },
+                                { icon: 'fa-building', label: 'Bedrijfsnaam', value: project.bedrijfsnaam || '—' },
+                                { icon: 'fa-address-card', label: 'Contactpersoon', value: project.contactpersoon || '—' },
+                                { icon: 'fa-map-location-dot', label: 'Factuuradres', value: project.address || '—' },
+                                { icon: 'fa-location-dot', label: 'Werkadres', value: project.werkAdres || '—' },
+                                { icon: 'fa-id-card', label: 'KVK Nummer', value: project.kvk || '—' },
+                                { icon: 'fa-file-invoice-dollar', label: 'BTW Nummer', value: project.btw || '—' },
                                 { icon: 'fa-phone', label: 'Telefoon', value: project.phone || '—' },
                                 { icon: 'fa-envelope', label: 'Email', value: project.email || '—' },
                                 { icon: 'fa-calendar-plus', label: 'Startdatum', value: formatDate(project.startDate) },
                                 { icon: 'fa-calendar-check', label: 'Einddatum', value: formatDate(project.endDate) },
                                 { icon: 'fa-clock', label: 'Geschatte uren', value: `${project.estimatedHours}u` },
-                            ].map((row, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px', paddingBottom: '10px', borderBottom: i < 6 ? '1px solid #f8fafc' : 'none' }}>
+                            ].filter(f => project.clientType !== 'particulier' || !['Bedrijfsnaam', 'Contactpersoon', 'KVK Nummer', 'BTW Nummer'].includes(f.label)).map((row, i, arr) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px', paddingBottom: '10px', borderBottom: i !== arr.length - 1 ? '1px solid #f8fafc' : 'none' }}>
                                     <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#f8fafc', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', flexShrink: 0 }}>
                                         <i className={`fa-solid ${row.icon}`} />
                                     </div>
@@ -2261,7 +2690,8 @@ export default function ProjectDossierPage() {
                                         <div style={{ fontSize: '0.88rem', color: '#1e293b', fontWeight: 500 }}>{row.value}</div>
                                     </div>
                                 </div>
-                            ))
+                            ))}
+                        </div>
                         )}
                         {/* E-mailcontacten */}
                         {!editingClient && (
@@ -2345,16 +2775,35 @@ export default function ProjectDossierPage() {
                             </div>
                         )}
                         {editingClient && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {/* Particulier vs Zakelijk Toggle */}
+                                <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+                                    <button onClick={() => setEditForm(p => ({ ...p, clientType: 'particulier' }))}
+                                        style={{ flex: 1, padding: '7px', border: 'none', borderRadius: '7px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', background: editForm.clientType === 'particulier' ? '#fff' : 'transparent', color: editForm.clientType === 'particulier' ? '#F5850A' : '#64748b', boxShadow: editForm.clientType === 'particulier' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
+                                        <i className="fa-solid fa-user" style={{ marginRight: '6px' }} /> Particulier
+                                    </button>
+                                    <button onClick={() => setEditForm(p => ({ ...p, clientType: 'zakelijk' }))}
+                                        style={{ flex: 1, padding: '7px', border: 'none', borderRadius: '7px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', background: editForm.clientType !== 'particulier' ? '#fff' : 'transparent', color: editForm.clientType !== 'particulier' ? '#F5850A' : '#64748b', boxShadow: editForm.clientType !== 'particulier' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
+                                        <i className="fa-solid fa-building" style={{ marginRight: '6px' }} /> Zakelijk
+                                    </button>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
                                 {[
-                                    { field: 'client', label: 'Naam opdrachtgever', icon: 'fa-user', type: 'text' },
-                                    { field: 'address', label: 'Adres', icon: 'fa-location-dot', type: 'text' },
+                                    { field: 'projectnummer', label: 'Projectnummer', icon: 'fa-hashtag', type: 'text' },
+                                    { field: 'name', label: 'Projectnaam', icon: 'fa-folder', type: 'text' },
+                                    { field: 'client', label: 'Opdrachtgever (Naam)', icon: 'fa-user', type: 'text' },
+                                    { field: 'bedrijfsnaam', label: 'Bedrijfsnaam', icon: 'fa-building', type: 'text' },
+                                    { field: 'contactpersoon', label: 'Contactpersoon', icon: 'fa-address-card', type: 'text' },
+                                    { field: 'werkAdres', label: 'Werkadres', icon: 'fa-location-dot', type: 'text' },
+                                    { field: 'kvk', label: 'KVK Nummer', icon: 'fa-id-card', type: 'text' },
+                                    { field: 'btw', label: 'BTW Nummer', icon: 'fa-file-invoice-dollar', type: 'text' },
+                                    { field: 'address', label: 'Factuuradres', icon: 'fa-location-dot', type: 'text' },
                                     { field: 'phone', label: 'Telefoon', icon: 'fa-phone', type: 'tel' },
                                     { field: 'email', label: 'Email', icon: 'fa-envelope', type: 'email' },
                                     { field: 'startDate', label: 'Startdatum', icon: 'fa-calendar-plus', type: 'date' },
                                     { field: 'endDate', label: 'Einddatum', icon: 'fa-calendar-check', type: 'date' },
                                     { field: 'estimatedHours', label: 'Geschatte uren', icon: 'fa-clock', type: 'number' },
-                                ].map(({ field, label, icon, type }) => (
+                                ].filter(f => editForm.clientType !== 'particulier' || !['bedrijfsnaam', 'contactpersoon', 'kvk', 'btw'].includes(f.field)).map(({ field, label, icon, type }) => (
                                     <div key={field} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'rgba(245,133,10,0.08)', color: '#F5850A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', flexShrink: 0 }}>
                                             <i className={`fa-solid ${icon}`} />
@@ -2370,49 +2819,11 @@ export default function ProjectDossierPage() {
                                         </div>
                                     </div>
                                 ))}
+                                </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Voortgang + Team */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {/* Progress */}
-                        <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
-                            <h3 style={{ margin: '0 0 16px', fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-circle-check" style={{ color: '#F5850A' }} /> Voortgang
-                            </h3>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                <div style={{ position: 'relative', flexShrink: 0 }}>
-                                    <CircleProgress pct={progress} color={project.color} size={90} />
-                                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>{progress}%</div>
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: '8px' }}><b>{completedTasks}</b> van <b>{totalTasks}</b> taken afgerond</div>
-                                    <div style={{ background: '#f1f5f9', borderRadius: '6px', height: '8px', overflow: 'hidden' }}>
-                                        <div style={{ height: '100%', width: `${progress}%`, background: project.color, borderRadius: '6px', transition: 'width 0.5s ease' }} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Team */}
-                        <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9', flex: 1 }}>
-                            <h3 style={{ margin: '0 0 14px', fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-users" style={{ color: '#F5850A' }} /> Team
-                            </h3>
-                            {teamUsers.length === 0 ? (
-                                <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>Nog geen medewerkers toegewezen</p>
-                            ) : teamUsers.map(u => (
-                                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #F5850A, #E07000)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.82rem', fontWeight: 700, flexShrink: 0 }}>{u.initials}</div>
-                                    <div>
-                                        <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#1e293b' }}>{u.name}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{u.role}</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
                 </div>
             )}
 
@@ -2484,8 +2895,8 @@ export default function ProjectDossierPage() {
                                     const isAttachOpen = openAttachTask === task.id;
                                     const isDeleteConfirm = deleteConfirmTask === task.id;
                                     return (
-                                        <>
-                                        <tr key={task.id} style={{ borderBottom: (isAttachOpen || isDeleteConfirm) ? 'none' : '1px solid #f8fafc', background: isDeleteConfirm ? '#fef2f2' : idx % 2 === 0 ? '#fff' : '#fafbfc' }}
+                                        <React.Fragment key={task.id}>
+                                        <tr style={{ borderBottom: (isAttachOpen || isDeleteConfirm) ? 'none' : '1px solid #f8fafc', background: isDeleteConfirm ? '#fef2f2' : idx % 2 === 0 ? '#fff' : '#fafbfc' }}
                                             onMouseEnter={e => e.currentTarget.style.background = '#fffbf5'}
                                             onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#fafbfc'}>
                                             <td style={{ padding: '10px 10px' }}>
@@ -2647,7 +3058,7 @@ export default function ProjectDossierPage() {
                                             </tr>
                                             );
                                         })()}
-                                        </>
+                                        </React.Fragment>
                                     );
                                 })}
                             </tbody>
@@ -3462,6 +3873,19 @@ export default function ProjectDossierPage() {
                 if (nearUren)   alerts.push({ icon: 'fa-hourglass-half', color: '#f59e0b', bg: '#fffbeb', msg: `Uren bijna opgebruikt: ${urenPct}% van geschatte uren.` });
                 if (planAhead)  alerts.push({ icon: 'fa-rocket', color: '#10b981', bg: '#f0fdf4', msg: `Project loopt voor op schema! Taken ${taskPct - planPct}% verder dan gepland.` });
 
+                // Meerwerk vs Regulier split
+                const regulierUren   = alleRegistraties.filter(r => r.type === 'Regulier').reduce((s,r) => s+r.uren, 0);
+                const meerwerkUren   = alleRegistraties.filter(r => r.type === 'Meerwerk').reduce((s,r) => s+r.uren, 0);
+                const regulierKosten = alleRegistraties.filter(r => r.type === 'Regulier').reduce((s,r) => s+r.kosten, 0);
+                const meerwerkKosten = alleRegistraties.filter(r => r.type === 'Meerwerk').reduce((s,r) => s+r.kosten, 0);
+                const meerwerkPct    = werkelijkeUren > 0 ? Math.round((meerwerkUren / werkelijkeUren) * 100) : 0;
+
+                // Winstmarge berekening
+                const brutomarge    = offerte - totaleKostprijs;
+                const brutomargePct = offerte > 0 ? Math.round((brutomarge / offerte) * 100) : 0;
+                const margeGoed     = brutomargePct >= wrPercentage;
+                const margeNegatief = brutomarge < 0;
+
                 return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
@@ -3484,17 +3908,16 @@ export default function ProjectDossierPage() {
                     )}
 
                     {/* ── RAG Statusoverzicht ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                         {[
                             { icon: 'fa-calendar-days', label: 'Planning', pct: taskPct, bad: planDelay, warn: !planDelay && taskPct < planPct - 5, sub: `${completedTasks}/${totalTasks} taken · dag ${elapsedDays}/${totalDays}` },
                             { icon: 'fa-euro-sign', label: 'Budget', pct: budgetPct, bad: overBudget, warn: nearBudget, sub: `€${gefactureerd.toLocaleString('nl-NL')} / €${offerte.toLocaleString('nl-NL')}` },
                             { icon: 'fa-clock', label: 'Uren', pct: urenPct, bad: overUren, warn: nearUren, sub: `${werkelijkeUren}u / ${project.estimatedHours}u geschat` },
-                            { icon: 'fa-star-half-stroke', label: 'Kwaliteit', pct: kwalPct, bad: false, warn: kwalPct < 50, sub: `${kwaliteitsChecks.filter(k=>k.done).length}/${kwaliteitsChecks.length} checkpunten` },
                         ].map((card, i) => {
                             const c = ragColor(card.bad, card.warn);
                             const bg = ragBg(card.bad, card.warn);
                             return (
-                                <div key={i} style={{ background: '#fff', borderRadius: '14px', padding: '18px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: `1px solid ${card.bad ? '#fecaca' : card.warn ? '#fde68a' : '#f1f5f9'}` }}>
+                                <div key={i} style={{ background: '#fff', borderRadius: '14px', padding: '18px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9', borderLeft: `4px solid ${c}` }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: bg, color: c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem' }}>
@@ -3515,186 +3938,526 @@ export default function ProjectDossierPage() {
                         })}
                     </div>
 
-                    {/* ── Planning & Budget detail naast elkaar ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        {/* Planning bewaking */}
-                        <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
-                            <h3 style={{ margin: '0 0 16px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-calendar-days" style={{ color: '#F5850A' }} /> Planningsbewaking
-                            </h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                {[
-                                    { label: 'Tijdverloop', pct: planPct, color: '#3b82f6', sub: `Dag ${elapsedDays} van ${totalDays} (${planPct}%)` },
-                                    { label: 'Taken gereed', pct: taskPct, color: taskPct < planPct - 10 ? '#ef4444' : '#10b981', sub: `${completedTasks} van ${totalTasks} taken (${taskPct}%)` },
-                                ].map((row, i) => (
-                                    <div key={i}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
-                                            <span>{row.label}</span><span style={{ color: row.color }}>{row.sub}</span>
-                                        </div>
-                                        <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
-                                            <div style={{ height: '100%', width: `${Math.min(row.pct, 100)}%`, background: row.color, borderRadius: '999px', transition: 'width 0.6s' }} />
-                                        </div>
-                                    </div>
-                                ))}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                                    {[
-                                        { label: 'Startdatum', value: formatDate(project.startDate), icon: 'fa-play' },
-                                        { label: 'Einddatum', value: formatDate(project.endDate), icon: 'fa-flag-checkered' },
-                                    ].map((item, i) => (
-                                        <div key={i} style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px 12px' }}>
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '3px' }}>
-                                                <i className={`fa-solid ${item.icon}`} style={{ marginRight: '4px' }} />{item.label}
+                    {/* ── Planning & Budget detail (Dashboard Layout) ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', gap: '20px', alignItems: 'start' }}>
+                        
+                        {/* ── LINKER KOLOM: DETAILREGISTRATIES & LIJSTEN ── */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            
+                            {/* 1. Planningsbewaking */}
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                                <h3 style={{ margin: '0 0 16px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fa-solid fa-calendar-days" style={{ color: '#F5850A' }} /> Planningsbewaking
+                                </h3>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        {[
+                                            { label: 'Tijdverloop', pct: planPct, color: '#3b82f6', sub: `Dag ${elapsedDays} van ${totalDays} (${planPct}%)` },
+                                            { label: 'Taken gereed', pct: taskPct, color: taskPct < planPct - 10 ? '#ef4444' : '#10b981', sub: `${completedTasks} van ${totalTasks} taken (${taskPct}%)` },
+                                        ].map((row, i) => (
+                                            <div key={i}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
+                                                    <span>{row.label}</span><span style={{ color: row.color }}>{row.sub}</span>
+                                                </div>
+                                                <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                                    <div style={{ height: '100%', width: `${Math.min(row.pct, 100)}%`, background: row.color, borderRadius: '999px', transition: 'width 0.6s' }} />
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item.value}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div style={{ background: daysLeft < 0 ? '#fef2f2' : daysLeft < 7 ? '#fffbeb' : '#f0fdf4', borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <i className={`fa-solid ${daysLeft < 0 ? 'fa-circle-exclamation' : daysLeft < 7 ? 'fa-hourglass-half' : 'fa-calendar-check'}`}
-                                        style={{ color: daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#f59e0b' : '#10b981' }} />
-                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#92400e' : '#166534' }}>
-                                        {daysLeft < 0 ? `${Math.abs(daysLeft)} dagen over deadline` : daysLeft === 0 ? 'Oplevering vandaag!' : `${daysLeft} dagen resterend`}
-                                    </span>
+                                        ))}
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                                        {[
+                                            { label: 'Startdatum', value: formatDate(project.startDate), icon: 'fa-play' },
+                                            { label: 'Einddatum', value: formatDate(project.endDate), icon: 'fa-flag-checkered' },
+                                        ].map((item, i) => (
+                                            <div key={i} style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px 12px' }}>
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '3px' }}>
+                                                    <i className={`fa-solid ${item.icon}`} style={{ marginRight: '4px' }} />{item.label}
+                                                </div>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item.value}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div style={{ background: daysLeft < 0 ? '#fef2f2' : daysLeft < 7 ? '#fffbeb' : '#f0fdf4', borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className={`fa-solid ${daysLeft < 0 ? 'fa-circle-exclamation' : daysLeft < 7 ? 'fa-hourglass-half' : 'fa-calendar-check'}`}
+                                            style={{ color: daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#f59e0b' : '#10b981' }} />
+                                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#92400e' : '#166534' }}>
+                                            {daysLeft < 0 ? `${Math.abs(daysLeft)} dagen over deadline` : daysLeft === 0 ? 'Oplevering vandaag!' : `${daysLeft} dagen resterend`}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Uren bewaking */}
-                        <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
-                            <h3 style={{ margin: '0 0 16px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-clock" style={{ color: '#F5850A' }} /> Urenbewaking
-                                <span style={{ fontSize: '0.7rem', fontWeight: 500, color: '#94a3b8', marginLeft: '4px' }}>
-                                    — automatisch uit urenregistratie
-                                </span>
-                            </h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            {/* 2. Meerwerk vs Regulier */}
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                                <h3 style={{ margin: '0 0 14px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fa-solid fa-code-branch" style={{ color: '#F5850A' }} /> Meerwerk vs Regulier
+                                </h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px' }}>
                                     {[
-                                        { label: 'Geschatte uren', value: `${project.estimatedHours}u`, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-hourglass', sub: 'Planning' },
-                                        { label: 'Geboekte uren', value: `${werkelijkeUren}u`, color: overUren ? '#ef4444' : '#10b981', bg: overUren ? '#fef2f2' : '#f0fdf4', icon: 'fa-stopwatch', sub: `${urenPerPersoon.length} personen` },
-                                    ].map((item, i) => (
-                                        <div key={i} style={{ background: item.bg, borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
-                                            <i className={`fa-solid ${item.icon}`} style={{ color: item.color, marginBottom: '4px', display: 'block' }} />
-                                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: item.color }}>{item.value}</div>
-                                            <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{item.label}</div>
-                                            <div style={{ fontSize: '0.6rem', color: item.color, fontWeight: 500, marginTop: '2px' }}>{item.sub}</div>
+                                        { label: 'Regulier', uren: regulierUren, kosten: regulierKosten, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-wrench' },
+                                        { label: 'Meerwerk', uren: meerwerkUren, kosten: meerwerkKosten, color: '#F5850A', bg: '#fff7ed', icon: 'fa-plus-circle' },
+                                    ].map(item => (
+                                        <div key={item.label} style={{ background: item.bg, borderRadius: '10px', padding: '12px', borderLeft: `4px solid ${item.color}` }}>
+                                            <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <i className={`fa-solid ${item.icon}`} style={{ color: item.color }} /> {item.label}
+                                            </div>
+                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: item.color }}>{Math.round(item.uren * 10) / 10}u</div>
+                                            <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>€{item.kosten.toLocaleString('nl-NL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
                                         </div>
                                     ))}
                                 </div>
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
-                                        <span>Urenverbruik</span>
-                                        <span style={{ color: overUren ? '#ef4444' : nearUren ? '#f59e0b' : '#10b981' }}>{urenPct}% van schatting</span>
-                                    </div>
-                                    <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
-                                        <div style={{ height: '100%', width: `${Math.min(urenPct, 100)}%`, background: overUren ? '#ef4444' : nearUren ? '#f59e0b' : '#10b981', borderRadius: '999px', transition: 'width 0.6s' }} />
-                                    </div>
+                                {werkelijkeUren > 0 ? (
+                                    <>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
+                                            <span>Verdeling</span>
+                                            <span style={{ color: meerwerkPct > 30 ? '#F5850A' : '#64748b' }}>{meerwerkPct}% meerwerk</span>
+                                        </div>
+                                        <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden', display: 'flex' }}>
+                                            <div style={{ height: '100%', width: `${100 - meerwerkPct}%`, background: '#3b82f6', borderRadius: '999px 0 0 999px', transition: 'width 0.6s' }} />
+                                            <div style={{ height: '100%', width: `${meerwerkPct}%`, background: '#F5850A', borderRadius: '0 999px 999px 0', transition: 'width 0.6s' }} />
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
+                                            <span><span style={{ color: '#3b82f6' }}>■</span> Regulier</span>
+                                            <span><span style={{ color: '#F5850A' }}>■</span> Meerwerk</span>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' }}>Nog geen uren geboekt</div>
+                                )}
+                            </div>
+
+                            {/* 3. Gedetailleerde Urenregistraties (Week View) */}
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                    <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fa-regular fa-clock" style={{ color: '#F5850A' }} /> Gedetailleerde Uren
+                                    </h3>
+                                    <button onClick={() => {
+                                        const FONT = "'Calibri','Segoe UI',Arial,sans-serif";
+                                        const grpMap2 = new Map();
+                                        alleRegistraties.forEach(reg => {
+                                            const key = `${reg.medewerker}|${reg.jaar}|${reg.week}`;
+                                            if (!grpMap2.has(key)) grpMap2.set(key, { medewerker: reg.medewerker, weekStr: `Wk ${reg.week} (${reg.jaar})`, totalUren: 0, dagen: [] });
+                                            const g = grpMap2.get(key);
+                                            g.totalUren += reg.uren;
+                                            g.dagen.push(reg);
+                                        });
+                                        const rows = [...grpMap2.values()].map(g => `
+                                            <tr><td colspan="3" style="padding:6px 10px;font-weight:700;font-size:11px;background:linear-gradient(90deg,#f1f5f9,#fff);border-bottom:1px solid #e2e8f0;border-top:2px solid #e2e8f0">
+                                                ${g.medewerker} &nbsp;·&nbsp; ${g.weekStr} &nbsp;·&nbsp; <span style="color:#F5850A;font-weight:800">${Math.round(g.totalUren*10)/10}u</span>
+                                            </td></tr>
+                                            ${g.dagen.map(r => `<tr>
+                                                <td style="padding:5px 10px 5px 24px;font-size:11px;color:#64748b">${r.dag}</td>
+                                                <td style="padding:5px 10px;font-size:11px"><span style="background:${r.type==='Regulier'?'#eff6ff':'#fff7ed'};color:${r.type==='Regulier'?'#3b82f6':'#F5850A'};padding:2px 6px;border-radius:4px;font-weight:600;font-size:10px">${r.type}</span></td>
+                                                <td style="padding:5px 10px;font-size:11px;font-weight:700;text-align:right">${r.uren}u</td>
+                                            </tr>`).join('')}
+                                        `).join('');
+                                        const html = `<!DOCTYPE html><html><head><title>Gedetailleerde Uren — ${project.name}</title>
+                                            <style>body{font-family:${FONT};margin:40px;color:#1e293b}table{border-collapse:collapse;width:100%}td{border-bottom:1px solid #f1f5f9}h2{font-size:14px;margin:0 0 4px}@media print{body{margin:20px}}</style>
+                                            </head><body>
+                                            <h2>${project.name}</h2>
+                                            <div style="font-size:11px;color:#64748b;margin-bottom:16px">Afgedrukt op ${new Date().toLocaleDateString('nl-NL')}</div>
+                                            <table>${rows}</table>
+                                            <div style="margin-top:16px;font-size:11px;font-weight:700;color:#1e293b;text-align:right;border-top:2px solid #1e293b;padding-top:8px">Totaal: ${werkelijkeUren}u</div>
+                                            </body></html>`;
+                                        const win = window.open('', '_blank');
+                                        win.document.write(html);
+                                        win.document.close();
+                                        win.focus();
+                                        setTimeout(() => win.print(), 400);
+                                    }} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <i className="fa-solid fa-print" /> Print
+                                    </button>
                                 </div>
 
-                                {/* Per-medewerker breakdown */}
-                                {urenPerPersoon.length > 0 ? (
-                                    <div style={{ border: '1px solid #f1f5f9', borderRadius: '10px', overflow: 'hidden' }}>
-                                        <div style={{ padding: '8px 12px', background: '#f8fafc', fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
-                                            <span>Medewerker / ZZP</span><span>Uren</span>
+                                {alleRegistraties.length > 0 ? (() => {
+                                    const groupedRegistraties = [];
+                                    const grpMap = new Map();
+                                    alleRegistraties.forEach(reg => {
+                                        const key = `${reg.medewerker}|${reg.jaar}|${reg.week}`;
+                                        if (!grpMap.has(key)) {
+                                            grpMap.set(key, {
+                                                id: key,
+                                                medewerker: reg.medewerker,
+                                                weekStr: `Wk ${reg.week} (${reg.jaar})`,
+                                                totalUren: 0,
+                                                totalKosten: 0,
+                                                totalAK: 0,
+                                                dagen: []
+                                            });
+                                        }
+                                        const g = grpMap.get(key);
+                                        g.totalUren += reg.uren;
+                                        g.totalKosten += reg.kosten;
+                                        g.totalAK += reg.ak;
+                                        g.dagen.push(reg);
+                                    });
+                                    grpMap.forEach(g => groupedRegistraties.push(g));
+
+                                    return (
+                                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                                            <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                                                {groupedRegistraties.map((g, gi) => (
+                                                    <div key={g.id} style={{ borderBottom: gi === groupedRegistraties.length - 1 ? 'none' : '2px solid #f1f5f9' }}>
+                                                        <div style={{ padding: '8px 12px', background: 'linear-gradient(90deg, #f8fafc 0%, #fff 100%)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
+                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                <i className="fa-regular fa-user" style={{ color: '#94a3b8' }} />
+                                                                {g.medewerker} 
+                                                                <span style={{ color: '#94a3b8', fontSize: '0.72rem', fontWeight: 600 }}>· {g.weekStr}</span>
+                                                            </div>
+                                                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#F5850A', background: '#fff7ed', padding: '4px 10px', borderRadius: '6px', border: '1px solid #fed7aa', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                <span>{Math.round(g.totalUren * 10) / 10}u totaal</span>
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            {g.dagen.map((reg, ri) => (
+                                                                <div key={reg.id} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 60px', padding: '6px 12px 6px 34px', background: ri % 2 === 0 ? '#fff' : '#fafbfc', borderBottom: ri === g.dagen.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                                                                    <div style={{ fontSize: '0.72rem', color: '#64748b', display: 'flex', alignItems: 'center' }}>{reg.dag}</div>
+                                                                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                                        <span style={{ fontSize: '0.65rem', background: reg.type === 'Regulier' ? '#eff6ff' : reg.type === 'Meerwerk' ? '#fff7ed' : '#f1f5f9', color: reg.type === 'Regulier' ? '#3b82f6' : reg.type === 'Meerwerk' ? '#F5850A' : '#64748b', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'capitalize' }}>
+                                                                            {reg.type}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>{reg.uren}u</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                        {urenPerPersoon.map((p, i) => {
+                                    );
+                                })() : (
+                                    <div style={{ padding: '30px', textAlign: 'center', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #cbd5e1' }}>
+                                        <i className="fa-solid fa-bed" style={{ fontSize: '2rem', color: '#cbd5e1', marginBottom: '10px' }} />
+                                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>Nog geen uren geboekt</div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 3. Materiaalkosten & Inkoop */}
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                    <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fa-solid fa-box-open" style={{ color: '#F5850A' }} /> Materiaal & Inkoop Details
+                                    </h3>
+                                    <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '2px', fontSize: '0.7rem', fontWeight: 600 }}>
+                                        {[
+                                            { id: 'lijst', label: 'Gedetailleerd' },
+                                            { id: '10', label: '10% (Buiten)' },
+                                            { id: '15', label: '15% (Binnen)' },
+                                            { id: '20', label: '20% (Comb.)' }
+                                        ].map(opt => (
+                                            <button key={opt.id} onClick={() => handleSetMatType(opt.id)} style={{ padding: '6px 10px', borderRadius: '6px', background: materiaalKostenType === opt.id ? '#fff' : 'transparent', color: materiaalKostenType === opt.id ? '#1e293b' : '#64748b', boxShadow: materiaalKostenType === opt.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', border: 'none', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                                    <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Items</span>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Bedrag in €</span>
+                                    </div>
+                                    <div style={{ padding: '10px 14px', background: '#fff' }}>
+                                        {materiaalItems.length > 0 ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                                                {materiaalItems.map((item) => (
+                                                    <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                            <div style={{ flex: 1, position: 'relative' }}>
+                                                                <input type="text" placeholder="Omschrijving (bijv. Sikkens Rubbol 10L)" value={item.omschrijving} onChange={e => wijzigMateriaalVelden(item.id, 'omschrijving', e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '6px', outline: 'none' }} />
+                                                                {item.hasBijlage && (
+                                                                    <div style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '4px' }}>
+                                                                        <button onClick={() => toggleMatExpand(item.id)} style={{ background: expandedMats[item.id] ? '#1e293b' : '#eff6ff', border: `1px solid ${expandedMats[item.id] ? '#0f172a' : '#bfdbfe'}`, color: expandedMats[item.id] ? '#fff' : '#2563eb', padding: '2px 8px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.2s' }}>
+                                                                            <i className={`fa-solid ${expandedMats[item.id] ? 'fa-chevron-up' : 'fa-list-check'}`} /> Details
+                                                                        </button>
+                                                                        <button onClick={() => { if (item.fileDataUrl) { window.open(item.fileDataUrl, '_blank'); } else { showToast('Bestand niet meer beschikbaar — upload opnieuw.', 'warning'); } }} title="Bekijk Origineel" style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#64748b', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', cursor: 'pointer' }}>
+                                                                            <i className="fa-solid fa-file-pdf" />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div style={{ width: '90px', display: 'flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: '6px', paddingLeft: '8px', background: '#f8fafc' }}>
+                                                                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>€</span>
+                                                                <input type="number" step="0.01" value={item.bedrag || ''} onChange={e => wijzigMateriaalVelden(item.id, 'bedrag', e.target.value)} style={{ width: '100%', padding: '6px', fontSize: '0.75rem', border: 'none', outline: 'none', background: 'transparent', textAlign: 'right' }} />
+                                                            </div>
+                                                            <button onClick={() => wisMateriaal(item.id)} style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#fef2f2', border: '1px solid #fecaca', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                                                <i className="fa-solid fa-trash-can" style={{ fontSize: '0.7rem' }} />
+                                                            </button>
+                                                        </div>
+                                                        {item.hasBijlage && expandedMats[item.id] && (
+                                                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px', marginLeft: '12px', marginTop: '4px', boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.02)' }}>
+                                                                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                                                                    <span>Geëxtraheerde Factuurregels</span>
+                                                                    <span style={{ color: '#0284c7' }}><i className="fa-solid fa-robot" /> AI Match</span>
+                                                                </div>
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                    {item.extractedLines?.map((line, lidx) => (
+                                                                        <div key={lidx} style={{ display: 'flex', gap: '6px', alignItems: 'center', background: '#fff', padding: '4px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                                                                            <input type="number" value={line.qty || ''} onChange={e => wijzigGeextraheerdeRegel(item.id, lidx, 'qty', e.target.value)} style={{ width: '40px', padding: '4px', fontSize: '0.7rem', border: '1px solid #cbd5e1', borderRadius: '4px', textAlign: 'center', outline: 'none' }} placeholder="Aant." />
+                                                                            <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 800 }}>x</span>
+                                                                            <input type="text" value={line.name || ''} onChange={e => wijzigGeextraheerdeRegel(item.id, lidx, 'name', e.target.value)} style={{ flex: 1, padding: '4px 6px', fontSize: '0.7rem', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none' }} placeholder="Artikel omschrijving" />
+                                                                            <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '4px', paddingLeft: '4px' }}>
+                                                                                <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>€</span>
+                                                                                <input type="number" step="0.01" value={line.price ?? ''} onChange={e => wijzigGeextraheerdeRegel(item.id, lidx, 'price', e.target.value)} style={{ width: '60px', padding: '4px', fontSize: '0.7rem', border: 'none', background: 'transparent', textAlign: 'right', outline: 'none' }} />
+                                                                            </div>
+                                                                            <button onClick={() => wisGeextraheerdeRegel(item.id, lidx)} style={{ background: 'transparent', border: 'none', padding: '4px', color: '#ef4444', cursor: 'pointer', borderRadius: '4px' }}>
+                                                                                <i className="fa-solid fa-xmark" style={{ fontSize: '0.8rem' }} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                    <button onClick={() => voegGeextraheerdeRegelToe(item.id)} style={{ alignSelf: 'flex-start', background: 'transparent', border: 'none', color: '#3b82f6', fontSize: '0.7rem', fontWeight: 600, padding: '4px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                                                        <i className="fa-solid fa-plus" /> Voeg regel toe
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', marginBottom: '12px', textAlign: 'center' }}>
+                                                Nog geen materialen of externe inkoop aan dit project toegevoegd.
+                                            </div>
+                                        )}
+                                        <button onClick={voegMateriaalToe} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#eff6ff', color: '#3b82f6', border: '1px dashed #bfdbfe', padding: '8px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
+                                            <i className="fa-solid fa-plus" /> Handmatig toevoegen
+                                        </button>
+                                    </div>
+                                    <div 
+                                        onDragOver={(e) => { e.preventDefault(); setIsDraggingInvoice(true); }}
+                                        onDragLeave={(e) => { e.preventDefault(); setIsDraggingInvoice(false); }}
+                                        onDrop={async (e) => {
+                                            e.preventDefault();
+                                            setIsDraggingInvoice(false);
+                                            const files = e.dataTransfer.files;
+                                            if (files.length === 0) return;
+                                            setIsScanningInvoice(true);
+                                            
+                                            // Real OCR Parsing
+                                            const factuurData = await parseFactuurBestand(files[0]);
+                                            
+                                            setIsScanningInvoice(false);
+                                            const fileName = files[0].name;
+                                            const fileDataUrl = await new Promise(resolve => {
+                                                const r = new FileReader();
+                                                r.onload = e => resolve(e.target.result);
+                                                r.readAsDataURL(files[0]);
+                                            });
+                                            const nieuwItem = {
+                                                id: Date.now().toString(),
+                                                omschrijving: `Factuur: ${fileName} (Geëxtraheerd)`,
+                                                bedrag: factuurData.total,
+                                                hasBijlage: true,
+                                                fileName: fileName,
+                                                fileDataUrl: fileDataUrl,
+                                                extractedLines: factuurData.extractLines
+                                            };
+                                            const nieuweLijst = [...materiaalItems, nieuwItem];
+                                            setMateriaalItems(nieuweLijst);
+                                            localStorage.setItem(`schildersapp_project_matlijst_${id}`, JSON.stringify(nieuweLijst));
+                                            handleSetMatType('lijst');
+                                        }}
+                                        style={{ padding: '16px', background: isDraggingInvoice ? '#e0f2fe' : '#f8fafc', borderTop: '1px dashed #cbd5e1', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'auto', transition: 'all 0.2s' }}>
+                                        {isScanningInvoice ? (
+                                            <div style={{ color: '#0284c7', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fa-solid fa-expand fa-spin" style={{ fontSize: '1.5rem' }} />
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>AI OCR Analyseren...</span>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div style={{ color: isDraggingInvoice ? '#0284c7' : '#94a3b8', fontSize: '1.5rem' }}><i className="fa-solid fa-cloud-arrow-up" /></div>
+                                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: isDraggingInvoice ? '#0284c7' : '#64748b', textAlign: 'center' }}>
+                                                    {isDraggingInvoice ? 'Laat de factuur hier los' : 'Sleep een inkoopfactuur (PDF/Afbeelding) hierheen of klik om OCR te gebruiken'}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        {/* ── RECHTER KOLOM: WAARDEN, KOSTEN & NACALCULATIE TOTALEN ── */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                            {/* Winstmarge kaart */}
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9', borderLeft: `4px solid ${margeNegatief ? '#ef4444' : margeGoed ? '#10b981' : '#f59e0b'}` }}>
+                                <h3 style={{ margin: '0 0 14px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fa-solid fa-chart-line" style={{ color: margeNegatief ? '#ef4444' : margeGoed ? '#10b981' : '#f59e0b' }} /> Winstmarge
+                                </h3>
+                                {offerte > 0 ? (
+                                    <>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                                            {[
+                                                { label: 'Offerte', value: `€${offerte.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-file-invoice' },
+                                                { label: 'Kostprijs', value: `€${totaleKostprijs.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`, color: '#64748b', bg: '#f8fafc', icon: 'fa-coins' },
+                                                { label: 'Brutomarge', value: `${brutomarge < 0 ? '-' : ''}€${Math.abs(brutomarge).toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`, color: margeNegatief ? '#ef4444' : margeGoed ? '#10b981' : '#f59e0b', bg: margeNegatief ? '#fef2f2' : margeGoed ? '#f0fdf4' : '#fffbeb', icon: 'fa-sack-dollar' },
+                                            ].map(item => (
+                                                <div key={item.label} style={{ background: item.bg, borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                                                    <i className={`fa-solid ${item.icon}`} style={{ color: item.color, fontSize: '0.8rem', marginBottom: '4px', display: 'block' }} />
+                                                    <div style={{ fontSize: '0.88rem', fontWeight: 800, color: item.color }}>{item.value}</div>
+                                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>{item.label}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, marginBottom: '5px' }}>
+                                            <span style={{ color: '#475569' }}>Margepercentage</span>
+                                            <span style={{ color: margeNegatief ? '#ef4444' : margeGoed ? '#10b981' : '#f59e0b' }}>
+                                                {brutomargePct}% {margeNegatief ? '— Verlies!' : margeGoed ? '— Doelstelling gehaald' : `— Onder doelstelling (${wrPercentage}%)`}
+                                            </span>
+                                        </div>
+                                        <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                            <div style={{ height: '100%', width: `${Math.max(0, Math.min(brutomargePct, 100))}%`, background: margeNegatief ? '#ef4444' : margeGoed ? '#10b981' : '#f59e0b', borderRadius: '999px', transition: 'width 0.6s' }} />
+                                        </div>
+                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '5px', fontWeight: 500 }}>
+                                            Doelstelling: {wrPercentage}% W&R-marge &nbsp;·&nbsp; Werkelijk: {brutomargePct}%
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' }}>
+                                        Stel een offertebedrag in om de marge te berekenen
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                                <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <i className="fa-solid fa-calculator" style={{ color: '#10b981' }} /> Project Nacalculatie
+                                </h3>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                                    {/* Bewaking Balken */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                        {[
+                                            { label: 'Geschatte uren', value: `${project.estimatedHours}u`, color: '#3b82f6', bg: '#eff6ff', icon: 'fa-hourglass', sub: 'Calculatie' },
+                                            { label: 'Geboekte uren', value: `${werkelijkeUren}u`, color: overUren ? '#ef4444' : '#10b981', bg: overUren ? '#fef2f2' : '#f0fdf4', icon: 'fa-stopwatch', sub: 'Gerealiseerd' },
+                                        ].map((item, i) => (
+                                            <div key={i} style={{ background: item.bg, borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                                                <i className={`fa-solid ${item.icon}`} style={{ color: item.color, marginBottom: '4px', display: 'block' }} />
+                                                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: item.color }}>{item.value}</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{item.label}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
+                                            <span>Urenverbruik</span>
+                                            <span style={{ color: overUren ? '#ef4444' : nearUren ? '#f59e0b' : '#10b981' }}>{urenPct}% van calculatie</span>
+                                        </div>
+                                        <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden', marginBottom: '10px' }}>
+                                            <div style={{ height: '100%', width: `${Math.min(urenPct, 100)}%`, background: overUren ? '#ef4444' : nearUren ? '#f59e0b' : '#10b981', borderRadius: '999px', transition: 'width 0.6s' }} />
+                                        </div>
+                                        {offerteTarget > 0 && (
+                                            <>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
+                                                    <span>Budget Verbruik</span>
+                                                    <span style={{ color: overBudget ? '#ef4444' : nearBudget ? '#f59e0b' : '#10b981' }}>{budgetPct}% / €{offerteTarget.toLocaleString('nl-NL')}</span>
+                                                </div>
+                                                <div style={{ height: '10px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                                    <div style={{ height: '100%', width: `${Math.min(budgetPct, 100)}%`, background: overBudget ? '#ef4444' : nearBudget ? '#f59e0b' : '#10b981', borderRadius: '999px', transition: 'width 0.6s' }} />
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {/* Arbeid breakdown */}
+                                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                                        <div style={{ padding: '8px 12px', background: '#f8fafc', fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            Arbeidskosten (per medewerker)
+                                        </div>
+                                        {urenPerPersoon.length > 0 ? urenPerPersoon.map((p, i) => {
                                             const avatarColors = ['#F5850A','#3b82f6','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ef4444'];
                                             const ac = avatarColors[i % avatarColors.length];
-                                            const pct = werkelijkeUren > 0 ? Math.round((p.uren / werkelijkeUren) * 100) : 0;
                                             return (
-                                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}>
+                                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', borderTop: i === 0 ? '1px solid #e2e8f0' : '1px solid #f1f5f9', background: '#fff' }}>
                                                     <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: ac, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.65rem', flexShrink: 0 }}>
                                                         {(p.initials || p.name?.slice(0,2).toUpperCase())}
                                                     </div>
                                                     <div style={{ flex: 1, minWidth: 0 }}>
                                                         <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>{p.name}</div>
-                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{p.role} · {p.weekBreakdown.length} {p.weekBreakdown.length === 1 ? 'week' : 'weken'}</div>
-                                                        <div style={{ height: '4px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden', marginTop: '4px' }}>
-                                                            <div style={{ height: '100%', width: `${pct}%`, background: ac, borderRadius: '999px' }} />
-                                                        </div>
+                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{Math.round(p.uren * 10) / 10} uur geboekt</div>
                                                     </div>
-                                                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: ac, textAlign: 'right', flexShrink: 0 }}>
-                                                        {p.uren}u
-                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 500 }}>{pct}%</div>
+                                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>€{p.kosten.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                                     </div>
                                                 </div>
                                             );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <div style={{ textAlign: 'center', padding: '14px', background: '#f8fafc', borderRadius: '10px', color: '#94a3b8', fontSize: '0.8rem' }}>
-                                        <i className="fa-regular fa-clock" style={{ display: 'block', marginBottom: '4px', fontSize: '1.1rem' }} />
-                                        Nog geen uren geboekt op dit project
-                                    </div>
-                                )}
-
-                                {project.estimatedHours > 0 && (() => {
-                                    const calcTarief = offerte / project.estimatedHours;
-                                    const restUren   = Math.max(0, project.estimatedHours - werkelijkeUren);
-                                    const restBudget = offerte - (werkelijkeUren * calcTarief);
-                                    const budgetPerRestUur = restUren > 0 ? restBudget / restUren : null;
-                                    const over = budgetPerRestUur !== null && budgetPerRestUur < calcTarief * 0.75;
-                                    return (
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                                            {[
-                                                { label: 'Calculatietarief', value: `€${calcTarief.toFixed(2)}/u`, sub: 'Offerte ÷ geschatte uren', color: '#3b82f6', icon: 'fa-calculator' },
-                                                { label: 'Resterend', value: `${restUren.toFixed(1)}u`, sub: `van ${project.estimatedHours}u begroot`, color: restUren < project.estimatedHours * 0.1 ? '#ef4444' : '#64748b', icon: 'fa-hourglass-half' },
-                                                { label: 'Budget/rest-uur', value: budgetPerRestUur !== null ? `€${budgetPerRestUur.toFixed(2)}/u` : '—', sub: 'Resterend budget ÷ rest-uren', color: over ? '#ef4444' : '#10b981', icon: 'fa-coins' },
-                                            ].map((item, i) => (
-                                                <div key={i} style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px 12px', textAlign: 'center', border: '1px solid #f1f5f9' }}>
-                                                    <i className={`fa-solid ${item.icon}`} style={{ color: item.color, fontSize: '0.75rem', marginBottom: '4px', display: 'block' }} />
-                                                    <div style={{ fontSize: '0.9rem', fontWeight: 800, color: item.color }}>{item.value}</div>
-                                                    <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600, marginTop: '2px' }}>{item.label}</div>
-                                                    <div style={{ fontSize: '0.58rem', color: '#94a3b8', marginTop: '1px' }}>{item.sub}</div>
-                                                </div>
-                                            ))}
+                                        }) : (
+                                            <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.7rem', color: '#94a3b8', background: '#fff' }}>Geen geregistreerde uren</div>
+                                        )}
+                                        <div style={{ padding: '10px 12px', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', borderTop: '2px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Subtotaal Arbeidsuren</span>
+                                            <span style={{ fontSize: '1rem', fontWeight: 800, color: '#475569' }}>€{werkelijkeKosten.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
-                                    );
-                                })()}
-
-                            </div>
-                        </div>
-                    </div>
-
-
-                    {/* ── Kwaliteitschecklist ── */}
-                    <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fa-solid fa-clipboard-check" style={{ color: '#F5850A' }} /> Kwaliteitschecklist
-                                <span style={{ background: kwalOk ? '#dcfce7' : '#fff7ed', color: kwalOk ? '#16a34a' : '#F5850A', fontWeight: 700, fontSize: '0.7rem', padding: '2px 8px', borderRadius: '20px' }}>
-                                    {kwaliteitsChecks.filter(k => k.done).length}/{kwaliteitsChecks.length}
-                                </span>
-                            </h3>
-                            <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
-                                {kwalPct}% afgerond
-                            </div>
-                        </div>
-                        <div style={{ height: '6px', borderRadius: '999px', background: '#f1f5f9', overflow: 'hidden', marginBottom: '14px' }}>
-                            <div style={{ height: '100%', width: `${kwalPct}%`, background: kwalOk ? '#10b981' : '#F5850A', borderRadius: '999px', transition: 'width 0.4s' }} />
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                            {kwaliteitsChecks.map(k => (
-                                <button key={k.id} onClick={() => toggleKwaliteit(k.id)} style={{
-                                    display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px',
-                                    borderRadius: '10px', border: `1px solid ${k.done ? '#bbf7d0' : '#e2e8f0'}`,
-                                    background: k.done ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', textAlign: 'left',
-                                    transition: 'all 0.15s',
-                                }}>
-                                    <div style={{
-                                        width: '20px', height: '20px', borderRadius: '50%', flexShrink: 0,
-                                        background: k.done ? '#10b981' : '#fff', border: `2px solid ${k.done ? '#10b981' : '#cbd5e1'}`,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        transition: 'all 0.15s',
-                                    }}>
-                                        {k.done && <i className="fa-solid fa-check" style={{ fontSize: '0.55rem', color: '#fff' }} />}
                                     </div>
-                                    <span style={{ fontSize: '0.82rem', fontWeight: k.done ? 600 : 500, color: k.done ? '#166534' : '#475569', textDecoration: k.done ? 'line-through' : 'none' }}>
-                                        {k.label}
-                                    </span>
-                                </button>
-                            ))}
+
+                                    {/* De Financiële Optelsom */}
+                                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                                        <div style={{ padding: '10px 14px', background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Algemene Kosten (AK)</span>
+                                                    <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+                                                        <input type="number" value={akPercentage} onChange={e => handleSetAk(e.target.value)} style={{ width: '40px', border: 'none', background: 'transparent', outline: 'none', padding: '4px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textAlign: 'right' }} />
+                                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', paddingRight: '6px' }}>%</span>
+                                                    </div>
+                                                </div>
+                                                <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Toeslag op de arbeidskosten</span>
+                                            </div>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>€{werkelijkeAK.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+                                        
+                                        <div style={{ padding: '10px 14px', background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Materiaal & Inkoop</span>
+                                                <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                                                    {materiaalKostenType === '10' ? '10% over arbeidskosten (Buitenschilderwerk)' :
+                                                     materiaalKostenType === '15' ? '15% over arbeidskosten (Binnenschilderwerk)' :
+                                                     materiaalKostenType === '20' ? '20% over arbeidskosten (Binnen & Buiten)' :
+                                                     'Gedetailleerd uit registratielijst (links)'}
+                                                </span>
+                                            </div>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>€{materiaalKosten.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+
+                                        <div style={{ padding: '12px 14px', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', borderTop: '2px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase' }}>Subtotaal Kostprijs</span>
+                                                <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Uren + AK + Materiaal</span>
+                                            </div>
+                                            <span style={{ fontSize: '1rem', fontWeight: 800, color: '#334155' }}>€{totaleKostprijs.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+
+                                        <div style={{ padding: '10px 14px', background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #fdba74', borderTop: '1px solid #e2e8f0' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ea580c' }}>Winst & Risico (W&R)</span>
+                                                    <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', border: '1px solid #fdba74', borderRadius: '6px', overflow: 'hidden' }}>
+                                                        <input type="number" value={wrPercentage} onChange={e => handleSetWr(e.target.value)} style={{ width: '40px', border: 'none', background: 'transparent', outline: 'none', padding: '4px', fontSize: '0.75rem', fontWeight: 700, color: '#ea580c', textAlign: 'right' }} />
+                                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#c2410c', paddingRight: '6px' }}>%</span>
+                                                    </div>
+                                                </div>
+                                                <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Projectmarge over kostprijs</span>
+                                            </div>
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#ea580c' }}>€{werkelijkeWR.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+
+                                        <div style={{ padding: '16px 14px', background: 'linear-gradient(135deg, #fffbeb, #fff7ed)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#9a3412', textTransform: 'uppercase' }}>Totaal Nacalculatie</span>
+                                            </div>
+                                            <span style={{ fontSize: '1.4rem', fontWeight: 900, color: '#9a3412' }}>€{totaleProjectKosten.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                            </div>
                         </div>
+
                     </div>
                 </div>
                 );
@@ -3762,7 +4525,7 @@ export default function ProjectDossierPage() {
                 const curStatus = statusFlow.find(s => s.key === offerteStatus) || statusFlow[0];
                 const whatsappOfferte = () => {
                     const phone = String(project.phone || '').replace(/^0/, '31').replace(/[^0-9]/g, '');
-                    if (!phone) return alert('Voer eerst een telefoonnummer in bij klantgegevens');
+                    if (!phone) { showToast('Voer eerst een telefoonnummer in bij klantgegevens.', 'warning'); return; }
                     const msg = `Geachte ${project.client},\n\nHierbij stuur ik u offerte ${offerteNr} voor de schilderwerkzaamheden aan ${project.address}.\n\nTotaalbedrag: €${totaal.toLocaleString('nl-NL', {minimumFractionDigits:2})} incl. BTW\n\nDeze offerte is ${offerteGeldig} dagen geldig.\n\nMet vriendelijke groet,\nDS uit Katwijk\nwww.deschildersuitkatwijk.nl`;
                     window.open(`https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(msg)}`, '_blank');
                 };
@@ -4513,9 +5276,6 @@ export default function ProjectDossierPage() {
             {/* ===== TEAMS TAB ===== */}
             {activeTab === 'teams' && (() => {
                 const heeftKanaal = !!(project.teamsKanaalUrl);
-                const heeftPlanner = !!(project.plannerPlanId);
-                const tenant = 'cd3d3914-6711-4801-9d09-f83f5a0645d3';
-                const teamsDeeplink = teamsTeamId ? `https://teams.microsoft.com/_#/team/conversations/General?groupId=${teamsTeamId}&tenantId=${tenant}` : null;
 
                 const maakTeamsAan = async () => {
                     if (!teamsTeamId) { setTeamsFout('Kies eerst een Teams-team.'); return; }
@@ -4533,56 +5293,6 @@ export default function ProjectDossierPage() {
                     finally { setTeamsBezig(false); }
                 };
 
-                const verwijderKanaal = async () => {
-                    if (!window.confirm('Teams kanaal verwijderen? Dit kan niet ongedaan worden.')) return;
-                    setTeamsBezig(true); setTeamsFout(null);
-                    try {
-                        const res = await fetch('/api/teams/verwijder-kanaal', {
-                            method: 'DELETE',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ teamId: teamsTeamId, kanaalId: project.teamsKanaalId }),
-                        });
-                        const data = await res.json();
-                        if (!res.ok) { setTeamsFout(data.error || 'Verwijderen mislukt'); return; }
-                        saveProject({ ...project, teamsKanaalId: null, teamsKanaalUrl: null, teamsKanaalEmail: null, teamsPlanAangemaakt: false });
-                    } catch (e) { setTeamsFout(e.message); }
-                    finally { setTeamsBezig(false); }
-                };
-
-                const maakPlannerAan = async () => {
-                    if (!teamsTeamId) { setTeamsFout('Kies eerst een Teams-team.'); return; }
-                    setTeamsBezig(true); setTeamsFout(null);
-                    const gekozenSjabloon = plannerSjablonenState.find(s => s.id === plannerSjabloon) || plannerSjablonenState[0];
-                    try {
-                        const res = await fetch('/api/teams/maak-project-aan', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ teamId: teamsTeamId, projectNaam: project.name, buckets: gekozenSjabloon.buckets }),
-                        });
-                        const data = await res.json();
-                        if (!res.ok) { setTeamsFout(data.error || 'Onbekende fout'); return; }
-                        saveProject({ ...project, plannerPlanId: data.plannerPlanId, teamsPlanAangemaakt: true });
-                        setToast('Planner aangemaakt!'); setTimeout(() => setToast(null), 3000);
-                    } catch (e) { setTeamsFout(e.message); }
-                    finally { setTeamsBezig(false); }
-                };
-
-                const verwijderPlanner = async () => {
-                    if (!window.confirm('Planner plan verwijderen inclusief alle taken?')) return;
-                    setTeamsBezig(true); setTeamsFout(null);
-                    try {
-                        const res = await fetch('/api/teams/verwijder-planner', {
-                            method: 'DELETE',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ planId: project.plannerPlanId }),
-                        });
-                        const data = await res.json();
-                        if (!res.ok) { setTeamsFout(data.error || 'Verwijderen mislukt'); return; }
-                        saveProject({ ...project, plannerPlanId: null });
-                    } catch (e) { setTeamsFout(e.message); }
-                    finally { setTeamsBezig(false); }
-                };
-
                 return (
                     <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
                         {/* Header */}
@@ -4592,12 +5302,14 @@ export default function ProjectDossierPage() {
                                     <i className="fa-brands fa-microsoft" />
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '1rem', fontWeight: 700 }}>Microsoft Teams & Planner</div>
+                                    <div style={{ fontSize: '1rem', fontWeight: 700 }}>Microsoft Teams — Kanaal</div>
                                     <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>{project.name}</div>
                                 </div>
-                                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
                                     {heeftKanaal && <span style={{ background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700 }}>✓ Kanaal</span>}
-                                    {heeftPlanner && <span style={{ background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700 }}>✓ Planner</span>}
+                                    <button onClick={() => { window.location.href = '/api/outlook/auth?returnTo=' + encodeURIComponent(window.location.pathname + '?tab=' + activeTab); }} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.35)', color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, backdropFilter: 'blur(4px)' }}>
+                                        <i className="fa-brands fa-microsoft" /> Verbinden met Outlook
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -4657,43 +5369,274 @@ export default function ProjectDossierPage() {
                                     <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                                         {heeftKanaal ? (
                                             <>
-                                                <a href={project.teamsKanaalUrl} target="_blank" rel="noopener noreferrer"
-                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: '#4f46e5', color: '#fff', borderRadius: 9, fontWeight: 700, fontSize: '0.82rem', textDecoration: 'none', width: 'fit-content' }}>
+                                                <button onClick={() => window.open(project.teamsKanaalUrl, '_blank')}
+                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: '#4f46e5', color: '#fff', borderRadius: 9, fontWeight: 700, fontSize: '0.82rem', border: 'none', cursor: 'pointer', width: 'fit-content' }}>
                                                     <i className="fa-brands fa-microsoft" /> Kanaal openen
                                                     <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '0.65rem', opacity: 0.8 }} />
-                                                </a>
-                                                <button onClick={() => saveProject({ ...project, teamsKanaalUrl: null })}
-                                                    style={{ alignSelf: 'flex-start', padding: '5px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '0.73rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <i className="fa-solid fa-trash" /> Koppeling verwijderen
                                                 </button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button onClick={maakTeamsAan} disabled={teamsBezig}
-                                                    style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content' }}>
-                                                    <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-plus'}`} />
-                                                    {teamsBezig ? 'Aanmaken…' : 'Teams kanaal aanmaken'}
-                                                </button>
-                                                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                                                    Maakt automatisch een kanaal aan met de naam <strong>{project.name}</strong>
+
+                                                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>
+                                                            <i className="fa-solid fa-envelope" style={{ color: '#4f46e5', marginRight: 6 }} /> E-mails & Berichten (Live)
+                                                        </div>
+                                                        <button disabled={kanaalBerichtenLaden} onClick={async () => { setKanaalBerichtenLaden(true); try { const r = await fetch('/api/teams/kanaal-berichten?teamId='+teamsTeamId+'&kanaalId='+project.teamsKanaalId); const d = await r.json(); setKanaalBerichtenData(d); } catch(e){} finally { setKanaalBerichtenLaden(false); } }}
+                                                                style={{ padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: 8, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            <i className={`fa-solid ${kanaalBerichtenLaden ? 'fa-spinner fa-spin' : 'fa-rotate-right'}`} /> Vernieuwen
+                                                        </button>
+                                                    </div>
+                                                    {!kanaalBerichtenData && !kanaalBerichtenLaden && <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Klik op vernieuwen om de laatste berichten van Teams op te halen.</div>}
+                                                    {kanaalBerichtenLaden && !kanaalBerichtenData && <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Berichten laden...</div>}
+                                                    {kanaalBerichtenData && (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                                            {kanaalBerichtenData.email && (
+                                                                <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 10, border: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                                    <i className="fa-solid fa-at" style={{ color: '#94a3b8' }} />
+                                                                    <div>
+                                                                        <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Teams Kanaal E-mailadres:</div>
+                                                                        <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 500 }}>{kanaalBerichtenData.email}</div>
+                                                                    </div>
+                                                                    <button onClick={() => { navigator.clipboard.writeText(kanaalBerichtenData.email); showToast('E-mailadres gekopieerd!', 'success'); }}
+                                                                        style={{ marginLeft: 'auto', background: '#fff', border: '1px solid #e2e8f0', padding: '5px 10px', borderRadius: 6, color: '#475569', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}>
+                                                                        Kopiëren
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            {!kanaalBerichtenData.email && <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>E-mailadres is nog niet gegenereerd in MS Teams. (Klik op Kanaal openen en kies 'E-mailadres ophalen').</div>}
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+                                                                {kanaalBerichtenData.berichten?.length === 0 && <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Er zijn nog geen berichten in dit kanaal.</div>}
+                                                                {kanaalBerichtenData.berichten?.map((msg, i) => (
+                                                                    <div key={i} style={{ padding: 12, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                                            <b style={{ fontSize: '0.8rem', color: '#334155' }}>{msg.from}</b>
+                                                                            <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{new Date(msg.tijd).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                                                                        </div>
+                                                                        {msg.subject && <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{msg.subject}</div>}
+                                                                        <div style={{ fontSize: '0.8rem', color: '#475569', lineHeight: 1.4, wordBreak: 'break-word', maxHeight: 80, overflow: 'hidden', position: 'relative' }} dangerouslySetInnerHTML={{ __html: msg.body }} />
+                                                                        {msg.bijlagen > 0 && <div style={{ marginTop: 8, display: 'inline-flex', padding: '3px 8px', background: '#e2e8f0', borderRadius: 20, fontSize: '0.7rem', color: '#475569', gap: 5, alignItems: 'center' }}><i className="fa-solid fa-paperclip" /> {msg.bijlagen} bijlage(n) (Geopend in Teams)</div>}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div style={{ fontSize: '0.72rem', color: '#64748b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
-                                                    Of plak handmatig een kanaal-link:
-                                                </div>
-                                                <div style={{ display: 'flex', gap: 8 }}>
-                                                    <input
-                                                        placeholder="Plak hier de kanaal-link uit Teams…"
-                                                        id="teams-kanaal-url-input"
-                                                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.8rem' }}
-                                                    />
-                                                    <button onClick={() => { const v = document.getElementById('teams-kanaal-url-input')?.value?.trim(); if (v) { saveProject({ ...project, teamsKanaalUrl: v }); setToast('Kanaal opgeslagen'); } }}
-                                                        style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
-                                                        Opslaan
+
+                                                <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+                                                    <button onClick={() => { if(window.confirm('Weet je zeker dat je de koppeling wilt weghalen? Het kanaal blijft gewoon in MS Teams bestaan.')) saveProject({ ...project, teamsKanaalId: null, teamsKanaalUrl: null }); }}
+                                                        style={{ padding: '6px 14px', borderRadius: 8, background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <i className="fa-solid fa-link-slash" /> Kanaal ontkoppelen
                                                     </button>
                                                 </div>
                                             </>
+                                        ) : (
+                                            <>
+                                                {/* Toggle nieuw / bestaand */}
+                                                <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 10, padding: 4, gap: 4, width: 'fit-content' }}>
+                                                    {[{ v: 'nieuw', label: 'Nieuw aanmaken', icon: 'fa-plus' }, { v: 'bestaand', label: 'Bestaand koppelen', icon: 'fa-link' }].map(opt => (
+                                                        <button key={opt.v} onClick={() => { setKanaalKoppelModus(opt.v); setKanaalBestaandeLijst(null); setKanaalBestaandGeselecteerd(null); }}
+                                                            style={{ padding: '7px 14px', borderRadius: 7, border: 'none', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.15s',
+                                                                background: kanaalKoppelModus === opt.v ? '#fff' : 'transparent',
+                                                                color: kanaalKoppelModus === opt.v ? '#4f46e5' : '#64748b',
+                                                                boxShadow: kanaalKoppelModus === opt.v ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+                                                            <i className={`fa-solid ${opt.icon}`} style={{ fontSize: '0.7rem' }} /> {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                {/* Nieuw aanmaken */}
+                                                {kanaalKoppelModus === 'nieuw' && (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                        <button onClick={maakTeamsAan} disabled={teamsBezig}
+                                                            style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content' }}>
+                                                            <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-plus'}`} />
+                                                            {teamsBezig ? 'Aanmaken…' : 'Teams kanaal aanmaken'}
+                                                        </button>
+                                                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                                            Maakt automatisch een kanaal aan met de naam <strong>{project.name}</strong>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Bestaand koppelen */}
+                                                {kanaalKoppelModus === 'bestaand' && (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                        {!kanaalBestaandeLijst && (
+                                                            <button onClick={async () => {
+                                                                setKanaalBestaandBezig(true);
+                                                                try {
+                                                                    const r = await fetch(`/api/teams/kanalen?groupId=${teamsTeamId}`);
+                                                                    const d = r.ok ? await r.json() : [];
+                                                                    setKanaalBestaandeLijst(d);
+                                                                } catch { setKanaalBestaandeLijst([]); }
+                                                                finally { setKanaalBestaandBezig(false); }
+                                                            }} disabled={kanaalBestaandBezig}
+                                                                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, width: 'fit-content' }}>
+                                                                <i className={`fa-solid ${kanaalBestaandBezig ? 'fa-spinner fa-spin' : 'fa-magnifying-glass'}`} />
+                                                                {kanaalBestaandBezig ? 'Laden…' : 'Kanalen ophalen'}
+                                                            </button>
+                                                        )}
+                                                        {kanaalBestaandeLijst && kanaalBestaandeLijst.length === 0 && (
+                                                            <div style={{ fontSize: '0.78rem', color: '#dc2626' }}>Geen kanalen gevonden in dit team.</div>
+                                                        )}
+                                                        {kanaalBestaandeLijst && kanaalBestaandeLijst.length > 0 && (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Kies een kanaal:</div>
+                                                                {kanaalBestaandeLijst.map(k => (
+                                                                    <button key={k.id} onClick={() => setKanaalBestaandGeselecteerd(k.id)}
+                                                                        style={{ padding: '9px 14px', borderRadius: 9, border: `1.5px solid ${kanaalBestaandGeselecteerd === k.id ? '#4f46e5' : '#e0e7ff'}`, background: kanaalBestaandGeselecteerd === k.id ? '#eef2ff' : '#fff', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}>
+                                                                        <span style={{ width: 28, height: 28, borderRadius: 7, background: kanaalBestaandGeselecteerd === k.id ? '#4f46e5' : '#e0e7ff', color: kanaalBestaandGeselecteerd === k.id ? '#fff' : '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', flexShrink: 0 }}>
+                                                                            <i className="fa-solid fa-hashtag" />
+                                                                        </span>
+                                                                        {k.naam}
+                                                                        {kanaalBestaandGeselecteerd === k.id && <i className="fa-solid fa-circle-check" style={{ marginLeft: 'auto', color: '#4f46e5' }} />}
+                                                                    </button>
+                                                                ))}
+                                                                <button onClick={() => {
+                                                                    const k = kanaalBestaandeLijst.find(x => x.id === kanaalBestaandGeselecteerd);
+                                                                    if (!k) return;
+                                                                    saveProject({ ...project, teamsKanaalId: k.id, teamsKanaalUrl: k.url });
+                                                                    setKanaalBestaandeLijst(null);
+                                                                    setKanaalBestaandGeselecteerd(null);
+                                                                }} disabled={!kanaalBestaandGeselecteerd}
+                                                                    style={{ marginTop: 4, padding: '9px 18px', borderRadius: 9, border: 'none', background: kanaalBestaandGeselecteerd ? '#4f46e5' : '#e2e8f0', color: kanaalBestaandGeselecteerd ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.82rem', cursor: kanaalBestaandGeselecteerd ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 8, width: 'fit-content' }}>
+                                                                    <i className="fa-solid fa-link" /> Kanaal koppelen
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </>
                                         )}
                                     </div>
+                                </div>
+                            )}
+
+                            {teamsTeamId && (
+                                <button onClick={() => { localStorage.removeItem('schilders_teams_team_id'); setTeamsTeamId(''); setTeamsLijst(null); }}
+                                    style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'flex-start' }}>
+                                    Team wijzigen
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* ===== PLANNER TAB ===== */}
+            {activeTab === 'planner' && (() => {
+                const heeftPlanner = !!(project.plannerPlanId);
+
+                const maakPlannerAan = async () => {
+                    if (!teamsTeamId) { setTeamsFout('Kies eerst een Teams-team.'); return; }
+                    setTeamsBezig(true); setTeamsFout(null);
+                    const gekozenSjabloon = plannerSjablonenState.find(s => s.id === plannerSjabloon) || plannerSjablonenState[0];
+                    try {
+                        const res = await fetch('/api/teams/maak-project-aan', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ teamId: teamsTeamId, projectNaam: project.name, buckets: gekozenSjabloon.buckets }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) { setTeamsFout(data.error || 'Onbekende fout'); return; }
+                        saveProject({ ...project, plannerPlanId: data.plannerPlanId, teamsPlanAangemaakt: true });
+                        setToast('Planner aangemaakt!'); setTimeout(() => setToast(null), 3000);
+                    } catch (e) { setTeamsFout(e.message); }
+                    finally { setTeamsBezig(false); }
+                };
+
+                const verwijderPlanner = async () => {
+                    if (!window.confirm('Planner plan verwijderen inclusief alle taken?')) return;
+                    setTeamsBezig(true); setTeamsFout(null);
+                    try {
+                        const res = await fetch('/api/teams/verwijder-planner', {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ planId: project.plannerPlanId }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) { setTeamsFout(data.error || 'Verwijderen mislukt'); return; }
+                        saveProject({ ...project, plannerPlanId: null });
+                    } catch (e) { setTeamsFout(e.message); }
+                    finally { setTeamsBezig(false); }
+                };
+
+                const laadBestaandePlannen = async () => {
+                    if (!teamsTeamId) return;
+                    setPlannerBestaandBezig(true);
+                    try {
+                        const res = await fetch(`/api/teams/planner-plannen?groupId=${teamsTeamId}`);
+                        const data = res.ok ? await res.json() : [];
+                        setPlannerBestaandeLijst(data);
+                    } catch { setPlannerBestaandeLijst([]); }
+                    finally { setPlannerBestaandBezig(false); }
+                };
+
+                const koppelenBestaandePlanner = () => {
+                    if (!plannerBestaandGeselecteerd) return;
+                    saveProject({ ...project, plannerPlanId: plannerBestaandGeselecteerd, teamsPlanAangemaakt: true });
+                    setPlannerBestaandeLijst(null);
+                    setPlannerBestaandGeselecteerd(null);
+                    setPlannerKoppelModus('nieuw');
+                };
+
+                return (
+                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        {/* Header */}
+                        <div style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', padding: '20px 24px', color: '#fff' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                                    <i className="fa-solid fa-list-check" />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '1rem', fontWeight: 700 }}>Microsoft Planner</div>
+                                    <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>{project.name}</div>
+                                </div>
+                                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    {heeftPlanner && <span style={{ background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700 }}>✓ Actief</span>}
+                                    <button onClick={() => { window.location.href = '/api/outlook/auth?returnTo=' + encodeURIComponent(window.location.pathname + '?tab=' + activeTab); }} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.35)', color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, backdropFilter: 'blur(4px)' }}>
+                                        <i className="fa-brands fa-microsoft" /> Verbinden met Outlook
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {/* Foutmelding */}
+                            {teamsFout && (
+                                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, color: '#dc2626', fontSize: '0.8rem' }}>
+                                    <i className="fa-solid fa-triangle-exclamation" />
+                                    {teamsFout}
+                                    <button onClick={() => setTeamsFout(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer' }}>✕</button>
+                                </div>
+                            )}
+
+                            {/* Team kiezen */}
+                            {!teamsTeamId && (
+                                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', marginBottom: 6 }}>
+                                        <i className="fa-solid fa-gear" style={{ marginRight: 8, color: '#059669' }} />Kies jouw Microsoft Teams-team
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 12 }}>Selecteer het team voor de Planner koppeling.</div>
+                                    {!teamsLijst && (
+                                        <button onClick={async () => { setTeamsLijstBezig(true); try { const r = await fetch('/api/teams/mijn-teams'); const d = r.ok ? await r.json() : []; setTeamsLijst(d); } catch { setTeamsLijst([]); } finally { setTeamsLijstBezig(false); } }} disabled={teamsLijstBezig}
+                                            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <i className={`fa-solid ${teamsLijstBezig ? 'fa-spinner fa-spin' : 'fa-magnifying-glass'}`} />
+                                            {teamsLijstBezig ? 'Laden…' : 'Mijn teams ophalen'}
+                                        </button>
+                                    )}
+                                    {teamsLijst && teamsLijst.length === 0 && <div style={{ fontSize: '0.78rem', color: '#dc2626' }}>Geen teams gevonden. Zorg dat je verbonden bent met Outlook.</div>}
+                                    {teamsLijst && teamsLijst.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {teamsLijst.map(t => (
+                                                <button key={t.id} onClick={() => { localStorage.setItem('schilders_teams_team_id', t.id); setTeamsTeamId(t.id); setTeamsLijst(null); }}
+                                                    style={{ padding: '10px 14px', borderRadius: 9, border: '1.5px solid #d1fae5', background: '#fff', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}
+                                                    onMouseEnter={e => e.currentTarget.style.background = '#ecfdf5'} onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                                                    <span style={{ width: 32, height: 32, borderRadius: 8, background: '#059669', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', flexShrink: 0 }}><i className="fa-solid fa-people-group" /></span>
+                                                    {t.naam}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -4712,7 +5655,7 @@ export default function ProjectDossierPage() {
                                     <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
                                         <>
                                                 {/* ── Projecttaken paneel (links) ── */}
-                                                <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                <div style={{ width: 370, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                                     <div style={{ border: '1px solid #c7d2fe', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(99,102,241,0.07)' }}>
                                                         <div style={{ padding: '10px 12px', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', display: 'flex', alignItems: 'center', gap: 7 }}>
                                                             <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -4777,7 +5720,16 @@ export default function ProjectDossierPage() {
                                                                                             style={{ width: 15, height: 15, borderRadius: 3, border: `1.5px solid ${taak.completed ? '#16a34a' : '#cbd5e1'}`, background: taak.completed ? '#16a34a' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}>
                                                                                             {taak.completed && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.35rem' }} />}
                                                                                         </button>
-                                                                                        <span style={{ flex: 1, fontSize: '0.71rem', color: '#1e293b', lineHeight: 1.3 }}>{taak.name}</span>
+                                                                                        <span style={{ flex: '0 1 140px', minWidth: 0, maxWidth: 140, fontSize: '0.71rem', color: '#1e293b', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taak.name}</span>
+                                                                                        {/* Indicator-iconen: notitie + labels */}
+                                                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                                                                                            {taak.memo && <i className="fa-solid fa-note-sticky" title="Heeft een notitie" style={{ fontSize: '0.5rem', color: '#f59e0b', opacity: 0.85 }} />}
+                                                                                            {(taak.checklist||[]).length > 0 && <i className="fa-solid fa-list-check" title={`${(taak.checklist||[]).filter(x=>x.done).length}/${(taak.checklist||[]).length} checklist`} style={{ fontSize: '0.5rem', color: '#6366f1', opacity: 0.8 }} />}
+                                                                                            {Object.entries(taak.labels||{}).filter(([,v])=>v).map(([k]) => {
+                                                                                                const kleur = {category1:'#ef4444',category2:'#f97316',category3:'#eab308',category4:'#22c55e',category5:'#3b82f6',category6:'#a855f7'}[k];
+                                                                                                return kleur ? <span key={k} style={{ width: 7, height: 7, borderRadius: '50%', background: kleur, flexShrink: 0 }} /> : null;
+                                                                                            })}
+                                                                                        </span>
                                                                                         {(() => {
                                                                                             const bezig = projTaakPlannerBezig.has(taak.id);
                                                                                             const gedaan = !!taak.plannerTaskId;
@@ -4874,49 +5826,6 @@ export default function ProjectDossierPage() {
                                                             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', textDecoration: 'none' }}>
                                                             <i className="fa-solid fa-arrow-up-right-from-square" /> Volledig scherm
                                                         </a>
-                                                        {/* Sjabloon toepassen dropdown */}
-                                                        <div style={{ position: 'relative' }}>
-                                                            <button onClick={() => setPlannerSjabloon(plannerSjabloon === '__open__' ? 'schilderwerk' : '__open__')}
-                                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 7, fontWeight: 700, fontSize: '0.72rem', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer' }}>
-                                                                <i className="fa-solid fa-layer-group" /> Sjabloon
-                                                            </button>
-                                                            {plannerSjabloon === '__open__' && (
-                                                                <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, marginTop: 4, background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: 10, width: 280 }}>
-                                                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Buckets toevoegen uit sjabloon</div>
-                                                                    <button onClick={() => { setPlannerSjabloon('schilderwerk'); setSjabloonEditor(JSON.parse(JSON.stringify(plannerSjablonenState))); }} style={{ width: '100%', marginBottom: 8, padding: '5px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
-                                                                        <i className="fa-solid fa-pen-to-square" /> Sjablonen bewerken
-                                                                    </button>
-                                                                    {plannerSjablonenState.map(s => (
-                                                                        <div key={s.id} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid #f1f5f9', marginBottom: 5, cursor: 'pointer', background: '#fafafa' }}
-                                                                            onMouseEnter={e => e.currentTarget.style.background = '#f0f9ff'}
-                                                                            onMouseLeave={e => e.currentTarget.style.background = '#fafafa'}>
-                                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b' }}>{s.naam}</span>
-                                                                                <button onClick={async () => {
-                                                                                    setPlannerSjabloon('schilderwerk');
-                                                                                    for (const bucket of s.buckets) {
-                                                                                        const r = await fetch('/api/teams/planner-buckets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId: project.plannerPlanId, name: bucket.naam }) });
-                                                                                        if (r.ok) {
-                                                                                            const b = await r.json();
-                                                                                            setPlannerBuckets(prev => [...prev, b]);
-                                                                                            for (const taak of bucket.taken) {
-                                                                                                const tr = await fetch('/api/teams/planner-taken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId: project.plannerPlanId, title: taak, bucketId: b.id }) });
-                                                                                                if (tr.ok) { const nt = await tr.json(); setPlannerTaken(prev => [...(prev || []), nt]); }
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                }} style={{ padding: '2px 8px', borderRadius: 5, border: 'none', background: '#2563eb', color: '#fff', fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer' }}>
-                                                                                    Toepassen
-                                                                                </button>
-                                                                            </div>
-                                                                            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                                                                                {s.buckets.map(b => <span key={b.naam} style={{ fontSize: '0.6rem', background: '#f1f5f9', color: '#64748b', padding: '1px 5px', borderRadius: 5 }}>{b.naam}</span>)}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
                                                         {geselecteerdeTaakId && (
                                                             <button onClick={() => setGeselecteerdeTaakId(null)} title="Terug naar Planner"
                                                                 style={{ width: 22, height: 22, borderRadius: 5, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', flexShrink: 0 }}>
@@ -5005,30 +5914,67 @@ export default function ProjectDossierPage() {
                                                                 </div>
                                                                 {/* Labels */}
                                                                 <div>
-                                                                    <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 6 }}>Labels</div>
+                                                                    <div style={{ fontSize: '0.63rem', fontWeight: 700, color: '#6366f1', marginBottom: 6 }}>Labels <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: '0.57rem' }}>(dubbelklik om naam te wijzigen)</span></div>
                                                                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                                                         {[
-                                                                            {key:'category1',color:'#ef4444',label:'Urgent'},
-                                                                            {key:'category2',color:'#f97316',label:'Materiaal'},
-                                                                            {key:'category3',color:'#eab308',label:'Wachten'},
-                                                                            {key:'category4',color:'#22c55e',label:'Gereed'},
-                                                                            {key:'category5',color:'#3b82f6',label:'Klant'},
-                                                                            {key:'category6',color:'#a855f7',label:'Intern'},
+                                                                            {key:'category1',color:'#ef4444'},
+                                                                            {key:'category2',color:'#f97316'},
+                                                                            {key:'category3',color:'#eab308'},
+                                                                            {key:'category4',color:'#22c55e'},
+                                                                            {key:'category5',color:'#3b82f6'},
+                                                                            {key:'category6',color:'#a855f7'},
                                                                         ].map(cat => {
                                                                             const aan = !!(gt.labels?.[cat.key]);
+                                                                            const naam = plannerLabelNamen[cat.key] || cat.key;
+                                                                            const isEditing = plannerLabelEditKey === cat.key;
+                                                                            if (isEditing) return (
+                                                                                <input key={cat.key} autoFocus defaultValue={naam}
+                                                                                    onBlur={async e => {
+                                                                                        const nieuw = e.target.value.trim() || naam;
+                                                                                        setPlannerLabelNamen(prev => ({ ...prev, [cat.key]: nieuw }));
+                                                                                        setPlannerLabelEditKey(null);
+                                                                                        // Sync naar Planner plan-details
+                                                                                        if (project?.plannerPlanId) {
+                                                                                            try {
+                                                                                                let etag = plannerLabelEtag;
+                                                                                                if (!etag) {
+                                                                                                    const r0 = await fetch(`/api/teams/planner-plan-details?planId=${project.plannerPlanId}`);
+                                                                                                    if (r0.ok) { const d0 = await r0.json(); etag = d0.etag; setPlannerLabelEtag(d0.etag); }
+                                                                                                }
+                                                                                                if (etag) {
+                                                                                                    const patchRes = await fetch('/api/teams/planner-plan-details', {
+                                                                                                        method: 'PATCH',
+                                                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                                                        body: JSON.stringify({ planId: project.plannerPlanId, etag, categoryDescriptions: { [cat.key]: nieuw } }),
+                                                                                                    });
+                                                                                                    // Etag verloopt na PATCH — opnieuw ophalen
+                                                                                                    if (patchRes.ok) {
+                                                                                                        const r2 = await fetch(`/api/teams/planner-plan-details?planId=${project.plannerPlanId}`);
+                                                                                                        if (r2.ok) { const d2 = await r2.json(); setPlannerLabelEtag(d2.etag); }
+                                                                                                    }
+                                                                                                }
+                                                                                            } catch {}
+                                                                                        }
+                                                                                    }}
+                                                                                    onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setPlannerLabelEditKey(null); }}
+                                                                                    style={{ padding: '2px 8px', borderRadius: 20, fontSize: '0.68rem', fontWeight: 600, border: `2px solid ${cat.color}`, outline: 'none', width: 90, color: cat.color }}
+                                                                                />
+                                                                            );
                                                                             return (
-                                                                                <button key={cat.key} onClick={() => {
-                                                                                    const nieuweLabels = {...(gt.labels||{}), [cat.key]: !aan};
-                                                                                    const bijgewerkt = {...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, labels: nieuweLabels} : t)};
-                                                                                    saveProject(bijgewerkt);
-                                                                                    const taak = bijgewerkt.tasks.find(t => t.id===gt.id);
-                                                                                    // Alle 6 categorieën expliciet meesturen — Planner verwijdert anders oude labels niet
-                                                                                    const ac = { category1: false, category2: false, category3: false, category4: false, category5: false, category6: false };
-                                                                                    Object.entries(nieuweLabels).forEach(([k,v]) => { if (v) ac[k] = true; });
-                                                                                    syncTaakNaarPlanner(taak, { appliedCategories: ac });
-                                                                                }}
+                                                                                <button key={cat.key}
+                                                                                    onClick={() => {
+                                                                                        const nieuweLabels = {...(gt.labels||{}), [cat.key]: !aan};
+                                                                                        const bijgewerkt = {...project, tasks: (project.tasks||[]).map(t => t.id===gt.id ? {...t, labels: nieuweLabels} : t)};
+                                                                                        saveProject(bijgewerkt);
+                                                                                        const taak = bijgewerkt.tasks.find(t => t.id===gt.id);
+                                                                                        const ac = { category1: false, category2: false, category3: false, category4: false, category5: false, category6: false };
+                                                                                        Object.entries(nieuweLabels).forEach(([k,v]) => { if (v) ac[k] = true; });
+                                                                                        syncTaakNaarPlanner(taak, { appliedCategories: ac });
+                                                                                    }}
+                                                                                    onDoubleClick={e => { e.stopPropagation(); setPlannerLabelEditKey(cat.key); }}
+                                                                                    title="Klik = aan/uit | Dubbelklik = naam wijzigen"
                                                                                     style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', border: `2px solid ${cat.color}`, background: aan ? cat.color : '#fff', color: aan ? '#fff' : cat.color }}>
-                                                                                    {cat.label}
+                                                                                    {naam}
                                                                                 </button>
                                                                             );
                                                                         })}
@@ -5479,47 +6425,113 @@ export default function ProjectDossierPage() {
                                                 }
                                                 </div>{/* einde kanban card */}
                                                 </>) : (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-                                                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569' }}>Kies een sjabloon</span>
-                                                        <button onClick={() => setSjabloonEditor(JSON.parse(JSON.stringify(plannerSjablonenState)))} style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Sjablonen bewerken</button>
-                                                    </div>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                                        {plannerSjablonenState.map(s => (
-                                                            <div key={s.id} onClick={() => setPlannerSjabloon(s.id)} style={{ padding: '10px 12px', borderRadius: 8, border: `2px solid ${plannerSjabloon === s.id ? '#059669' : '#e2e8f0'}`, background: plannerSjabloon === s.id ? '#f0fdf4' : '#fff', cursor: 'pointer', transition: 'all 0.1s' }}>
-                                                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: plannerSjabloon === s.id ? '#065f46' : '#1e293b', marginBottom: 4 }}>{s.naam}</div>
-                                                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                                                    {s.buckets.map(b => (
-                                                                        <span key={b.naam} style={{ fontSize: '0.62rem', background: plannerSjabloon === s.id ? '#dcfce7' : '#f1f5f9', color: plannerSjabloon === s.id ? '#065f46' : '#64748b', padding: '1px 6px', borderRadius: 6 }}>{b.naam}</span>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                                    {/* Toggle: Nieuw | Bestaand */}
+                                                    <div style={{ display: 'flex', gap: 0, background: '#f1f5f9', borderRadius: 8, padding: 3 }}>
+                                                        {[
+                                                            { id: 'nieuw', label: 'Nieuw aanmaken', icon: 'fa-plus' },
+                                                            { id: 'bestaand', label: 'Bestaande koppelen', icon: 'fa-link' },
+                                                        ].map(m => (
+                                                            <button key={m.id} onClick={() => setPlannerKoppelModus(m.id)}
+                                                                style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.15s',
+                                                                    background: plannerKoppelModus === m.id ? '#fff' : 'transparent',
+                                                                    color: plannerKoppelModus === m.id ? '#059669' : '#64748b',
+                                                                    boxShadow: plannerKoppelModus === m.id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+                                                                }}>
+                                                                <i className={`fa-solid ${m.icon}`} style={{ fontSize: '0.6rem' }} />
+                                                                {m.label}
+                                                            </button>
                                                         ))}
-                                                        <button onClick={() => setSjabloonEditor([...plannerSjablonenState, { id: 'nieuw-' + Date.now(), naam: 'Nieuw sjabloon', buckets: [{ naam: 'Nieuwe taak', taken: [] }] }])} style={{ padding: '6px 12px', borderRadius: 7, border: '2px dashed #e2e8f0', background: 'transparent', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left' }}>
-                                                            <i className="fa-solid fa-plus" /> Nieuw sjabloon toevoegen
+                                                    </div>
+
+                                                    {plannerKoppelModus === 'nieuw' ? (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                                                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569' }}>Kies een sjabloon</span>
+                                                            <button onClick={() => setSjabloonEditor(JSON.parse(JSON.stringify(plannerSjablonenState)))} style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Sjablonen bewerken</button>
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                            {plannerSjablonenState.map(s => (
+                                                                <div key={s.id} onClick={() => setPlannerSjabloon(s.id)} style={{ padding: '10px 12px', borderRadius: 8, border: `2px solid ${plannerSjabloon === s.id ? '#059669' : '#e2e8f0'}`, background: plannerSjabloon === s.id ? '#f0fdf4' : '#fff', cursor: 'pointer', transition: 'all 0.1s' }}>
+                                                                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: plannerSjabloon === s.id ? '#065f46' : '#1e293b', marginBottom: 4 }}>{s.naam}</div>
+                                                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                                        {s.buckets.map(b => (
+                                                                            <span key={b.naam} style={{ fontSize: '0.62rem', background: plannerSjabloon === s.id ? '#dcfce7' : '#f1f5f9', color: plannerSjabloon === s.id ? '#065f46' : '#64748b', padding: '1px 6px', borderRadius: 6 }}>{b.naam}</span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                            <button onClick={() => setSjabloonEditor([...plannerSjablonenState, { id: 'nieuw-' + Date.now(), naam: 'Nieuw sjabloon', buckets: [{ naam: 'Nieuwe taak', taken: [] }] }])} style={{ padding: '6px 12px', borderRadius: 7, border: '2px dashed #e2e8f0', background: 'transparent', color: '#94a3b8', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left' }}>
+                                                                <i className="fa-solid fa-plus" /> Nieuw sjabloon toevoegen
+                                                            </button>
+                                                        </div>
+                                                        <button onClick={maakPlannerAan} disabled={teamsBezig}
+                                                            style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content', marginTop: 4 }}>
+                                                            <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-table-columns'}`} />
+                                                            {teamsBezig ? 'Aanmaken…' : 'Planner aanmaken'}
                                                         </button>
                                                     </div>
-                                                    <button onClick={maakPlannerAan} disabled={teamsBezig}
-                                                        style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: teamsBezig ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content', marginTop: 4 }}>
-                                                        <i className={`fa-solid ${teamsBezig ? 'fa-spinner fa-spin' : 'fa-table-columns'}`} />
-                                                        {teamsBezig ? 'Aanmaken…' : 'Planner aanmaken'}
-                                                    </button>
+                                                    ) : (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                        <div style={{ fontSize: '0.75rem', color: '#475569' }}>Kies een bestaand Planner-plan uit jouw team om aan dit project te koppelen.</div>
+                                                        {!plannerBestaandeLijst && (
+                                                            <button onClick={laadBestaandePlannen} disabled={plannerBestaandBezig}
+                                                                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, width: 'fit-content' }}>
+                                                                <i className={`fa-solid ${plannerBestaandBezig ? 'fa-spinner fa-spin' : 'fa-magnifying-glass'}`} />
+                                                                {plannerBestaandBezig ? 'Laden…' : 'Plannen ophalen'}
+                                                            </button>
+                                                        )}
+                                                        {plannerBestaandeLijst && plannerBestaandeLijst.length === 0 && (
+                                                            <div style={{ fontSize: '0.78rem', color: '#dc2626' }}>Geen Planner-plannen gevonden in dit team.</div>
+                                                        )}
+                                                        {plannerBestaandeLijst && plannerBestaandeLijst.length > 0 && (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                {plannerBestaandeLijst.map(p => (
+                                                                    <div key={p.id} onClick={() => setPlannerBestaandGeselecteerd(p.id)}
+                                                                        style={{ padding: '10px 14px', borderRadius: 8, border: `2px solid ${plannerBestaandGeselecteerd === p.id ? '#059669' : '#e2e8f0'}`, background: plannerBestaandGeselecteerd === p.id ? '#f0fdf4' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, transition: 'all 0.1s' }}>
+                                                                        <div style={{ width: 28, height: 28, borderRadius: 7, background: plannerBestaandGeselecteerd === p.id ? '#059669' : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                            <i className="fa-solid fa-list-check" style={{ fontSize: '0.65rem', color: plannerBestaandGeselecteerd === p.id ? '#fff' : '#64748b' }} />
+                                                                        </div>
+                                                                        <span style={{ fontSize: '0.82rem', fontWeight: 600, color: plannerBestaandGeselecteerd === p.id ? '#065f46' : '#1e293b' }}>{p.title}</span>
+                                                                        {plannerBestaandGeselecteerd === p.id && <i className="fa-solid fa-circle-check" style={{ marginLeft: 'auto', color: '#059669', fontSize: '0.85rem' }} />}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {plannerBestaandeLijst && (
+                                                            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                                                <button onClick={koppelenBestaandePlanner} disabled={!plannerBestaandGeselecteerd}
+                                                                    style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: plannerBestaandGeselecteerd ? '#059669' : '#e2e8f0', color: plannerBestaandGeselecteerd ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.85rem', cursor: plannerBestaandGeselecteerd ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 10, width: 'fit-content', transition: 'all 0.15s' }}>
+                                                                    <i className="fa-solid fa-link" />
+                                                                    Koppelen
+                                                                </button>
+                                                                <button onClick={() => { setPlannerBestaandeLijst(null); setPlannerBestaandGeselecteerd(null); }}
+                                                                    style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #e2e8f0', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                                                    <i className="fa-solid fa-rotate" /> Opnieuw laden
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    )}
                                                 </div>
                                                 )}
                                                 </div>{/* einde Planner flex-child */}
-                                                <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                <div style={{ width: 370, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                                 {/* ── Checklist palet (alle sjablonen) ── */}
                                                 {(() => {
                                                     if (!plannerSjablonenState.length) return null;
                                                     return (
                                                         <div style={{ border: '1px solid #c7d2fe', borderRadius: 10, overflow: 'hidden', marginBottom: 8, boxShadow: '0 1px 4px rgba(99,102,241,0.07)' }}>
                                                             {/* Header */}
-                                                            <div style={{ padding: '10px 12px', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                                                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                                        <i className="fa-solid fa-list-check" style={{ color: '#fff', fontSize: '0.7rem' }} />
-                                                                    </div>
-                                                                    <span style={{ fontWeight: 700, fontSize: '0.78rem', color: '#fff', flex: 1, letterSpacing: '0.01em' }}>Voorgestelde taken</span>
+                                                            <div style={{ padding: '9px 12px', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                                <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                    <i className="fa-solid fa-list-check" style={{ color: '#fff', fontSize: '0.7rem' }} />
+                                                                </div>
+                                                                <span style={{ fontWeight: 700, fontSize: '0.78rem', color: '#fff', flexShrink: 0, letterSpacing: '0.01em' }}>Voorgestelde taken</span>
+                                                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.18)', borderRadius: 6, padding: '3px 8px', marginLeft: 4 }}>
+                                                                    <i className="fa-solid fa-magnifying-glass" style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.55rem', flexShrink: 0 }} />
+                                                                    <input value={paletZoek} onChange={e => setPaletZoek(e.target.value)} placeholder="Zoek..." style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: '0.68rem', fontWeight: 500, minWidth: 0 }} />
+                                                                    {paletZoek && <button onClick={() => setPaletZoek('')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', padding: 0, fontSize: '0.58rem', lineHeight: 1, flexShrink: 0 }}>&times;</button>}
                                                                 </div>
                                                             </div>
                                                             {/* Verticale lijst — alle sjablonen */}
@@ -5529,6 +6541,8 @@ export default function ProjectDossierPage() {
                                                                             {sjabloon.buckets.map((bucket, bi) => {
                                                                                 const bucketKey = sjabloon.id + '|' + bucket.naam;
                                                                                 const bucketOpen = plannerPaletBucketOpen[bucketKey] !== false; // standaard open
+                                                                                const heeftZoekMatch = !paletZoek || bucket.taken.some(t => t.toLowerCase().includes(paletZoek.toLowerCase()));
+                                                                                if (!heeftZoekMatch) return null;
                                                                                 return (
                                                                         <div key={bi}
                                                                             draggable
@@ -5550,7 +6564,7 @@ export default function ProjectDossierPage() {
                                                                                 </button>
                                                                             </div>
                                                                             {bucketOpen && <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                                                {bucket.taken.map((taak, ti) => {
+                                                                                {bucket.taken.filter(taak => !paletZoek || taak.toLowerCase().includes(paletZoek.toLowerCase())).map((taak, ti) => {
                                                                                     const key = sjabloon.id + '|' + bucket.naam + '|' + taak;
                                                                                     const bezig = plannerPaletBezig[key];
                                                                                     const gedaan = !!plannerPaletVinkjes[key];
@@ -6384,6 +7398,90 @@ export default function ProjectDossierPage() {
                                 </div>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Toast notificaties ── */}
+            {toasts.length > 0 && (
+                <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '8px', pointerEvents: 'none' }}>
+                    {toasts.map(t => (
+                        <div key={t.id} style={{
+                            display: 'flex', alignItems: 'center', gap: '10px',
+                            padding: '12px 16px', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                            background: t.type === 'error' ? '#fef2f2' : t.type === 'success' ? '#f0fdf4' : '#fffbeb',
+                            border: `1px solid ${t.type === 'error' ? '#fecaca' : t.type === 'success' ? '#bbf7d0' : '#fde68a'}`,
+                            color: t.type === 'error' ? '#991b1b' : t.type === 'success' ? '#166534' : '#92400e',
+                            fontSize: '0.85rem', fontWeight: 600, minWidth: '280px', maxWidth: '400px',
+                        }}>
+                            <i className={`fa-solid ${t.type === 'error' ? 'fa-circle-xmark' : t.type === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation'}`} style={{ flexShrink: 0 }} />
+                            <span>{t.msg}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* ── Teams iframe overlay ── */}
+            {teamsIframeOpen && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+                    onClick={() => setTeamsIframeOpen(false)}>
+                    <div style={{ width: '100%', maxWidth: 1100, height: '80vh', background: '#fff', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}
+                        onClick={e => e.stopPropagation()}>
+                        <div style={{ background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-brands fa-microsoft" style={{ color: '#fff', fontSize: '1rem' }} />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff' }}>Microsoft Teams — Kanaal</div>
+                                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)' }}>{project.name}</div>
+                            </div>
+                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                                <a href={`msteams://${(project.teamsKanaalUrl || '').replace(/^https?:\/\//, '')}`}
+                                    style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontSize: '0.72rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <i className="fa-solid fa-desktop" /> Teams app
+                                </a>
+                                <a href={project.teamsKanaalUrl} target="_blank" rel="noopener noreferrer"
+                                    style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontSize: '0.72rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <i className="fa-solid fa-arrow-up-right-from-square" /> Browser
+                                </a>
+                                <button onClick={() => setTeamsIframeOpen(false)}
+                                    style={{ padding: '6px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontSize: '0.8rem', cursor: 'pointer' }}>
+                                    <i className="fa-solid fa-xmark" />
+                                </button>
+                            </div>
+                        </div>
+                        {teamsIframeFout ? (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, background: '#f8fafc' }}>
+                                <div style={{ width: 56, height: 56, borderRadius: 14, background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fa-solid fa-triangle-exclamation" style={{ color: '#f59e0b', fontSize: '1.4rem' }} />
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>Teams kan niet worden ingeladen</div>
+                                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', maxWidth: 360 }}>Microsoft Teams blokkeert weergave in een ingebed venster. Gebruik een van de knoppen hieronder.</div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 10 }}>
+                                    <a href={`msteams://${(project.teamsKanaalUrl || '').replace(/^https?:\/\//, '')}`}
+                                        style={{ padding: '10px 20px', borderRadius: 10, background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.82rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <i className="fa-solid fa-desktop" /> Openen in Teams app
+                                    </a>
+                                    <a href={project.teamsKanaalUrl} target="_blank" rel="noopener noreferrer"
+                                        style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontWeight: 700, fontSize: '0.82rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <i className="fa-solid fa-arrow-up-right-from-square" /> Openen in browser
+                                    </a>
+                                </div>
+                            </div>
+                        ) : (
+                            <iframe
+                                src={project.teamsKanaalUrl}
+                                style={{ flex: 1, border: 'none', width: '100%' }}
+                                onError={() => setTeamsIframeFout(true)}
+                                onLoad={e => {
+                                    try {
+                                        if (!e.target.contentDocument || e.target.contentDocument.body?.innerHTML === '') setTeamsIframeFout(true);
+                                    } catch { setTeamsIframeFout(true); }
+                                }}
+                            />
+                        )}
                     </div>
                 </div>
             )}

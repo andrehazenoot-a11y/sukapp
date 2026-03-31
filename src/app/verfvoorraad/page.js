@@ -599,7 +599,11 @@ function generateId(items, categorie, kleur) {
 
 export default function VerfvoorraadPage() {
     const { user, hasAccess } = useAuth();
-    const [verfItems, setVerfItems] = useState(INITIAL_VERF);
+    const [verfItems, setVerfItems] = useState(() => {
+        try { const s = localStorage.getItem('schildersapp_verfvoorraad'); if (s) return JSON.parse(s); } catch {}
+        return INITIAL_VERF;
+    });
+    const saveVerfItems = (updated) => { setVerfItems(updated); try { localStorage.setItem('schildersapp_verfvoorraad', JSON.stringify(updated)); } catch {} };
     const [stap, setStap] = useState('overzicht');
     useEffect(() => { document.title = 'Verfvoorraad | SchildersApp Katwijk'; }, []);
 
@@ -974,7 +978,7 @@ export default function VerfvoorraadPage() {
             datum: new Date().toISOString().split('T')[0],
             locatie: 'Magazijn',
         };
-        setVerfItems([newItem, ...verfItems]);
+        saveVerfItems([newItem, ...verfItems]);
         setNieuwItem(newItem);
         setStap('label');
     };
@@ -1232,7 +1236,7 @@ export default function VerfvoorraadPage() {
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             if (window.confirm(`${item.product} (${item.id}) verwijderen?`)) {
-                                                setVerfItems(prev => prev.filter(v => v.id !== item.id));
+                                                saveVerfItems(verfItems.filter(v => v.id !== item.id));
                                             }
                                         }}
                                         style={{
@@ -1574,7 +1578,7 @@ export default function VerfvoorraadPage() {
                         /* Bestaand item uit database — wijzigingen opslaan + label bekijken */
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                             <button onClick={() => {
-                                setVerfItems(prev => prev.map(v => v.id === editResult.id ? { ...editResult } : v));
+                                saveVerfItems(verfItems.map(v => v.id === editResult.id ? { ...editResult } : v));
                                 alert('✅ Wijzigingen opgeslagen!');
                             }} style={{
                                 flex: 1, background: 'var(--accent)', color: '#fff', border: 'none',

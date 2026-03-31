@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../components/AuthContext';
 import './planning.css';
+import { slaEmailBestandOp, haalEmailBestandOp } from '../../lib/emailFileStore';
 
 // Berekent Paaszondag voor een gegeven jaar (algoritme van Butcher)
 function _getEaster(year) {
@@ -41,6 +42,16 @@ const HOLIDAYS_2026 = (() => {
     for (let y = cy - 1; y <= cy + 3; y++) Object.assign(result, _dutchHolidaysForYear(y));
     return result;
 })();
+
+// ===== TAAKSJABLONEN =====
+const TAAK_TEMPLATES = [
+    { naam: '🏗️ Werkvoorbereiding', kleur: '#3b82f6', taken: ['Situatie / ondergrond ter plaatse beoordelen', 'Houtrot & schadecheck uitvoeren', 'Kleurkaarten / RAL-codes bevestigen bij klant', 'Toegang en sleutels regelen', 'Parkeervergunning aanvragen (indien nodig)', 'Steiger of hoogwerker bestellen'] },
+    { naam: '🪣 Materiaal & Materieel', kleur: '#10b981', taken: ['Verfbenodigdheden controleren & bestellen', 'Gereedschap controleren (kwasten, rollen, spuitapparaat)', 'Afplakmateriaal & beschermfolie controleren', 'Ladders & trapmateriaal inspecteren op veiligheid', 'Busje tanken en controleren (banden, olie, water)', 'Werkkleding / PBM controleren'] },
+    { naam: '📅 Planning & Administratie', kleur: '#8b5cf6', taken: ['Weekplanning opstellen en uitsturen naar team', 'Werkbonnen klaarmaken', 'Openstaande offertes nabellen (ouder dan 1 week)', 'Openstaande facturen controleren', 'Urenregistratie vorige week controleren'] },
+    { naam: '👥 Personeel', kleur: '#f59e0b', taken: ["Medewerkers inplannen per project", 'Briefing geven aan team (maandagochtend)', 'Verlof / ziekmelding verwerken', "ZZP'ers bevestigen indien nodig"] },
+    { naam: '📞 Klantcontact', kleur: '#ef4444', taken: ['Klant informeren over startdatum & aankomsttijd', 'Verwachtingen en bijzonderheden doornemen', 'Voortgang lopende projecten doormelden aan klant'] },
+    { naam: '🛠️ Uitvoering & Oplevering', kleur: '#F5850A', taken: ['Ondergrond beoordelen & reinigen', 'Houtrot repareren en stoppen', 'Schuren (K80 → K120 → K220)', 'Grondverf aanbrengen', 'Tussenlaag aanbrengen', 'Aflakken / eindlaag aanbrengen', 'Afplakken verwijderen & eindcontrole', 'Oplevering met klant doorlopen', 'Correcties na oplevering verwerken'] },
+];
 
 // ===== PROJECT KLEUREN =====
 const PROJECT_COLORS = [
@@ -180,13 +191,27 @@ export default function ProjectenPage() {
     const [tab, setTab] = useState('project');
     useEffect(() => { document.title = 'Projectplanning | SchildersApp Katwijk'; }, []);
 
+    useEffect(() => {
+        fetch('/api/outlook/status').then(r => r.json()).then(data => {
+            setOutlookStatus(data.connected ? data : false);
+            if (data.connected) {
+                fetch('/api/outlook/categories').then(r => r.json()).then(kleuren => setOutlookKleuren(kleuren || {})).catch(() => {});
+            }
+        }).catch(() => setOutlookStatus(false));
+    }, []);
+
     const [projects, setProjects] = useState(() => {
         if (typeof window === 'undefined') return INITIAL_PROJECTS;
-        try { const s = localStorage.getItem('schildersapp_projecten'); return s ? JSON.parse(s) : INITIAL_PROJECTS; } catch { return INITIAL_PROJECTS; }
+        try {
+            const s = localStorage.getItem('schildersapp_projecten');
+            const parsed = s ? JSON.parse(s) : null;
+            // Lege array (door vorige opslag-fout) → herstel demo-data
+            return (parsed && parsed.length > 0) ? parsed : INITIAL_PROJECTS;
+        } catch { return INITIAL_PROJECTS; }
     });
     const [viewMode, setViewMode] = useState('month'); // week, month
     const [planningView, setPlanningView] = useState('gantt');
-    const [zoomLevel, setZoomLevel] = useState(32); // gantt, grid
+    const [zoomLevel, setZoomLevel] = useState(40); // gantt, grid
     const [selectedProject, setSelectedProject] = useState(null);
     const [selectedTask, setSelectedTask] = useState(null); // {projectId, taskId} for keyboard movement
     const [expandedProjects, setExpandedProjects] = useState(new Set());
@@ -199,6 +224,10 @@ export default function ProjectenPage() {
     const [workerTooltip, setWorkerTooltip] = useState(null); // { name, x, y }
     const [teamPopup, setTeamPopup] = useState(null); // { projectId, taskId|null, x, y }
     const [newTask, setNewTask] = useState({ name: '', startDate: '', endDate: '', assignedTo: [] });
+    const [renamePopup, setRenamePopup] = useState(null); // { projectId, taskId, name, x, y, color }
+    const [renameInput, setRenameInput] = useState('');
+    const [depArrows, setDepArrows] = useState([]);
+    const hideTooltipTimerRef = useRef(null);
     const dragRef = useRef(null);
     const ganttWrapperRef = useRef(null);
     const justDraggedRef = useRef(false);
@@ -207,8 +236,15 @@ export default function ProjectenPage() {
     const moveBarRef = useRef(null);
     const [zoekTerm, setZoekTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('alle');
+    const [hiddenProjectIds, setHiddenProjectIds] = useState(new Set());
+    const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+    const projectPickerRef = useRef(null);
     const [bzFilter, setBzFilter] = useState('iedereen'); // Filter voor Bezetting: iedereen, ingepland, niet_ingepland, vakantie
     const [selectedTaskId, setSelectedTaskId] = useState(null); // voor timeline highlight
+    const selectTaskIdRef = useRef(null);
+    selectTaskIdRef.current = (id) => setSelectedTaskId(prev => prev === id ? null : id);
+
+    const [depPopup, setDepPopup] = useState(null); // { projectId, taskId, x, y }
 
     // Notitie popup per taak
     const [notePopup, setNotePopup] = useState(null); // { projectId, taskId }
@@ -220,6 +256,26 @@ export default function ProjectenPage() {
     const [projectNotesLoading, setProjectNotesLoading] = useState(false);
     const [replyingTo, setReplyingTo] = useState(null); // noteId
     const [replyInput, setReplyInput] = useState('');
+    // ===== COMMUNICATIE TAB =====
+    const [outlookStatus, setOutlookStatus] = useState(null); // null=onbekend, false=niet verbonden, {naam}=verbonden
+    const [outlookKleuren, setOutlookKleuren] = useState({}); // { "Focuur": "#00b294", ... }
+    const outlookCategorieen = [...new Set(projects.flatMap(p => (p.emails || []).flatMap(e => Array.isArray(e.categories) ? e.categories : e.category ? [e.category] : [])))];
+    const [emailFilter, setEmailFilter] = useState('alle');
+    const [emailZoek, setEmailZoek] = useState('');
+    const [newEmail, setNewEmail] = useState({ direction: 'in', date: formatDate(new Date()), contact: '', subject: '', body: '', attachment: null, status: 'open', taskId: null, category: null, outlookId: null });
+    const [expandedEmails, setExpandedEmails] = useState(new Set());
+    const [emailDragOver, setEmailDragOver] = useState(false);
+    // Resolved HTML met inline afbeeldingen (in-memory, niet in localStorage)
+    const [resolvedBodies, setResolvedBodies] = useState({});
+    const resolvedCidRef = React.useRef(new Set());
+    // AI-voorgestelde taken per email
+    const [voorgesteldeTaken, setVoorgesteldeTaken] = useState({});
+    // Dossier-tab
+    const [dossierProjId, setDossierProjId] = useState(null);
+    const [dossierFilter, setDossierFilter] = useState('alle');
+    const [dossierExpanded, setDossierExpanded] = useState(new Set());
+    const [showSjablonen, setShowSjablonen] = useState(false);
+    const [sjabloonExpanded, setSjabloonExpanded] = useState(null);
 
     // Afwezigheid registratie (vakantie, ziek, vrije dag, dokter)
     const [workerAbsences, setWorkerAbsences] = useState(() => {
@@ -260,9 +316,21 @@ export default function ProjectenPage() {
     const _isSavingRef = useRef(false);
     useEffect(() => {
         _isSavingRef.current = true;
-        localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
+        try {
+            localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
+        } catch (e) {
+            console.error('localStorage vol:', e);
+        }
         _isSavingRef.current = false;
     }, [projects]);
+
+    // Sluit project-picker bij klik buiten
+    useEffect(() => {
+        if (!projectPickerOpen) return;
+        const handler = (e) => { if (projectPickerRef.current && !projectPickerRef.current.contains(e.target)) setProjectPickerOpen(false); };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [projectPickerOpen]);
 
     // Persist absences to localStorage
     useEffect(() => {
@@ -326,11 +394,12 @@ export default function ProjectenPage() {
     const filteredProjects = useMemo(() => {
         const q = zoekTerm.toLowerCase().trim();
         return projects.filter(p => {
+            if (hiddenProjectIds.has(p.id)) return false;
             const matchZoek = !q || p.name.toLowerCase().includes(q) || (p.client || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q);
             const matchStatus = filterStatus === 'alle' || p.status === filterStatus;
             return matchZoek && matchStatus;
         });
-    }, [projects, zoekTerm, filterStatus]);
+    }, [projects, zoekTerm, filterStatus, hiddenProjectIds]);
 
     // ===== GENERATE TIMELINE DATES =====
     const timelineDates = useMemo(() => {
@@ -391,7 +460,7 @@ export default function ProjectenPage() {
     };
 
     // ===== ADD PROJECT =====
-    const addProject = () => {
+    const addProject = async () => {
         if (!newProject.name || !newProject.startDate || !newProject.endDate) return;
         const p = {
             id: Date.now(),
@@ -402,9 +471,28 @@ export default function ProjectenPage() {
             kanbanStatus: 'werkvoorbereiding',
             tasks: []
         };
-        setProjects([...projects, p]);
+        setProjects(prev => [...prev, p]);
         setNewProject({ name: '', client: '', address: '', startDate: '', endDate: '', estimatedHours: '' });
         setShowNewForm(false);
+
+        // Automatisch Teams kanaal + Planner aanmaken als team ID bekend is
+        const teamId = typeof window !== 'undefined' ? localStorage.getItem('schilders_teams_team_id') : null;
+        if (teamId) {
+            try {
+                const res = await fetch('/api/teams/maak-project-aan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ teamId, projectNaam: p.name }),
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setProjects(prev => prev.map(x => x.id === p.id
+                        ? { ...x, teamsKanaalId: data.kanaalId, teamsKanaalUrl: data.kanaalUrl, teamsKanaalEmail: data.kanaalEmail, plannerPlanId: data.plannerPlanId, teamsPlanAangemaakt: true }
+                        : x
+                    ));
+                }
+            } catch { /* stille mislukking — gebruiker kan het aanmaken via de Teams tab */ }
+        }
     };
 
     // ===== DELETE PROJECT =====
@@ -452,6 +540,339 @@ export default function ProjectenPage() {
             return { ...p, tasks: p.tasks.filter(t => t.id !== taskId) };
         }));
         setSelectedProject(prev => prev ? { ...prev, tasks: prev.tasks.filter(t => t.id !== taskId) } : prev);
+    };
+
+    // ===== EMAIL LOG =====
+    const syncToOutlook = async (outlookId, action, extra = {}) => {
+        if (!outlookId) return;
+        try {
+            await fetch('/api/outlook/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ outlookId, action, ...extra }),
+            });
+        } catch (e) { /* stil falen als Outlook niet verbonden */ }
+    };
+
+    const getCategories = (e) => {
+        if (Array.isArray(e.categories)) return e.categories;
+        if (e.category) return [e.category];
+        return [];
+    };
+
+    const updateEmailCategories = (projectId, emailId, nieuweCategorieen) => {
+        setProjects(prev => prev.map(p => p.id === projectId
+            ? { ...p, emails: (p.emails || []).map(e => {
+                if (e.id !== emailId) return e;
+                syncToOutlook(e.outlookId, 'set_category', { categories: nieuweCategorieen });
+                return { ...e, categories: nieuweCategorieen, category: nieuweCategorieen[0] || null };
+            })}
+            : p
+        ));
+    };
+
+    const voegCategorieToe = (projectId, emailId, huidige, cat) => {
+        if (!cat || huidige.includes(cat)) return;
+        updateEmailCategories(projectId, emailId, [...huidige, cat]);
+    };
+
+    const verwijderCategorie = (projectId, emailId, huidige, cat) => {
+        updateEmailCategories(projectId, emailId, huidige.filter(c => c !== cat));
+    };
+
+    const verplaatsNaarProject = (emailId, vanProjectId, naarProjectId) => {
+        if (vanProjectId === naarProjectId) return;
+        setProjects(prev => {
+            const email = prev.find(p => p.id === vanProjectId)?.emails?.find(e => e.id === emailId);
+            if (!email) return prev;
+            return prev.map(p => {
+                if (p.id === vanProjectId) return { ...p, emails: (p.emails || []).filter(e => e.id !== emailId) };
+                if (p.id === naarProjectId) return { ...p, emails: [{ ...email }, ...(p.emails || [])] };
+                return p;
+            });
+        });
+    };
+
+    const addEmail = (projectId) => {
+        if (!newEmail.subject.trim()) return;
+        const emailId = Date.now();
+        setProjects(prev => prev.map(p => p.id === projectId
+            ? { ...p, emails: [{ id: emailId, ...newEmail }, ...(p.emails || [])] }
+            : p
+        ));
+        setNewEmail({ direction: 'in', date: formatDate(new Date()), contact: '', subject: '', body: '', attachment: null, status: 'open', taskId: null, category: null, outlookId: null });
+        // Automatisch taken voorstellen na uploaden
+        const subject = newEmail.subject;
+        const body = newEmail.bodyHtml || newEmail.body || newEmail.bodyPreview || '';
+        if (subject || body) {
+            setVoorgesteldeTaken(prev => ({ ...prev, [emailId]: { loading: true, taken: [], done: false } }));
+            fetch('/api/outlook/extract-taken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, body }) })
+                .then(r => r.ok ? r.json() : { taken: [] })
+                .then(data => {
+                    const taken = data.taken || [];
+                    setVoorgesteldeTaken(prev => ({ ...prev, [emailId]: { loading: false, taken, done: true } }));
+                    // Sla aiTaken ook op in de email zodat het dossier ze direct kan tonen
+                    if (taken.length) {
+                        setProjects(prev => prev.map(p => p.id === projectId ? {
+                            ...p, emails: (p.emails || []).map(e => e.id === emailId ? { ...e, aiTaken: taken } : e)
+                        } : p));
+                    }
+                })
+                .catch(() => setVoorgesteldeTaken(prev => ({ ...prev, [emailId]: { loading: false, taken: [], done: true } })));
+        }
+    };
+
+    // Emails worden nooit verwijderd — altijd bewaren voor communicatiehistorie
+
+    const updateEmailStatus = (projectId, emailId, status) => {
+        setProjects(prev => prev.map(p => p.id === projectId
+            ? { ...p, emails: (p.emails || []).map(e => {
+                if (e.id !== emailId) return e;
+                const outlookAction = status === 'afgehandeld' ? 'flag_complete' : status === 'actie' ? 'flag' : 'unflag';
+                syncToOutlook(e.outlookId, outlookAction);
+                return { ...e, status };
+            })}
+            : p
+        ));
+    };
+
+    const archiveerInOutlook = async (projectId, emailId, outlookId) => {
+        const project = projects.find(p => p.id === projectId);
+        if (!project || !outlookId) return;
+        try {
+            const res = await fetch('/api/outlook/archive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ outlookId, projectNaam: project.name }),
+            });
+            if (res.ok) {
+                setProjects(prev => prev.map(p => p.id === projectId
+                    ? { ...p, emails: (p.emails || []).map(e => e.id === emailId ? { ...e, gearchiveerd: true } : e) }
+                    : p
+                ));
+            }
+        } catch { /* stil falen als Outlook niet verbonden */ }
+    };
+
+    const linkEmailToTask = (projectId, emailId, taskId) => {
+        setProjects(prev => prev.map(p => p.id === projectId
+            ? { ...p, emails: (p.emails || []).map(e => e.id === emailId ? { ...e, taskId: taskId || null } : e) }
+            : p
+        ));
+    };
+
+    const addTaskFromEmail = (projectId, email) => {
+        const project = projects.find(p => p.id === projectId);
+        const task = {
+            id: 't' + Date.now(),
+            name: email.subject,
+            startDate: email.date || project?.startDate || formatDate(new Date()),
+            endDate: email.date || project?.endDate || formatDate(new Date()),
+            assignedTo: [],
+            completed: false,
+            notes: [],
+        };
+        setProjects(prev => prev.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+                ...p,
+                tasks: [...(p.tasks || []), task],
+                emails: (p.emails || []).map(e => e.id === email.id ? { ...e, taskId: task.id } : e),
+            };
+        }));
+    };
+
+    const updateTaskMemo = (taskId, projectId, val) => {
+        setProjects(prev => prev.map(pr => pr.id !== projectId ? pr : {
+            ...pr, tasks: pr.tasks.map(t => t.id !== taskId ? t : { ...t, memo: val })
+        }));
+    };
+
+    const parseEml = (text) => {
+        // Stap 1: multi-line headers samenvoegen (RFC 2822 header folding)
+        const unfolded = text.replace(/\r?\n([ \t])/g, ' ');
+        const lines = unfolded.split(/\r?\n/);
+
+        // Stap 2: RFC 2047 decoder voor gecodeerde tekst (=?charset?B|Q?...?=)
+        const decodeRfc2047 = (str) => str.replace(/=\?([^?]+)\?(B|Q)\?([^?]*)\?=/gi, (_, charset, enc, encoded) => {
+            try {
+                if (enc.toUpperCase() === 'B') {
+                    const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+                    return new TextDecoder(charset).decode(bytes);
+                } else {
+                    const qp = encoded.replace(/_/g, ' ').replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+                    return new TextDecoder(charset).decode(new TextEncoder().encode(qp));
+                }
+            } catch { return encoded; }
+        });
+
+        let from = '', date = '', subject = '', outlookId = null, category = null, bodyStart = false, bodyLines = [];
+        for (const line of lines) {
+            if (!bodyStart) {
+                if (line.startsWith('From:')) from = decodeRfc2047(line.replace('From:', '').trim());
+                else if (line.startsWith('Date:')) {
+                    const d = new Date(line.replace('Date:', '').trim());
+                    if (!isNaN(d)) date = formatDate(d);
+                }
+                else if (line.startsWith('Subject:')) subject = decodeRfc2047(line.replace('Subject:', '').trim());
+                else if (line.startsWith('Message-ID:')) outlookId = line.replace('Message-ID:', '').trim();
+                else if (line.startsWith('X-Keywords:')) category = decodeRfc2047(line.replace('X-Keywords:', '').trim());
+                else if (line.startsWith('Categories:')) category = decodeRfc2047(line.replace('Categories:', '').trim());
+                else if (line === '') bodyStart = true;
+            } else {
+                bodyLines.push(line);
+            }
+        }
+        return { contact: from, date: date || formatDate(new Date()), subject, body: bodyLines.join('\n').trim(), category, outlookId };
+    };
+
+    const applyParsedEmail = (parsed) => {
+        const emailAdres = parsed.contact?.match(/[\w.+-]+@[\w.-]+\.\w+/)?.[0]?.toLowerCase();
+        const matchProject = emailAdres ? projects.find(p => p.email?.toLowerCase() === emailAdres) : null;
+        if (matchProject) setEmailFilter(String(matchProject.id));
+        setNewEmail(prev => ({ ...prev, direction: 'in', ...parsed, attachment: null, status: 'open' }));
+    };
+
+    const handleEmailDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setEmailDragOver(false);
+
+        const file = e.dataTransfer.files[0];
+
+        if (file) {
+            const ext = file.name.toLowerCase();
+            if (ext.endsWith('.msg')) {
+                // .msg: binair Outlook formaat via msgreader
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    try {
+                        const MsgReader = (await import('@kenjiuno/msgreader')).default;
+                        // includeRawProps zodat we MAPI named properties kunnen lezen (o.a. Outlook-categorieën)
+                        const msg = new MsgReader(ev.target.result, { includeRawProps: true });
+                        const info = msg.getFileData();
+                        const smtpEmail = info.sentRepresentingSmtpAddress || info.senderEmail || '';
+                        const from = smtpEmail
+                            ? (info.senderName ? `${info.senderName} <${smtpEmail}>` : smtpEmail)
+                            : (info.senderName || '');
+                        const dateRaw = info.messageDeliveryTime || info.clientSubmitTime || info.creationTime;
+                        // Categorie: PidNameKeywords (propertySet 00020329-..., propertyName "Keywords")
+                        // Outlook slaat categorieën op als MAPI named property, NIET in transport headers
+                        let category = null;
+                        const kwProp = (info.rawProps || []).find(p =>
+                            p.propertySet === '00020329-0000-0000-c000-000000000046' &&
+                            p.propertyName?.toLowerCase() === 'keywords'
+                        );
+                        if (kwProp?.value) {
+                            category = typeof kwProp.value === 'string' ? kwProp.value : null;
+                        }
+                        // Fallback: probeer transport headers (werkt alleen bij ontvangen emails van buiten)
+                        if (!category && info.headers) {
+                            const kwMatch = info.headers.match(/^X-Keywords:\s*(.+)/mi) || info.headers.match(/^Categories:\s*(.+)/mi);
+                            if (kwMatch) category = kwMatch[1].trim();
+                        }
+                        // bodyHtml kan een Uint8Array zijn (MAPI PT_BINARY) — decoderen naar string
+                        const decodeBody = (val) => {
+                            if (!val) return null;
+                            if (typeof val === 'string') return val || null;
+                            try { return new TextDecoder('utf-8').decode(val) || null; } catch { return null; }
+                        };
+                        const parsed = {
+                            contact: from,
+                            subject: info.subject || '',
+                            body: typeof info.body === 'string' ? info.body : '',
+                            bodyHtml: decodeBody(info.bodyHtml),
+                            date: dateRaw ? formatDate(new Date(dateRaw)) : formatDate(new Date()),
+                            category,
+                            outlookId: null,
+                        };
+                        // Zoek het echte Outlook ID via de Graph API
+                        try {
+                            const emailAdres = smtpEmail || from?.match(/[\w.+-]+@[\w.-]+\.\w+/)?.[0] || '';
+                            const res = await fetch('/api/outlook/search', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ subject: parsed.subject, from: emailAdres }),
+                            });
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.found) {
+                                    parsed.outlookId = data.outlookId;
+                                    if (data.category) parsed.category = data.category;
+                                    if (data.conversationId) parsed.conversationId = data.conversationId;
+                                    // Body direct uit search resultaat (bespaart een extra API call)
+                                    if (data.bodyHtml && !parsed.bodyHtml) parsed.bodyHtml = data.bodyHtml;
+                                    if (data.bodyText && !parsed.body) parsed.body = data.bodyText;
+                                }
+                            }
+                        } catch { /* stil falen als Outlook niet verbonden */ }
+                        // Origineel .msg bestand opslaan in IndexedDB
+                        const tempId = Date.now();
+                        parsed.originalFile = { name: file.name, size: file.size, fileId: tempId };
+                        slaEmailBestandOp(tempId, file).catch(() => {});
+
+                        // Bijlagen uit .msg extraheren en opslaan
+                        const bijlagen = [];
+                        for (const att of (info.attachments || [])) {
+                            try {
+                                const attData = msg.getAttachment(att);
+                                if (attData?.content) {
+                                    const blob = new Blob([attData.content]);
+                                    const attId = Date.now() + Math.random();
+                                    const naam = att.fileName || att.fileNameShort || 'bijlage';
+                                    await slaEmailBestandOp(attId, new File([blob], naam));
+                                    bijlagen.push({ name: naam, size: blob.size, fileId: attId });
+                                }
+                            } catch { /* sla over als bijlage niet leesbaar */ }
+                        }
+                        if (bijlagen.length) parsed.bijlagen = bijlagen;
+
+                        applyParsedEmail(parsed);
+                    } catch (err) {
+                        setNewEmail(prev => ({ ...prev, attachment: { name: file.name, size: file.size } }));
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                // .eml of tekst
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const text = ev.target.result;
+                    if (/^(From|Subject|Date|To|Message-ID):/m.test(text)) {
+                        const parsed = parseEml(text);
+                        const tempId2 = Date.now();
+                        parsed.originalFile = { name: file.name, size: file.size, fileId: tempId2 };
+                        slaEmailBestandOp(tempId2, file).catch(() => {});
+                        applyParsedEmail(parsed);
+                    } else {
+                        setNewEmail(prev => ({ ...prev, attachment: { name: file.name, size: file.size } }));
+                    }
+                };
+                reader.readAsText(file, 'utf-8');
+            }
+        } else {
+            // Geen bestand — Outlook drag geeft soms tekst mee
+            const html = e.dataTransfer.getData('text/html');
+            const plain = e.dataTransfer.getData('text/plain');
+            const text = html || plain;
+            if (text && text.trim()) {
+                // Haal Subject uit HTML title of eerste regel plain text
+                const subjectMatch = text.match(/<title[^>]*>([^<]+)<\/title>/i)
+                    || text.match(/^Subject:\s*(.+)/im)
+                    || text.match(/^(.{3,80})/m);
+                const subject = subjectMatch ? subjectMatch[1].trim() : '';
+                const fromMatch = text.match(/From:\s*(.+)/i);
+                const from = fromMatch ? fromMatch[1].trim() : '';
+                applyParsedEmail({
+                    contact: from,
+                    subject,
+                    body: plain || '',
+                    date: formatDate(new Date()),
+                    category: null,
+                    outlookId: null,
+                });
+            }
+        }
     };
 
     // ===== MOVE TASK UP / DOWN =====
@@ -671,6 +1092,14 @@ export default function ProjectenPage() {
         document.addEventListener('mouseup', onUp, true);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Safety-net: als de muis buiten het venster losgelaten werd tijdens draw-create, clear de preview
+    useEffect(() => {
+        const clear = () => { if (drawCreateRef.current) { setDrawCreate(null); drawCreateRef.current = null; } };
+        window.addEventListener('mouseup', clear);
+        window.addEventListener('blur', clear);
+        return () => { window.removeEventListener('mouseup', clear); window.removeEventListener('blur', clear); };
+    }, []);
+
     // ===== QUICK TASK BEVESTIGEN (na draw-create popup) =====
     const confirmQuickTask = useCallback((name) => {
         if (!name?.trim() || !quickTaskPopup) return;
@@ -719,6 +1148,82 @@ export default function ProjectenPage() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []); // Empty deps — reads from refs, never stale
 
+
+    // ===== AFHANKELIJKHEIDS-PIJLEN — imperatief (geen React state → geen lag bij scrollen) =====
+    const depSvgRef = useRef(null);
+
+    // Maak de SVG eenmalig aan in de DOM
+    useEffect(() => {
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:1200;overflow:visible;';
+        const defs = document.createElementNS(NS, 'defs');
+        const marker = document.createElementNS(NS, 'marker');
+        marker.setAttribute('id', 'dep-ah'); marker.setAttribute('markerWidth', '6');
+        marker.setAttribute('markerHeight', '5'); marker.setAttribute('refX', '5');
+        marker.setAttribute('refY', '2.5'); marker.setAttribute('orient', 'auto');
+        const arrow = document.createElementNS(NS, 'path');
+        arrow.setAttribute('d', 'M0,0 L6,2.5 L0,5 Z'); arrow.setAttribute('fill', '#F5850A');
+        marker.appendChild(arrow); defs.appendChild(marker); svg.appendChild(defs);
+        document.body.appendChild(svg);
+        depSvgRef.current = svg;
+        return () => { if (svg.parentNode) svg.parentNode.removeChild(svg); };
+    }, []);
+
+    const drawDepArrows = useCallback(() => {
+        const svg = depSvgRef.current;
+        const wrapper = ganttWrapperRef.current;
+        if (!svg || !wrapper) return;
+        // Verwijder oude paden (behoud defs als eerste kind)
+        while (svg.children.length > 1) svg.removeChild(svg.lastChild);
+        const NS = 'http://www.w3.org/2000/svg';
+        projects.forEach(p => {
+            if (!expandedProjects.has(p.id)) return;
+            p.tasks.filter(t => t.dependsOn && !t.completed).forEach(t => {
+                const predBars = wrapper.querySelectorAll(`.gantt-bar[data-project-id="${p.id}"][data-task-id="${t.dependsOn}"]`);
+                const currBars = wrapper.querySelectorAll(`.gantt-bar[data-project-id="${p.id}"][data-task-id="${t.id}"]`);
+                if (!predBars.length || !currBars.length) return;
+                const pr = predBars[predBars.length - 1].getBoundingClientRect();
+                const cr = currBars[0].getBoundingClientRect();
+                const x1 = pr.right, y1 = pr.top + pr.height / 2;
+                const x2 = cr.left,  y2 = cr.top + cr.height / 2;
+                const mx = (x1 + x2) / 2;
+                const path = document.createElementNS(NS, 'path');
+                path.setAttribute('d', `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
+                path.setAttribute('fill', 'none'); path.setAttribute('stroke', '#F5850A');
+                path.setAttribute('stroke-width', '1.5'); path.setAttribute('stroke-dasharray', '5,3');
+                path.setAttribute('marker-end', 'url(#dep-ah)'); path.setAttribute('opacity', '0.85');
+                svg.appendChild(path);
+            });
+        });
+    }, [projects, expandedProjects]);
+
+    useLayoutEffect(() => { drawDepArrows(); }, [drawDepArrows, timelineDates, zoomLevel]);
+
+    // Scroll-listener: synchrone DOM-update (geen rAF, geen lag)
+    useEffect(() => {
+        const wrapper = ganttWrapperRef.current;
+        if (!wrapper) return;
+        const onScroll = () => drawDepArrows();
+        wrapper.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('scroll', onScroll, { passive: true });
+        // Vang ook scroll van tussenliggende containers op
+        let el = wrapper.parentElement;
+        const parents = [];
+        while (el && el !== document.body) {
+            const overflow = getComputedStyle(el).overflow + getComputedStyle(el).overflowY;
+            if (overflow.includes('auto') || overflow.includes('scroll')) {
+                el.addEventListener('scroll', onScroll, { passive: true });
+                parents.push(el);
+            }
+            el = el.parentElement;
+        }
+        return () => {
+            wrapper.removeEventListener('scroll', onScroll);
+            window.removeEventListener('scroll', onScroll);
+            parents.forEach(p => p.removeEventListener('scroll', onScroll));
+        };
+    }, [drawDepArrows]);
 
     // ===== NATIVE DOM DRAG + RESIZE HANDLERS (bypasses React event system) =====
     useEffect(() => {
@@ -811,7 +1316,7 @@ export default function ProjectenPage() {
             // Get project/task IDs from data attributes
             const projectId = Number(bar.dataset.projectId);
             const rawTaskId = bar.dataset.taskId;
-            const taskId = (rawTaskId && rawTaskId !== 'null' && rawTaskId !== '') ? rawTaskId : null;
+            const taskId = (rawTaskId && rawTaskId !== 'null' && rawTaskId !== '') ? (isNaN(Number(rawTaskId)) ? rawTaskId : Number(rawTaskId)) : null;
             if (!projectId || isNaN(projectId)) return;
 
             // Lees originele datums uit data-attributen (worden gezet bij render)
@@ -940,6 +1445,10 @@ export default function ProjectenPage() {
                 // Verberg tooltip
                 tooltip.style.opacity = '0';
                 // Datums zijn al live gesnapped — geen extra snap op onUp nodig
+                if (state.rawDaysMoved === 0 && !isResizeHandle && taskId) {
+                    const parsedTaskId = isNaN(Number(taskId)) ? taskId : Number(taskId);
+                    selectTaskIdRef.current(parsedTaskId);
+                }
                 setTimeout(() => { justDraggedRef.current = false; }, 200);
             };
             // Attach to BOTH overlay and document (document as fallback)
@@ -955,6 +1464,207 @@ export default function ProjectenPage() {
             if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
         };
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Outlook polling: elke 10s checken op vlagwijzigingen en nieuwe berichten in threads
+    useEffect(() => {
+        const poll = async () => {
+            if (!outlookStatus?.connected) return; // niet verbonden — skip
+            // 1. Vlag/categorie sync
+            const ids = projects.flatMap(p => (p.emails || []).map(e => e.outlookId).filter(Boolean))
+                .filter(id => !id.startsWith('<')); // RFC2822 Message-IDs overslaan, alleen echte Graph IDs
+            if (ids.length) {
+                try {
+                    const res = await fetch(`/api/outlook/sync?ids=${ids.join(',')}`);
+                    if (res.status === 401) { setOutlookStatus({ connected: false }); return; }
+                    if (res.ok) {
+                        const results = await res.json();
+                        setProjects(prev => prev.map(p => ({
+                            ...p,
+                            emails: (p.emails || []).map(e => {
+                                if (!e.outlookId) return e;
+                                const r = results.find(r => r.id === e.outlookId);
+                                if (!r || r.deleted || r.error) return e;
+                                const statusMap = { complete: 'afgehandeld', flagged: 'actie', notFlagged: 'open' };
+                                const syncedStatus = statusMap[r.flagStatus] || e.status;
+                                const syncedCategories = r.categories !== undefined ? r.categories : getCategories(e);
+                                const huidigeCategories = getCategories(e);
+                                const changed = syncedStatus !== e.status || JSON.stringify(syncedCategories) !== JSON.stringify(huidigeCategories);
+                                return changed ? { ...e, status: syncedStatus, categories: syncedCategories, category: syncedCategories[0] || null } : e;
+                            }),
+                        })));
+                    }
+                } catch { /* stil falen */ }
+            }
+
+            // 2. Conversation tracking: nieuwe antwoorden ophalen
+            const allOutlookIds = new Set(projects.flatMap(p => (p.emails || []).map(e => e.outlookId).filter(Boolean)));
+            // Verzamel unieke conversationIds per project
+            const conversatiePerProject = [];
+            for (const p of projects) {
+                const convIds = [...new Set((p.emails || []).map(e => e.conversationId).filter(Boolean))];
+                for (const convId of convIds) {
+                    conversatiePerProject.push({ projectId: p.id, convId });
+                }
+            }
+            if (!conversatiePerProject.length) return;
+
+            try {
+                const nieuweEmails = []; // { projectId, email }
+                await Promise.all(conversatiePerProject.map(async ({ projectId, convId }) => {
+                    const r = await fetch(`/api/outlook/conversation?id=${encodeURIComponent(convId)}`);
+                    if (!r.ok) return;
+                    const berichten = await r.json();
+                    for (const b of berichten) {
+                        if (allOutlookIds.has(b.id)) continue; // al bekend
+                        const statusMap = { complete: 'afgehandeld', flagged: 'actie', notFlagged: 'open' };
+                        nieuweEmails.push({
+                            projectId,
+                            email: {
+                                id: Date.now() + Math.random(),
+                                outlookId: b.id,
+                                conversationId: b.conversationId,
+                                contact: b.from,
+                                subject: b.subject,
+                                body: b.body || b.bodyPreview,
+                                bodyHtml: b.bodyHtml || null,
+                                date: b.date ? new Date(b.date).toLocaleDateString('nl-NL') : '',
+                                status: statusMap[b.flagStatus] || 'open',
+                                categories: b.categories,
+                                category: b.categories[0] || null,
+                                direction: 'in',
+                            },
+                        });
+                    }
+                }));
+                if (nieuweEmails.length) {
+                    setProjects(prev => prev.map(p => {
+                        const toevoegen = nieuweEmails.filter(n => n.projectId === p.id).map(n => n.email);
+                        if (!toevoegen.length) return p;
+                        // Dedup op outlookId
+                        const bestaandeIds = new Set((p.emails || []).map(e => e.outlookId).filter(Boolean));
+                        const echtNieuw = toevoegen.filter(e => !bestaandeIds.has(e.outlookId));
+                        if (!echtNieuw.length) return p;
+                        return { ...p, emails: [...echtNieuw, ...(p.emails || [])] };
+                    }));
+                }
+            } catch { /* stil falen */ }
+        };
+        const interval = setInterval(poll, 10000);
+        return () => clearInterval(interval);
+    }, [projects]);
+
+    // Lazy-load HTML body + bijlagen: automatisch ophalen als email uitklapt
+    useEffect(() => {
+        if (!expandedEmails.size) return;
+        const alleEmails = projects.flatMap(p => p.emails || []);
+        for (const emailId of expandedEmails) {
+            const email = alleEmails.find(e => e.id === emailId);
+            if (!email) continue;
+            // Body uit opgeslagen .msg opnieuw inlezen (voor emails zonder body)
+            if (!email.bodyHtml && !email.body && !email.bodyFetched && email.originalFile?.fileId) {
+                (async () => {
+                    try {
+                        const { haalEmailBestandOp } = await import('../../lib/emailFileStore');
+                        const fileData = await haalEmailBestandOp(email.originalFile.fileId);
+                        if (!fileData?.blob) return;
+                        const buf = await fileData.blob.arrayBuffer();
+                        const MsgReader = (await import('@kenjiuno/msgreader')).default;
+                        const msg = new MsgReader(buf);
+                        const info = msg.getFileData();
+                        const decodeBody = (val) => {
+                            if (!val) return null;
+                            if (typeof val === 'string') return val || null;
+                            try { return new TextDecoder('utf-8').decode(val) || null; } catch { return null; }
+                        };
+                        const bodyHtml = decodeBody(info.bodyHtml);
+                        const body = typeof info.body === 'string' ? info.body : null;
+                        if (bodyHtml || body) {
+                            setProjects(prev => prev.map(p => ({
+                                ...p,
+                                emails: (p.emails || []).map(e =>
+                                    e.id === emailId ? { ...e, bodyFetched: true, ...(bodyHtml ? { bodyHtml } : {}), ...(body && !bodyHtml ? { body } : {}) } : e
+                                ),
+                            })));
+                        } else {
+                            setProjects(prev => prev.map(p => ({ ...p, emails: (p.emails || []).map(e => e.id === emailId ? { ...e, bodyFetched: true } : e) })));
+                        }
+                    } catch { /* stil falen */ }
+                })();
+            }
+            // cid: afbeeldingen oplossen vanuit .msg bestand (in-memory, niet in localStorage)
+            if ((email.bodyHtml?.includes('cid:')) && email.originalFile?.fileId && !resolvedCidRef.current.has(emailId)) {
+                resolvedCidRef.current.add(emailId);
+                const currentBodyHtml = email.bodyHtml;
+                (async () => {
+                    try {
+                        const { haalEmailBestandOp } = await import('../../lib/emailFileStore');
+                        const fileData = await haalEmailBestandOp(email.originalFile.fileId);
+                        if (!fileData?.blob) return;
+                        const buf = await fileData.blob.arrayBuffer();
+                        const MsgReader = (await import('@kenjiuno/msgreader')).default;
+                        const msg = new MsgReader(buf);
+                        const info = msg.getFileData();
+                        let html = currentBodyHtml;
+                        for (const att of info.attachments || []) {
+                            const naam = att.fileName || att.fileNameShort || '';
+                            if (!naam || !html.includes(`cid:${naam}`)) continue;
+                            try {
+                                const attData = msg.getAttachment(att);
+                                if (!attData?.content) continue;
+                                const mimeType = att.mimeType || 'image/png';
+                                const dataUrl = await new Promise(res => {
+                                    const fr = new FileReader();
+                                    fr.onload = () => res(fr.result);
+                                    fr.readAsDataURL(new Blob([attData.content], { type: mimeType }));
+                                });
+                                // Vervang alle cid: refs die beginnen met deze bestandsnaam
+                                html = html.replace(new RegExp(`cid:${naam.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"'\\s>]*`, 'g'), dataUrl);
+                            } catch { /* overslaan */ }
+                        }
+                        setResolvedBodies(prev => ({ ...prev, [emailId]: html }));
+                    } catch { /* stil falen */ }
+                })();
+            }
+            if (!email.outlookId || email.outlookId.startsWith('<')) continue; // RFC Message-IDs overslaan
+            // Body ophalen via Outlook voor emails zonder .msg (conversation tracking)
+            if (!email.outlookFetchedV4) {
+                const outlookId = email.outlookId;
+                fetch(`/api/outlook/body?id=${outlookId}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        if (!data) return;
+                        setProjects(prev => prev.map(p => ({
+                            ...p,
+                            emails: (p.emails || []).map(e => {
+                                if (e.id !== emailId) return e;
+                                return {
+                                    ...e,
+                                    outlookFetchedV4: true,
+                                    ...(data.bodyHtml ? { bodyHtml: data.bodyHtml } : {}),
+                                    ...(data.bodyText && !e.body ? { body: data.bodyText } : {}),
+                                };
+                            }),
+                        })));
+                    })
+                    .catch(() => {});
+            }
+            // Bijlagen ophalen als nog niet geladen
+            if (email.outlookBijlagen === undefined) {
+                fetch(`/api/outlook/attachments?id=${email.outlookId}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        if (!Array.isArray(data)) return;
+                        setProjects(prev => prev.map(p => ({
+                            ...p,
+                            emails: (p.emails || []).map(e =>
+                                e.id === emailId ? { ...e, outlookBijlagen: data } : e
+                            ),
+                        })));
+                    })
+                    .catch(() => {});
+            }
+        }
+    }, [expandedEmails, projects]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Ref to keep timelineDates current for the effect
     const timelineDatesRef = useRef(timelineDates);
@@ -1134,6 +1844,8 @@ export default function ProjectenPage() {
                     { id: 'personeel', icon: 'fa-users', label: 'Personeelsplanning' },
                     { id: 'jaar', icon: 'fa-calendar', label: 'Jaarplanning' },
                     { id: 'mappen', icon: 'fa-folder-open', label: 'Projectmappen' },
+                    { id: 'communicatie', icon: 'fa-envelope', label: 'Communicatie' },
+                    { id: 'dossier', icon: 'fa-briefcase', label: 'Dossier' },
                 ].map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
                         style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px', borderRadius: '7px', border: 'none', background: tab === t.id ? 'var(--accent)' : 'transparent', color: tab === t.id ? '#fff' : '#64748b', fontWeight: tab === t.id ? 700 : 500, fontSize: '0.78rem', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
@@ -1141,6 +1853,14 @@ export default function ProjectenPage() {
                         onMouseLeave={e => { if (tab !== t.id) e.currentTarget.style.background = 'transparent'; }}>
                         <i className={`fa-solid ${t.icon}`} style={{ fontSize: '0.7rem' }} />
                         {t.label}
+                        {t.id === 'communicatie' && (() => {
+                            const acties = projects.flatMap(p => (p.emails || []).filter(e => e.status === 'actie')).length;
+                            return acties > 0 ? (
+                                <span style={{ background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: '0.55rem', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, marginLeft: 2 }}>
+                                    {acties}
+                                </span>
+                            ) : null;
+                        })()}
                     </button>
                 ))}
 
@@ -1174,6 +1894,41 @@ export default function ProjectenPage() {
                         {filteredProjects.length}/{projects.length}
                     </span>
                 )}
+
+                {/* Project-selector */}
+                <div style={{ position: 'relative', flexShrink: 0 }} ref={projectPickerRef}>
+                    <button
+                        onClick={() => setProjectPickerOpen(v => !v)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', borderRadius: '7px', border: `1px solid ${hiddenProjectIds.size > 0 ? '#F5850A' : '#e2e8f0'}`, background: hiddenProjectIds.size > 0 ? 'rgba(245,133,10,0.08)' : '#f8fafc', color: hiddenProjectIds.size > 0 ? '#F5850A' : '#64748b', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        <i className="fa-solid fa-layer-group" />
+                        Projecten
+                        {hiddenProjectIds.size > 0 && <span style={{ background: '#F5850A', color: '#fff', borderRadius: '999px', fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px' }}>{hiddenProjectIds.size}</span>}
+                    </button>
+                    {projectPickerOpen && (
+                        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 1000, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: '240px', padding: '8px 0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px 8px', borderBottom: '1px solid #f1f5f9' }}>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b' }}>Projecten weergeven</span>
+                                {hiddenProjectIds.size > 0 && (
+                                    <button onClick={() => setHiddenProjectIds(new Set())} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.65rem', color: '#F5850A', fontWeight: 600, padding: 0 }}>Alles tonen</button>
+                                )}
+                            </div>
+                            {projects.map(p => {
+                                const visible = !hiddenProjectIds.has(p.id);
+                                return (
+                                    <div key={p.id}
+                                        onClick={() => setHiddenProjectIds(prev => { const n = new Set(prev); visible ? n.add(p.id) : n.delete(p.id); return n; })}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 12px', cursor: 'pointer' }}
+                                        onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                        <input type="checkbox" checked={visible} onChange={() => {}} style={{ accentColor: p.color, width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0 }} />
+                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+                                        <span style={{ flex: 1, fontSize: '0.75rem', color: visible ? '#1e293b' : '#94a3b8', fontWeight: visible ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* ===== TAB 1: PROJECT PLANNING (GANTT) ===== */}
@@ -1328,6 +2083,7 @@ export default function ProjectenPage() {
                                         }}
                                     >
                                         <div className="gantt-header-label">&nbsp;</div>
+                                        <div className="gantt-progress-col header">&nbsp;</div>
                                         <div className="gantt-team-col header">&nbsp;</div>
                                         {yearSpans.map((s, i) => (
                                             <div key={i} className="gantt-header-span year-span" style={{ flex: s.days, minWidth: s.days * cellW }}>{s.year}</div>
@@ -1347,6 +2103,7 @@ export default function ProjectenPage() {
                                         }}
                                     >
                                         <div className="gantt-header-label">&nbsp;</div>
+                                        <div className="gantt-progress-col header">&nbsp;</div>
                                         <div className="gantt-team-col header">&nbsp;</div>
                                         {monthSpans.map((s, i) => (
                                             <div key={i} className="gantt-header-span month-span" style={{ flex: s.days, minWidth: s.days * cellW, cursor: 'pointer' }}
@@ -1368,6 +2125,7 @@ export default function ProjectenPage() {
                                         }}
                                     >
                                         <div className="gantt-header-label" style={{ fontSize: '0.6rem', color: '#94a3b8' }}>Week</div>
+                                        <div className="gantt-progress-col header">&nbsp;</div>
                                         <div className="gantt-team-col header">&nbsp;</div>
                                         {(() => {
                                             const weekSpans = [];
@@ -1381,7 +2139,7 @@ export default function ProjectenPage() {
                                                 if (i === timelineDates.length - 1) weekSpans.push({ week: curWeek, days: wCount, startDate: weekStartDate });
                                             });
                                             return weekSpans.map((s, i) => (
-                                                <div key={i} className="gantt-header-span" style={{ flex: s.days, minWidth: s.days * cellW, fontSize: '0.58rem', fontWeight: 600, color: '#64748b', background: i % 2 === 0 ? 'rgba(0,0,0,0.02)' : 'transparent', borderRight: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                                                <div key={i} className="gantt-header-span" style={{ flex: s.days, minWidth: s.days * cellW, fontSize: '0.65rem', fontWeight: 600, color: '#64748b', background: i % 2 === 0 ? 'rgba(0,0,0,0.02)' : 'transparent', borderRight: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }}
                                                     onClick={() => { setViewMode('1w'); setCurrentDate(new Date(s.startDate)); }}
                                                     title={`Ga naar week ${s.week}`}>
                                                     {s.days >= 3 ? `W${s.week}` : `${s.week}`}
@@ -1391,7 +2149,22 @@ export default function ProjectenPage() {
                                     </div>
                                     {/* Day row */}
                                     <div className="gantt-header-row day-row">
-                                        <div className="gantt-header-label" style={{ fontWeight: 700, fontSize: '0.7rem' }}>Project / Taak</div>
+                                        <div className="gantt-header-label" style={{ fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '8px' }}>
+                                            <span>Project / Taak</span>
+                                            <button
+                                                onClick={() => {
+                                                    const allIds = projects.map(p => p.id);
+                                                    const allExpanded = allIds.every(id => expandedProjects.has(id));
+                                                    setExpandedProjects(allExpanded ? new Set() : new Set(allIds));
+                                                }}
+                                                title={projects.every(p => expandedProjects.has(p.id)) ? 'Alles inklappen' : 'Alles uitklappen'}
+                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.65rem', padding: '2px 4px', borderRadius: '4px', transition: 'color 0.15s', flexShrink: 0 }}
+                                                onMouseEnter={e => e.currentTarget.style.color = '#F5850A'}
+                                                onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
+                                                <i className={projects.every(p => expandedProjects.has(p.id)) ? 'fa-solid fa-angles-up' : 'fa-solid fa-angles-down'} />
+                                            </button>
+                                        </div>
+                                        <div className="gantt-progress-col header">%</div>
                                         <div className="gantt-team-col header">Team</div>
                                         {timelineDates.map((d, i) => {
                                             const dateStr = formatDate(d);
@@ -1402,10 +2175,10 @@ export default function ProjectenPage() {
                                                     title={`${d.getDate()} ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}${holidayName ? ` - ${holidayName}` : ''}`}
                                                     style={{ cursor: 'pointer' }}
                                                     onClick={() => { setViewMode('1w'); setCurrentDate(new Date(d)); }}>
-                                                    <div style={{ fontSize: '0.52rem', color: isHol ? '#F5850A' : 'inherit', lineHeight: 1, marginBottom: '1px', opacity: isHol ? 1 : 0.75, fontWeight: isHol ? 700 : 'normal' }}>
-                                                        {DAYS_NL[d.getDay()]} {isHol && <span style={{ fontSize: '0.45rem', marginLeft: '2px' }} title={holidayName}>★</span>}
+                                                    <div style={{ fontSize: '0.52rem', color: isHol && !isWeekend(d) ? '#F5850A' : isWeekend(d) ? '#ef4444' : 'inherit', lineHeight: 1, marginBottom: '1px', opacity: (isHol && !isWeekend(d)) ? 1 : 0.75, fontWeight: isHol ? 700 : 'normal' }}>
+                                                        {DAYS_NL[d.getDay()]} {isHol && <span style={{ fontSize: '0.56rem', marginLeft: '2px' }} title={holidayName}>★</span>}
                                                     </div>
-                                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, lineHeight: 1, color: isHol ? '#F5850A' : undefined }}>{d.getDate()}</div>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, lineHeight: 1, color: isHol && !isWeekend(d) ? '#F5850A' : isWeekend(d) ? '#ef4444' : undefined }}>{d.getDate()}</div>
                                                 </div>
                                             );
                                         })}
@@ -1456,7 +2229,7 @@ export default function ProjectenPage() {
                                                     style={{ fontWeight: 700, fontSize: '0.76rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', outline: 'none', cursor: 'pointer' }}
                                                 >{p.name}</div>
                                                 {(p.client || p.address) && (
-                                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                         {p.client}{p.client && p.address ? ' — ' : ''}{p.address && (
                                                             <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.address)}`}
                                                                 target="_blank" rel="noopener noreferrer"
@@ -1491,31 +2264,37 @@ export default function ProjectenPage() {
                                                 <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: 600, textAlign: 'right', width: '100%' }} title="Werkdagen">{diffWorkdays(parseDate(p.startDate), parseDate(p.endDate))}d</span>
                                             </div>
                                         </div>
+                                        {/* ===== VOORTGANG KOLOM (project = gemiddelde) ===== */}
+                                        {(() => {
+                                            const activeTasks = (p.tasks || []).filter(t => !t.completed);
+                                            const avgProg = activeTasks.length > 0
+                                                ? Math.round(activeTasks.reduce((s, t) => s + (t.progress || 0), 0) / activeTasks.length)
+                                                : 0;
+                                            const col = avgProg > 0 ? '#10b981' : '#cbd5e1';
+                                            return (
+                                                <div className="gantt-progress-col" style={{ background: '#fff' }}>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: col, background: col + '18', borderRadius: '6px', padding: '3px 4px' }}>
+                                                        <i className="fa-solid fa-chart-simple" style={{ fontSize: '0.7rem' }} />
+                                                        <span style={{ fontSize: '0.58rem', fontWeight: 800, lineHeight: 1 }}>{avgProg}%</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                         {/* ===== TEAM KOLOM (project = alle taak-medewerkers) ===== */}
                                         {(() => {
                                             const taskWorkerIds = [...new Set((p.tasks || []).filter(t => !t.completed).flatMap(t => t.assignedTo || []))];
                                             const workers = taskWorkerIds.map(id => allUsers.find(u => u.id === id)).filter(Boolean);
                                             const hasWorkers = workers.length > 0;
                                             return (
-                                                <div className="gantt-team-col" style={{ background: hasWorkers ? '#f8fafc' : '#fef2f2', borderLeft: hasWorkers ? '1px solid #e2e8f0' : '2px solid #fecaca' }}>
+                                                <div className="gantt-team-col" style={{ background: '#fff' }}>
                                                     <div
                                                         title={hasWorkers ? workers.map(u => u.name).join(', ') + ' — klik om projectpersoneel te beheren' : 'Niemand ingepland op project — klik om toe te voegen'}
                                                         onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ projectId: p.id, taskId: null, x: r.left, y: r.bottom }); }}
-                                                        style={{
-                                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                                            height: '18px', padding: '0 6px', borderRadius: '8px',
-                                                            cursor: 'pointer', transition: 'all 0.15s',
-                                                            background: hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)',
-                                                            border: `1px solid ${hasWorkers ? p.color + '55' : '#ef444466'}`,
-                                                            color: hasWorkers ? p.color : '#ef4444',
-                                                            pointerEvents: 'auto',
-                                                        }}
-                                                        onMouseEnter={e => { e.currentTarget.style.background = hasWorkers ? p.color + '40' : 'rgba(239,68,68,0.2)'; }}
-                                                        onMouseLeave={e => { e.currentTarget.style.background = hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}
-                                                    >
-                                                        <i className={`fa-solid fa-${hasWorkers ? 'users' : 'user-plus'}`} style={{ fontSize: '0.48rem' }} />
-                                                        {hasWorkers && <span style={{ fontSize: '0.55rem', fontWeight: 700 }}>{workers.length}</span>}
-                                                        {!hasWorkers && <span style={{ fontSize: '0.48rem', fontWeight: 700, textTransform: 'uppercase' }}>Geen</span>}
+                                                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer', transition: 'all 0.15s', background: hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)', border: `1.5px solid ${hasWorkers ? p.color + '88' : '#ef444466'}`, color: hasWorkers ? p.color : '#ef4444', pointerEvents: 'auto', gap: '1px' }}
+                                                        onMouseEnter={e => { e.currentTarget.style.background = hasWorkers ? p.color + '44' : 'rgba(239,68,68,0.22)'; }}
+                                                        onMouseLeave={e => { e.currentTarget.style.background = hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}>
+                                                        <i className={`fa-solid fa-${hasWorkers ? 'users' : 'user-plus'}`} style={{ fontSize: '0.55rem' }} />
+                                                        {hasWorkers && <span style={{ fontSize: '0.46rem', fontWeight: 700, lineHeight: 1 }}>{workers.length}</span>}
                                                     </div>
                                                 </div>
                                             );
@@ -1620,16 +2399,16 @@ export default function ProjectenPage() {
                                         return (
                                         <div key={t.id} className="gantt-row" onClick={() => onTaskRowClick(p.id, t.id)}
                                             style={{
-                                                background: selectedTask?.taskId === t.id ? 'rgba(245,133,10,0.06)' : '#fff',
+                                                background: (selectedTask?.taskId === t.id || selectedTaskId === t.id) ? 'rgba(245,133,10,0.06)' : '#fff',
                                                 cursor: 'pointer',
-                                                boxShadow: selectedTask?.taskId === t.id ? 'inset 3px 0 0 var(--accent)' : 'none',
+                                                boxShadow: (selectedTask?.taskId === t.id || selectedTaskId === t.id) ? 'inset 3px 0 0 var(--accent)' : 'none',
                                                 borderBottom: '1px solid #f1f5f9',
                                             }}>
                                             <div className="gantt-row-label" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '2px', padding: '5px 8px 5px 32px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                     <input type="checkbox" checked={false} onChange={() => toggleTask(p.id, t.id)}
                                                         style={{ width: '13px', height: '13px', accentColor: '#F5850A', cursor: 'pointer', flexShrink: 0 }} />
-                                                    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                                    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center' }}>
                                                         <div
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
@@ -1637,18 +2416,19 @@ export default function ProjectenPage() {
                                                                 setSelectedTaskId(prev => prev === t.id ? null : t.id);
 
                                                                 const scrollToBar = () => {
-                                                                    const bar = document.querySelector(`.gantt-bar[data-project-id="${p.id}"][data-task-id="${t.id}"]`);
-                                                                    if (bar) {
-                                                                        bar.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-                                                                        // requestAnimationFrame: wacht tot React de DOM heeft bijgewerkt (isSelected boxShadow is al gezet)
+                                                                    const bars = document.querySelectorAll(`.gantt-bar[data-project-id="${p.id}"][data-task-id="${t.id}"]`);
+                                                                    if (bars.length > 0) {
+                                                                        bars[0].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
                                                                         requestAnimationFrame(() => {
-                                                                            const selectedBox = bar.style.boxShadow; // React heeft dit al ingesteld
-                                                                            bar.style.boxShadow = `0 0 0 3px #F5850A, 0 0 16px #F5850A88`;
-                                                                            bar.style.transition = 'box-shadow 0.3s';
-                                                                            setTimeout(() => {
-                                                                                bar.style.boxShadow = selectedBox || '0 0 0 2.5px #F5850A, 0 0 12px #F5850A66';
-                                                                                bar.style.transition = '';
-                                                                            }, 1800);
+                                                                            bars.forEach(bar => {
+                                                                                const selectedBox = bar.style.boxShadow;
+                                                                                bar.style.boxShadow = `0 0 0 3px #F5850A, 0 0 16px #F5850A88`;
+                                                                                bar.style.transition = 'box-shadow 0.3s';
+                                                                                setTimeout(() => {
+                                                                                    bar.style.boxShadow = selectedBox || '0 0 0 2.5px #F5850A, 0 0 12px #F5850A66';
+                                                                                    bar.style.transition = '';
+                                                                                }, 1800);
+                                                                            });
                                                                         });
                                                                         return true;
                                                                     }
@@ -1689,42 +2469,27 @@ export default function ProjectenPage() {
                                                             style={{ fontWeight: selectedTaskId === t.id ? 700 : 600, fontSize: '0.76rem', color: selectedTaskId === t.id ? '#F5850A' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', outline: 'none', cursor: 'pointer', textDecoration: selectedTaskId === t.id ? 'underline' : 'none', textUnderlineOffset: '2px' }}
                                                         >{t.name}</div>
                                                     </div>
-
-                                                    {/* Actie-knoppen: omhoog, omlaag, kopieer, notitie, verwijder */}
-                                                    {[
-                                                        { icon: 'fa-chevron-up',   title: 'Omhoog',     color: '#94a3b8', hoverColor: '#3b82f6', action: e => { e.stopPropagation(); moveTaskUp(p.id, t.id); } },
-                                                        { icon: 'fa-chevron-down', title: 'Omlaag',     color: '#94a3b8', hoverColor: '#3b82f6', action: e => { e.stopPropagation(); moveTaskDown(p.id, t.id); } },
-                                                        { icon: 'fa-copy',         title: 'Kopiëren',   color: '#94a3b8', hoverColor: '#8b5cf6', action: e => { e.stopPropagation(); duplicateTask(p.id, t.id); } },
-                                                    ].map((btn, i) => (
-                                                        <button key={i} onClick={btn.action} title={btn.title}
-                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: btn.color, flexShrink: 0, fontSize: '0.65rem', transition: 'color 0.15s' }}
-                                                            onMouseEnter={e => e.currentTarget.style.color = btn.hoverColor}
-                                                            onMouseLeave={e => e.currentTarget.style.color = btn.color}>
-                                                            <i className={`fa-solid ${btn.icon}`} />
+                                                    {/* Rij-1 knoppen: omhoog, omlaag, verwijderen */}
+                                                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '1px' }}>
+                                                        {[
+                                                            { icon: 'fa-chevron-up',   title: 'Omhoog', color: '#94a3b8', hoverColor: '#3b82f6', action: e => { e.stopPropagation(); moveTaskUp(p.id, t.id); } },
+                                                            { icon: 'fa-chevron-down', title: 'Omlaag', color: '#94a3b8', hoverColor: '#3b82f6', action: e => { e.stopPropagation(); moveTaskDown(p.id, t.id); } },
+                                                        ].map((btn, i) => (
+                                                            <button key={i} onClick={btn.action} title={btn.title}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: btn.color, flexShrink: 0, fontSize: '0.65rem', transition: 'color 0.15s' }}
+                                                                onMouseEnter={e => { e.currentTarget.style.color = btn.hoverColor; e.currentTarget.style.background = 'rgba(0,0,0,0.05)'; }}
+                                                                onMouseLeave={e => { e.currentTarget.style.color = btn.color; e.currentTarget.style.background = 'none'; }}>
+                                                                <i className={`fa-solid ${btn.icon}`} />
+                                                            </button>
+                                                        ))}
+                                                        <button onClick={(e) => { e.stopPropagation(); deleteTask(p.id, t.id); }}
+                                                            title="Taak verwijderen"
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', flexShrink: 0, borderRadius: '3px', color: '#cbd5e1', fontSize: '0.65rem', transition: 'color 0.15s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'none'; }}>
+                                                            <i className="fa-solid fa-xmark" />
                                                         </button>
-                                                    ))}
-                                                    {/* Notitie-knop */}
-                                                    <button onClick={e => { e.stopPropagation(); setNotePopup({ projectId: p.id, taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
-                                                        title={`Notities (${(t.notes || []).length})`}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', position: 'relative', transition: 'color 0.15s' }}
-                                                        onMouseEnter={e => e.currentTarget.style.color = '#f59e0b'}
-                                                        onMouseLeave={e => e.currentTarget.style.color = (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1'}>
-                                                        <i className="fa-solid fa-note-sticky" />
-                                                        {(t.notes || []).length > 0 && (
-                                                            <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#f59e0b', color: '#fff', borderRadius: '50%', fontSize: '0.38rem', width: '10px', height: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}>
-                                                                {(t.notes || []).length}
-                                                            </span>
-                                                        )}
-                                                    </button>
-                                                    {/* Verwijder-knop */}
-                                                    <button onClick={(e) => { e.stopPropagation(); deleteTask(p.id, t.id); }}
-                                                        title="Taak verwijderen"
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', flexShrink: 0, borderRadius: '3px', color: '#cbd5e1', fontSize: '0.7rem', transition: 'color 0.15s' }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.color = '#cbd5e1'}>
-                                                        <i className="fa-solid fa-xmark" />
-                                                    </button>
-
+                                                    </div>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '19px' }}>
                                                     <input type="date" value={t.startDate}
@@ -1737,7 +2502,7 @@ export default function ProjectenPage() {
                                                             }));
                                                             setSelectedProject(prev => prev?.id === p.id ? { ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, startDate: newStart }) } : prev);
                                                         }}
-                                                        style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
+                                                        style={{ width: '88px', fontSize: '0.65rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
                                                     {(() => {
                                                         const currentDays = diffWorkdays(parseDate(t.startDate), parseDate(t.endDate));
                                                         const changeDays = (newDays) => {
@@ -1760,7 +2525,7 @@ export default function ProjectenPage() {
                                                                     onFocus={e => e.target.select()}
                                                                     onBlur={e => { const v = parseInt(e.target.value); if (v > 0) changeDays(v); }}
                                                                     onKeyDown={e => { if (e.key === 'Enter') { const v = parseInt(e.target.value); if (v > 0) { changeDays(v); e.target.blur(); } } e.stopPropagation(); }}
-                                                                    style={{ width: '24px', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontWeight: 700, fontSize: '0.56rem', textAlign: 'center', padding: '0', MozAppearance: 'textfield' }}
+                                                                    style={{ width: '24px', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontWeight: 700, fontSize: '0.65rem', textAlign: 'center', padding: '0', MozAppearance: 'textfield' }}
                                                                 />
                                                                 <button onClick={(e) => { e.stopPropagation(); changeDays(currentDays + 1); }}
                                                                     style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 4px', fontSize: '0.6rem', fontWeight: 700, lineHeight: '16px' }}>+</button>
@@ -1777,33 +2542,68 @@ export default function ProjectenPage() {
                                                             }));
                                                             setSelectedProject(prev => prev?.id === p.id ? { ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: newEnd }) } : prev);
                                                         }}
-                                                        style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
+                                                        style={{ width: '88px', fontSize: '0.65rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
+                                                    {/* Rij-2 knoppen: kopiëren, afhankelijkheid, notities, voortgang */}
+                                                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '1px' }}>
+                                                        {/* Kopiëren-knop */}
+                                                        <button onClick={e => { e.stopPropagation(); duplicateTask(p.id, t.id); }} title="Kopiëren"
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: '#94a3b8', flexShrink: 0, fontSize: '0.65rem', transition: 'color 0.15s' }}
+                                                            onMouseEnter={e => { e.currentTarget.style.color = '#8b5cf6'; e.currentTarget.style.background = 'rgba(139,92,246,0.08)'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none'; }}>
+                                                            <i className="fa-solid fa-copy" />
+                                                        </button>
+                                                        {/* Memo-indicator */}
+                                                        {t.memo && (
+                                                            <span title={t.memo} style={{ color: '#f59e0b', fontSize: '0.65rem', cursor: 'default' }}>
+                                                                <i className="fa-solid fa-note-sticky" />
+                                                            </span>
+                                                        )}
+                                                        {/* Notitie-knop */}
+                                                        <button onClick={e => { e.stopPropagation(); setNotePopup({ projectId: p.id, taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
+                                                            title={`Notities (${(t.notes || []).length})`}
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1', flexShrink: 0, fontSize: '0.65rem', position: 'relative', transition: 'color 0.15s' }}
+                                                            onMouseEnter={e => { e.currentTarget.style.color = '#f59e0b'; e.currentTarget.style.background = 'rgba(245,158,11,0.08)'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.color = (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1'; e.currentTarget.style.background = 'none'; }}>
+                                                            <i className="fa-solid fa-note-sticky" />
+                                                            {(t.notes || []).length > 0 && (
+                                                                <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#f59e0b', color: '#fff', borderRadius: '50%', fontSize: '0.48rem', width: '12px', height: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}>
+                                                                    {(t.notes || []).length}
+                                                                </span>
+                                                            )}
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
+                                            {/* ===== VOORTGANG KOLOM (taak) ===== */}
+                                            {(() => {
+                                                const prog = t.progress || 0;
+                                                const col = prog > 0 ? '#10b981' : '#cbd5e1';
+                                                return (
+                                                    <div className="gantt-progress-col" style={{ background: '#fff' }}>
+                                                        <div
+                                                            title={`Voortgang: ${prog}%`}
+                                                            onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setProgressEditPopup({ taskId: t.id, projectId: p.id, x: r.left, y: r.top }); }}
+                                                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: col, cursor: 'pointer', background: col + '18', borderRadius: '6px', padding: '3px 4px' }}>
+                                                            <i className="fa-solid fa-chart-simple" style={{ fontSize: '0.7rem' }} />
+                                                            <span style={{ fontSize: '0.58rem', fontWeight: 800, lineHeight: 1 }}>{prog}%</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                             {/* ===== TEAM KOLOM (taak) ===== */}
                                             {(() => {
                                                 const taskWorkers = (t.assignedTo || []).map(uid => allUsers.find(u => u.id === uid)).filter(Boolean);
                                                 const hasWorkers = taskWorkers.length > 0;
                                                 return (
-                                                    <div className="gantt-team-col" style={{ background: hasWorkers ? '#f8fafc' : '#fef2f2', borderLeft: hasWorkers ? '1px solid #e2e8f0' : '2px solid #fecaca' }}>
+                                                    <div className="gantt-team-col" style={{ background: '#fff' }}>
                                                         <div
-                                                            title={hasWorkers ? taskWorkers.map(u => u.name).join(', ') + ' — klik om te beheren' : 'Niemand ingepland op taak — klik om toe te voegen'}
+                                                            title={hasWorkers ? taskWorkers.map(u => u.name).join(', ') + ' — klik om te beheren' : 'Niemand ingepland — klik om toe te voegen'}
                                                             onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ projectId: p.id, taskId: t.id, x: r.left, y: r.bottom }); }}
-                                                            style={{
-                                                                display: 'flex', alignItems: 'center', gap: '4px',
-                                                                height: '18px', padding: '0 6px', borderRadius: '8px',
-                                                                cursor: 'pointer', transition: 'all 0.15s',
-                                                                background: hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)',
-                                                                border: `1px solid ${hasWorkers ? p.color + '55' : '#ef444466'}`,
-                                                                color: hasWorkers ? p.color : '#ef4444',
-                                                                pointerEvents: 'auto',
-                                                            }}
-                                                            onMouseEnter={e => { e.currentTarget.style.background = hasWorkers ? p.color + '40' : 'rgba(239,68,68,0.2)'; }}
-                                                            onMouseLeave={e => { e.currentTarget.style.background = hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}
-                                                        >
-                                                            <i className={`fa-solid fa-${hasWorkers ? 'users' : 'user-plus'}`} style={{ fontSize: '0.48rem' }} />
-                                                            {hasWorkers && <span style={{ fontSize: '0.55rem', fontWeight: 700 }}>{taskWorkers.length}</span>}
-                                                            {!hasWorkers && <span style={{ fontSize: '0.48rem', fontWeight: 700, textTransform: 'uppercase' }}>Geen</span>}
+                                                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer', transition: 'all 0.15s', background: hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)', border: `1.5px solid ${hasWorkers ? p.color + '88' : '#ef444466'}`, color: hasWorkers ? p.color : '#ef4444', pointerEvents: 'auto', gap: '1px' }}
+                                                            onMouseEnter={e => { e.currentTarget.style.background = hasWorkers ? p.color + '44' : 'rgba(239,68,68,0.22)'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.background = hasWorkers ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}>
+                                                            <i className={`fa-solid fa-${hasWorkers ? 'users' : 'user-plus'}`} style={{ fontSize: '0.55rem' }} />
+                                                            {hasWorkers && <span style={{ fontSize: '0.46rem', fontWeight: 700, lineHeight: 1 }}>{taskWorkers.length}</span>}
                                                         </div>
                                                     </div>
                                                 );
@@ -1853,24 +2653,13 @@ export default function ProjectenPage() {
                                                                 }}>
                                                                     {!weekend && !holiday && inRange && (
                                                                         <div
-                                                                            title={dayAssigned.length > 0
-                                                                                ? dayAssigned.map(u => u.name).join(', ') + ' — klik om te beheren'
-                                                                                : 'Niemand ingepland — klik om toe te voegen'}
+                                                                            title={dayAssigned.length > 0 ? dayAssigned.map(u => u.name).join(', ') + ' — klik om te wijzigen' : 'Niemand ingepland — klik om toe te voegen'}
                                                                             onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ projectId: p.id, taskId: t.id, dateStr: ds, x: r.left, y: r.bottom + 4 }); }}
-                                                                            style={{
-                                                                                display: 'flex', alignItems: 'center', gap: '2px',
-                                                                                height: '16px', padding: '0 5px', borderRadius: '8px',
-                                                                                cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
-                                                                                background: dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)',
-                                                                                border: `1px solid ${dayAssigned.length > 0 ? p.color + '55' : '#ef444466'}`,
-                                                                                color: dayAssigned.length > 0 ? p.color : '#ef4444',
-                                                                                pointerEvents: 'auto',  /* ← overschrijf .gantt-cell { pointer-events: none } */
-                                                                            }}
-                                                                            onMouseEnter={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? p.color + '40' : 'rgba(239,68,68,0.2)'; }}
-                                                                            onMouseLeave={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}
-                                                                        >
-                                                                            <i className={`fa-solid fa-${dayAssigned.length > 0 ? 'users' : 'user-plus'}`} style={{ fontSize: '0.42rem' }} />
-                                                                            {dayAssigned.length > 0 && <span style={{ fontSize: '0.42rem', fontWeight: 700 }}>{dayAssigned.length}</span>}
+                                                                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '18px', height: '18px', borderRadius: '50%', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s', background: dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)', border: `1.5px solid ${dayAssigned.length > 0 ? p.color + '88' : '#ef444466'}`, color: dayAssigned.length > 0 ? p.color : '#ef4444', pointerEvents: 'auto', gap: '1px' }}
+                                                                            onMouseEnter={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? p.color + '44' : 'rgba(239,68,68,0.22)'; }}
+                                                                            onMouseLeave={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}>
+                                                                            <i className={`fa-solid fa-${dayAssigned.length > 0 ? 'users' : 'user-plus'}`} style={{ fontSize: '0.38rem' }} />
+                                                                            {dayAssigned.length > 0 && <span style={{ fontSize: '0.34rem', fontWeight: 700, lineHeight: 1 }}>{dayAssigned.length}</span>}
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -1894,7 +2683,7 @@ export default function ProjectenPage() {
                                                     {/* Task bar — zweeft over de bovenste zone */}
                                                     {(() => {
                                                         const noTeam = (t.assignedTo || []).length === 0;
-                                                        const barColor = noTeam ? 'repeating-linear-gradient(45deg, #ef444455, #ef444455 4px, #ef444422 4px, #ef444422 8px)' : p.color + 'bb';
+                                                        const barColor = p.color + 'bb';
                                                         const segs = getBarSegments(t.startDate, t.endDate, barColor);
                                                         const isSelected = selectedTaskId === t.id;
                                                         const hasNotes = (t.notes || []).length > 0;
@@ -1905,25 +2694,24 @@ export default function ProjectenPage() {
                                                                 {segs.map((segStyle, si) => (
                                                                     <div key={si} className="gantt-bar" data-project-id={p.id} data-task-id={t.id}
                                                                         data-start-date={t.startDate} data-end-date={t.endDate}
-                                                                        onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setTaskTooltip({ name: t.name, startDate: t.startDate, endDate: t.endDate, progress: t.progress || 0, color: p.color, x: r.left, y: r.top }); }}
-                                                                        onMouseLeave={() => setTaskTooltip(null)}
+                                                                        onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setDepPopup({ projectId: p.id, taskId: t.id, x: e.clientX, y: e.clientY + 6 }); }}
+                                                                        onMouseEnter={e => { clearTimeout(hideTooltipTimerRef.current); const r = e.currentTarget.getBoundingClientRect(); setTaskTooltip({ projectId: p.id, taskId: t.id, name: t.name, startDate: t.startDate, endDate: t.endDate, progress: t.progress || 0, color: p.color, x: r.left, y: r.top }); }}
+                                                                        onMouseLeave={() => { hideTooltipTimerRef.current = setTimeout(() => setTaskTooltip(null), 200); }}
                                                                         style={{
                                                                             ...segStyle,
                                                                             display: 'flex', alignItems: 'center',
                                                                             height: '24px', top: '3px', fontSize: '0.42rem',
                                                                             opacity: t.completed ? 0.4 : 1, cursor: 'grab',
                                                                             borderRadius: si === 0 && segs.length === 1 ? '7px' : si === 0 ? '7px 0 0 7px' : si === segs.length - 1 ? '0 7px 7px 0' : '0',
-                                                                            border: noTeam ? '1.5px dashed #ef4444' : '1px solid rgba(0,0,0,0.08)',
-                                                                            boxSizing: noTeam ? 'border-box' : undefined,
-                                                                            boxShadow: isSelected && !noTeam
+                                                                            border: '1px solid rgba(0,0,0,0.08)',
+                                                                            boxShadow: isSelected
                                                                                 ? `0 0 0 2.5px #F5850A, 0 0 12px #F5850A66`
-                                                                                : noTeam ? 'none'
                                                                                 : '0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.08)',
-                                                                            ...(isSelected && !noTeam && { filter: 'brightness(1.15)' }),
+                                                                            ...(isSelected && { filter: 'brightness(1.15)' }),
                                                                             overflow: 'hidden',
                                                                         }}>
                                                                         {/* Glans-overlay */}
-                                                                        {!noTeam && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.22) 0%, transparent 55%)', borderRadius: 'inherit', pointerEvents: 'none' }} />}
+                                                                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.22) 0%, transparent 55%)', borderRadius: 'inherit', pointerEvents: 'none' }} />
                                                                         {/* Lichte overlay over hele balk */}
                                                                         <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.48)', pointerEvents: 'none' }} />
                                                                         {/* Voortgang */}
@@ -1938,14 +2726,7 @@ export default function ProjectenPage() {
                                                                     pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '5px', paddingRight: '5px', minWidth: 0, overflow: 'visible', zIndex: 3
                                                                 }}>
                                                                 <div style={{ position: 'sticky', left: '5px', display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden' }}>
-                                                                    {noTeam && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
-                                                                    <div style={{ color: noTeam ? '#ef4444' : '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>{t.name}</div>
-                                                                    <span
-                                                                        onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setProgressEditPopup({ taskId: t.id, projectId: p.id, x: rect.left, y: rect.top }); }}
-                                                                        style={{ pointerEvents: 'all', display: 'inline-flex', alignItems: 'center', gap: '2px', background: taskProgress > 0 ? 'rgba(16,185,129,0.85)' : 'rgba(255,255,255,0.25)', borderRadius: '4px', padding: '0 5px', fontSize: '0.5rem', color: '#fff', fontWeight: 700, flexShrink: 0, cursor: 'pointer', lineHeight: '14px', userSelect: 'none' }}>
-                                                                        <i className="fa-solid fa-chart-simple" style={{ fontSize: '0.42rem' }} />
-                                                                        {taskProgress > 0 ? `${taskProgress}%` : '·'}
-                                                                    </span>
+                                                                    <div style={{ color: '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>{t.name}</div>
                                                                     {hasNotes && (
                                                                         <span
                                                                             onClick={e => { e.stopPropagation(); setNotePopup({ projectId: p.id, taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
@@ -1997,7 +2778,8 @@ export default function ProjectenPage() {
                                                     onBlur={e => e.currentTarget.parentElement.parentElement.style.background = '#fff8f0'}
                                                 />
                                             </div>
-                                            {/* Lege team-kolom voor uitlijning */}
+                                            {/* Lege progress- en team-kolom voor uitlijning */}
+                                            <div className="gantt-progress-col" style={{ background: '#fff8f0' }}></div>
                                             <div className="gantt-team-col" style={{ background: '#fff8f0' }}></div>
                                             <div className="gantt-row-timeline" style={{ position: 'relative' }}>
                                                 {timelineDates.map((d, i) => {
@@ -2035,7 +2817,7 @@ export default function ProjectenPage() {
                                                 style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 16px', cursor: 'pointer', background: '#f8fafc', borderTop: '1px solid #e2e8f0', userSelect: 'none' }}
                                                 onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
                                                 onMouseLeave={e => e.currentTarget.style.background = '#f8fafc'}>
-                                                <i className={`fa-solid ${showCompletedProjects.has(p.id) ? 'fa-chevron-down' : 'fa-chevron-right'}`} style={{ fontSize: '0.48rem', color: '#10b981' }} />
+                                                <i className={`fa-solid ${showCompletedProjects.has(p.id) ? 'fa-chevron-down' : 'fa-chevron-right'}`} style={{ fontSize: '0.6rem', color: '#10b981' }} />
                                                 <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.68rem' }} />
                                                 <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#10b981', flex: 1 }}>
                                                     Voltooide taken ({p.tasks.filter(t => t.completed).length})
@@ -2048,7 +2830,7 @@ export default function ProjectenPage() {
                                             {/* Voltooide taak rijen */}
                                             {showCompletedProjects.has(p.id) && p.tasks.filter(t => t.completed).map(t => (
                                                 <div key={t.id} className="gantt-row"
-                                                    style={{ background: '#fafafa', borderBottom: '1px solid #f1f5f9', opacity: 0.75 }}>
+                                                    style={{ background: '#fafafa', borderBottom: '1px solid #f1f5f9' }}>
                                                     <div className="gantt-row-label" style={{ paddingLeft: '36px', flexDirection: 'column', alignItems: 'stretch', gap: '1px', padding: '4px 10px 4px 36px' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                             <input type="checkbox" checked={true} onChange={() => toggleTask(p.id, t.id)}
@@ -2064,14 +2846,16 @@ export default function ProjectenPage() {
                                                                 <i className="fa-solid fa-xmark" />
                                                             </button>
                                                         </div>
-                                                        <div style={{ fontSize: '0.57rem', color: '#94a3b8', paddingLeft: '20px' }}>
+                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', paddingLeft: '20px' }}>
                                                             {t.startDate} → {t.endDate}
                                                         </div>
                                                     </div>
-                                                    {/* Team kolom voltooide taak */}
-                                                    <div className="gantt-team-col" style={{ background: '#f1f5f9', justifyContent: 'center' }}>
+                                                    {/* Voortgang kolom voltooide taak */}
+                                                    <div className="gantt-progress-col" style={{ background: '#f1f5f9' }}>
                                                         <i className="fa-solid fa-check" style={{ color: '#10b981', fontSize: '0.62rem' }} />
                                                     </div>
+                                                    {/* Team kolom voltooide taak */}
+                                                    <div className="gantt-team-col" style={{ background: '#f1f5f9', justifyContent: 'center' }}></div>
                                                     <div className="gantt-row-timeline">
                                                         {timelineDates.map((d, i) => (
                                                             <div key={i} className={`gantt-cell ${isWeekend(d) ? 'weekend' : ''}`} />
@@ -2227,6 +3011,7 @@ export default function ProjectenPage() {
                                                                 <option value="vakantie">Vakantie/Afwezig</option>
                                                             </select>
                                                         </div>
+                                            <div className="gantt-progress-col" style={{ background: 'transparent' }}></div>
                                             <div className="gantt-team-col" style={{ background: 'transparent', fontSize: '0.48rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1px', lineHeight: 1.2 }}>
                                                 <span style={{ color: '#F5850A' }}>&#9679; bezet</span>
                                                 <span style={{ color: '#22c55e' }}>&#9679; vrij</span>
@@ -2289,6 +3074,8 @@ export default function ProjectenPage() {
                                                             {isZZP && <div style={{ fontSize: '0.48rem', color: '#8b5cf6', fontWeight: 600 }}>ZZP</div>}
                                                         </div>
                                                     </div>
+                                                    {/* Progress kolom placeholder voor uitlijning */}
+                                                    <div className="gantt-progress-col" style={{ background: '#fffbf5' }}></div>
                                                     {/* Team kolom */}
                                                     <div className="gantt-team-col" style={{ background: 'transparent', fontSize: '0.48rem', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                         {projects.reduce((acc, proj) => acc + (proj.tasks || []).filter(t => !t.completed && (t.assignedTo || []).includes(u.id)).length, 0)}t
@@ -2570,6 +3357,7 @@ export default function ProjectenPage() {
                                     </div>
                                 );
                             })}
+
                         </div>
                     )}
 
@@ -2763,104 +3551,19 @@ export default function ProjectenPage() {
                                                 );
                                             })}
                                         </div>
+                                        {/* Memo */}
+                                        <div style={{ marginTop: 10 }}>
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                                                <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b' }} /> Memo
+                                            </span>
+                                            <textarea defaultValue={task.memo || ''} onBlur={e => updateTaskMemo(task.id, proj.id, e.target.value)}
+                                                placeholder="Noteer hier een opmerking over deze taak..."
+                                                rows={3} style={{ width: '100%', fontSize: '0.72rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', resize: 'vertical', outline: 'none', color: '#334155', lineHeight: 1.5, boxSizing: 'border-box' }} />
+                                        </div>
                                     </div>
                                 );
                             })()}
 
-                            {/* ===== PERSONEEL INPLANNEN ===== */}
-                            <div style={{ marginTop: '14px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className="fa-solid fa-users" style={{ color: selectedProject.color || 'var(--accent)' }}></i>
-                                        Personeel inplannen
-                                    </span>
-                                    <span style={{ fontSize: '0.67rem', color: '#94a3b8' }}>
-                                        {/* Tel unieke medewerkers uit ALLE taken — zelfde bron als de team-symbolen */}
-                                        {[...new Set((selectedProject.tasks || []).flatMap(t => t.assignedTo || []))].length} ingepland
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                    {allUsers.map(user => {
-                                        // Controleer of deze persoon op MINSTENS ÉÉN taak staat (= zelfde bron als team-symbolen op de projectrij)
-                                        const assigned = (selectedProject.tasks || []).some(t => (t.assignedTo || []).includes(user.id));
-                                        const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
-                                        const avatarColor = user.avatarColor || selectedProject.color || '#3b82f6';
-                                        return (
-                                            <button
-                                                key={user.id}
-                                                title={assigned ? `${user.name} uitplannen` : `${user.name} inplannen`}
-                                                onClick={() => {
-                                                    // Toggle op ALLE taken → zelfde logica als Personeelsplanning-tab
-                                                    // Zo updaten de team-symbolen op de projectrij direct
-                                                    setProjects(prev => prev.map(pr => {
-                                                        if (pr.id !== selectedProject.id) return pr;
-                                                        const updatedTasks = (pr.tasks || []).map(t => ({
-                                                            ...t,
-                                                            assignedTo: assigned
-                                                                ? (t.assignedTo || []).filter(id => id !== user.id)
-                                                                : [...new Set([...(t.assignedTo || []), user.id])]
-                                                        }));
-                                                        return { ...pr, tasks: updatedTasks };
-                                                    }));
-                                                    setSelectedProject(prev => {
-                                                        if (!prev) return prev;
-                                                        const updatedTasks = (prev.tasks || []).map(t => ({
-                                                            ...t,
-                                                            assignedTo: assigned
-                                                                ? (t.assignedTo || []).filter(id => id !== user.id)
-                                                                : [...new Set([...(t.assignedTo || []), user.id])]
-                                                        }));
-                                                        return { ...prev, tasks: updatedTasks };
-                                                    });
-                                                }}
-                                                style={{
-                                                    display: 'flex', alignItems: 'center', gap: '7px',
-                                                    padding: '5px 11px 5px 6px',
-                                                    borderRadius: '20px',
-                                                    border: assigned ? `2px solid ${selectedProject.color || 'var(--accent)'}` : '2px solid #e2e8f0',
-                                                    background: assigned ? `${selectedProject.color || 'var(--accent)'}18` : '#fff',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.15s',
-                                                    outline: 'none',
-                                                }}
-                                                onMouseEnter={e => {
-                                                    if (!assigned) { e.currentTarget.style.borderColor = selectedProject.color || 'var(--accent)'; e.currentTarget.style.background = `${selectedProject.color || 'var(--accent)'}0d`; }
-                                                }}
-                                                onMouseLeave={e => {
-                                                    if (!assigned) { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fff'; }
-                                                }}
-                                            >
-                                                {/* Avatar circle */}
-                                                <div style={{
-                                                    width: '26px', height: '26px', borderRadius: '50%',
-                                                    background: assigned ? (selectedProject.color || '#3b82f6') : avatarColor + '30',
-                                                    color: assigned ? '#fff' : (avatarColor || '#64748b'),
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    fontSize: '0.6rem', fontWeight: 700, flexShrink: 0,
-                                                    border: assigned ? 'none' : `1px solid ${avatarColor}60`,
-                                                }}>
-                                                    {initials}
-                                                </div>
-                                                {/* Name */}
-                                                <span style={{
-                                                    fontSize: '0.72rem', fontWeight: assigned ? 700 : 500,
-                                                    color: assigned ? (selectedProject.color || 'var(--accent)') : '#475569',
-                                                    whiteSpace: 'nowrap',
-                                                }}>
-                                                    {user.name?.split(' ')[0] || user.email}
-                                                </span>
-                                                {/* Check icon when assigned */}
-                                                {assigned && (
-                                                    <i className="fa-solid fa-check" style={{ fontSize: '0.55rem', color: selectedProject.color || 'var(--accent)' }}></i>
-                                                )}
-                                            </button>
-                                        );
-                                    })}
-                                    {allUsers.length === 0 && (
-                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>Geen medewerkers gevonden</span>
-                                    )}
-                                </div>
-                            </div>
 
                             {/* Nieuwe taak formulier */}
                             <div style={{ marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
@@ -3667,6 +4370,421 @@ export default function ProjectenPage() {
                     </div>
                 );
             })()}
+                {/* ===== COMMUNICATIE TAB ===== */}
+                {tab === 'communicatie' && (() => {
+                    const alleItems = projects.flatMap(p => {
+                        const emails = (p.emails || []).map(e => ({ ...e, _type: 'email', projectId: p.id, projectName: p.name }));
+                        const notities = (p.tasks || []).flatMap(t =>
+                            (t.notes || []).map(n => ({ ...n, _type: 'notitie', projectId: p.id, projectName: p.name, taskName: t.name, taskId: t.id }))
+                        );
+                        return [...emails, ...notities];
+                    }).sort((a, b) => {
+                        const da = a.date || '';
+                        const db = b.date || '';
+                        return db.localeCompare(da) || b.id - a.id;
+                    });
+
+                    const gefilterd = alleItems
+                        .filter(e => emailFilter === 'alle' || e.projectId === Number(emailFilter))
+                        .filter(e => !emailZoek || [e.subject, e.contact, e.body, e.text, e.projectName, e.taskName]
+                            .some(v => v?.toLowerCase().includes(emailZoek.toLowerCase())));
+
+                    const statusKleur = { open: '#6b7280', actie: '#ef4444', afgehandeld: '#22c55e' };
+                    const statusLabel = { open: 'Open', actie: 'Actie vereist', afgehandeld: 'Afgehandeld' };
+
+                    return (
+                        <div style={{ display: 'flex', gap: 20, padding: '16px', height: 'calc(100vh - 120px)', boxSizing: 'border-box' }}>
+
+                            {/* Linkerkolom: berichtenlijst */}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+
+                                {/* Filterbar */}
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                                    <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
+                                        <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.72rem' }} />
+                                        <input value={emailZoek} onChange={e => setEmailZoek(e.target.value)} placeholder="Zoeken in berichten..."
+                                            style={{ width: '100%', padding: '6px 10px 6px 26px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.78rem', boxSizing: 'border-box' }} />
+                                    </div>
+                                    <select value={emailFilter} onChange={e => setEmailFilter(e.target.value)}
+                                        style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.78rem', background: '#f8fafc' }}>
+                                        <option value="alle">Alle projecten</option>
+                                        {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                    {outlookStatus ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                            <span style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #86efac', fontSize: '0.72rem', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                <i className="fa-brands fa-microsoft" />{outlookStatus.naam || 'Outlook verbonden'} ✓
+                                            </span>
+                                            <button onClick={async () => { await fetch('/api/outlook/logout', { method: 'POST' }); setOutlookStatus(false); }} style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #fecaca', fontSize: '0.72rem', background: '#fff5f5', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                <i className="fa-solid fa-right-from-bracket" /> Uitloggen
+                                            </button>
+                                        </div>
+                                    ) : null}
+                                </div>
+
+                                {/* Berichtenlijst */}
+                                <div style={{ flex: 1, overflowY: 'auto' }}>
+                                    {!outlookStatus && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 300, gap: 16 }}>
+                                            <div style={{ width: 64, height: 64, borderRadius: 16, background: 'linear-gradient(135deg,#0078d4,#106ebe)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <i className="fa-brands fa-microsoft" style={{ fontSize: '1.8rem', color: '#fff' }} />
+                                            </div>
+                                            <div style={{ textAlign: 'center' }}>
+                                                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>Outlook nog niet verbonden</div>
+                                                <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Verbind je account om e-mails te bekijken en taken aan te maken</div>
+                                            </div>
+                                            <a href="/api/outlook/auth" style={{ padding: '10px 24px', borderRadius: 10, border: 'none', fontSize: '0.85rem', fontWeight: 700, background: 'linear-gradient(135deg,#0078d4,#106ebe)', color: '#fff', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 12px rgba(0,120,212,0.3)' }}>
+                                                <i className="fa-brands fa-microsoft" /> Verbinden met Outlook
+                                            </a>
+                                        </div>
+                                    )}
+                                    {outlookStatus && gefilterd.length === 0 && (
+                                        <div style={{ textAlign: 'center', color: '#94a3b8', marginTop: 60, fontSize: '0.85rem' }}>
+                                            <i className="fa-solid fa-envelope-open" style={{ fontSize: '2rem', marginBottom: 10, display: 'block' }} />
+                                            Geen berichten gevonden
+                                        </div>
+                                    )}
+                                    {gefilterd.map(e => {
+                                        if (e._type === 'notitie') {
+                                            return (
+                                                <div key={`n-${e.id}`} style={{ marginBottom: 8, borderRadius: 8, border: '1px solid #fde68a', background: '#fffbeb', padding: '10px 12px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b', fontSize: '0.75rem', flexShrink: 0 }} />
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#92400e' }}>Notitie bij: {e.taskName}</div>
+                                                            <div style={{ fontSize: '0.72rem', color: '#6b7280' }}>{e.date} · {e.author} · <span style={{ fontStyle: 'italic' }}>{e.projectName}</span></div>
+                                                            <div style={{ fontSize: '0.78rem', color: '#374151', marginTop: 4 }}>{e.text}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                        const isIn = e.direction === 'in';
+                                        const expanded = expandedEmails.has(e.id);
+                                        const toggleExpand = () => setExpandedEmails(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; });
+                                        return (
+                                            <div key={e.id} style={{ marginBottom: 8, borderRadius: 8, border: `1px solid ${isIn ? '#bfdbfe' : '#fed7aa'}`, background: isIn ? '#eff6ff' : '#fff7ed', overflow: 'hidden' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', gap: 8, cursor: 'pointer' }} onClick={toggleExpand}>
+                                                    <i className={`fa-solid fa-arrow-${isIn ? 'down' : 'up'}`} style={{ color: isIn ? '#3b82f6' : '#f97316', fontSize: '0.75rem', flexShrink: 0 }} />
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontSize: '0.75rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {e.subject}
+                                                        </div>
+                                                        <div style={{ fontSize: '0.68rem', color: '#6b7280' }}>
+                                                            {e.date} · {e.contact} · <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>{e.projectName}</span>
+                                                        </div>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '2px 6px', borderRadius: 10, background: statusKleur[e.status] + '22', color: statusKleur[e.status], flexShrink: 0 }}>
+                                                        {statusLabel[e.status]}
+                                                    </span>
+                                                    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, flexShrink: 0 }} onClick={ev => ev.stopPropagation()}>
+                                                        {getCategories(e).map(cat => {
+                                                            const kleur = outlookKleuren[cat] || '#6d28d9';
+                                                            return (
+                                                                <span key={cat} title={`${cat} — klik om te verwijderen`}
+                                                                    onClick={ev => { ev.stopPropagation(); verwijderCategorie(e.projectId, e.id, getCategories(e), cat); }}
+                                                                    style={{ fontSize: '0.55rem', fontWeight: 700, color: '#fff', background: kleur, borderRadius: 4, padding: '1px 5px', cursor: 'pointer', maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                    {cat}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                        <select
+                                                            value=""
+                                                            onChange={ev => { if (ev.target.value) voegCategorieToe(e.projectId, e.id, getCategories(e), ev.target.value); }}
+                                                            style={{ fontSize: '0.55rem', color: '#94a3b8', background: 'transparent', border: 'none', outline: 'none', maxWidth: 18, padding: 0, cursor: 'pointer' }}
+                                                            title="Categorie toevoegen"
+                                                        >
+                                                            <option value="">+</option>
+                                                            {[...new Set([...outlookCategorieen, ...getCategories(e)])].filter(c => !getCategories(e).includes(c)).map(c => <option key={c} value={c}>{c}</option>)}
+                                                        </select>
+                                                    </span>
+                                                    {e.contact?.includes('@') && (
+                                                        <a href={`mailto:${e.contact}?subject=${encodeURIComponent('Re: ' + e.subject)}`}
+                                                            title="Openen in Outlook"
+                                                            onClick={ev => ev.stopPropagation()}
+                                                            style={{ color: '#3b82f6', fontSize: '0.75rem', padding: '0 4px', textDecoration: 'none', flexShrink: 0 }}>
+                                                            <i className="fa-solid fa-envelope-circle-check" />
+                                                        </a>
+                                                    )}
+                                                    <i className={`fa-solid fa-chevron-${expanded ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.6rem', flexShrink: 0 }} />
+                                                </div>
+                                                {expanded && <div style={{ padding: '0 12px 12px', borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+                                                        <div style={{ margin: '10px 0 8px' }}>
+                                                            {(resolvedBodies[e.id] || e.bodyHtml) ? (
+                                                                <iframe
+                                                                    srcDoc={`<html><head><base target="_blank"><style>body{font-family:Arial,sans-serif;font-size:13px;margin:8px;word-break:break-word;}</style></head><body>${resolvedBodies[e.id] || e.bodyHtml}</body></html>`}
+                                                                    sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+                                                                    style={{ width: '100%', border: 'none', borderRadius: 6, background: '#fff', minHeight: 120 }}
+                                                                    onLoad={ev => { try { ev.target.style.height = ev.target.contentDocument.body.scrollHeight + 20 + 'px'; } catch {} }}
+                                                                />
+                                                            ) : e.body ? (() => {
+                                                                const parts = e.body.split(/(<https?:\/\/[^>]+>|https?:\/\/[^\s<>"]+)/g);
+                                                                return <div style={{ fontSize: '0.78rem', color: '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{parts.map((part, i) => {
+                                                                    const url = part.startsWith('<') ? part.slice(1, -1) : part;
+                                                                    if (/^https?:\/\//.test(url)) {
+                                                                        return <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>;
+                                                                    }
+                                                                    return part;
+                                                                })}</div>;
+                                                            })() : <em style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Geen berichttekst</em>}
+                                                        </div>
+                                                        {e.attachment && (
+                                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#f1f5f9', borderRadius: 5, padding: '4px 8px', fontSize: '0.72rem', color: '#475569', marginBottom: 8 }}>
+                                                                <i className="fa-solid fa-paperclip" /> {e.attachment.name}
+                                                            </div>
+                                                        )}
+                                                        {(e.originalFile || e.bijlagen?.length > 0 || e.outlookBijlagen?.length > 0) && (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                                                                {e.originalFile && (() => {
+                                                                    const downloadMsg = async () => {
+                                                                        const data = await haalEmailBestandOp(e.originalFile.fileId);
+                                                                        if (!data) return;
+                                                                        const url = URL.createObjectURL(data.blob);
+                                                                        const a = document.createElement('a');
+                                                                        a.href = url; a.download = e.originalFile.name; a.click();
+                                                                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                                                                    };
+                                                                    return <button onClick={downloadMsg} title={e.originalFile.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '4px 10px', fontSize: '0.72rem', color: '#15803d', cursor: 'pointer', fontWeight: 500 }}>
+                                                                        <i className="fa-solid fa-envelope-arrow-down" /> E-mail downloaden
+                                                                    </button>;
+                                                                })()}
+                                                                {(e.bijlagen || []).filter(bij => {
+                                                                    const html = resolvedBodies[e.id] || e.bodyHtml || '';
+                                                                    return !html.includes(`cid:${bij.name}`);
+                                                                }).map((bij, i) => (
+                                                                    <button key={i} onClick={async () => {
+                                                                        const data = await haalEmailBestandOp(bij.fileId);
+                                                                        if (!data) return;
+                                                                        const url = URL.createObjectURL(data.blob);
+                                                                        const a = document.createElement('a');
+                                                                        a.href = url; a.download = data.name; a.click();
+                                                                        URL.revokeObjectURL(url);
+                                                                    }} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f0fdf4', borderRadius: 5, padding: '4px 8px', fontSize: '0.72rem', color: '#16a34a', border: 'none', cursor: 'pointer' }}>
+                                                                        <i className="fa-solid fa-paperclip" /> {bij.name}
+                                                                    </button>
+                                                                ))}
+                                                                {(e.outlookBijlagen || []).map((bij, i) => (
+                                                                    <a key={`ob-${i}`}
+                                                                        href={`/api/outlook/attachment?msgId=${e.outlookId}&attId=${bij.id}&naam=${encodeURIComponent(bij.name)}`}
+                                                                        download={bij.name}
+                                                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f0fdf4', borderRadius: 5, padding: '4px 8px', fontSize: '0.72rem', color: '#16a34a', textDecoration: 'none', cursor: 'pointer' }}>
+                                                                        <i className="fa-solid fa-paperclip" /> {bij.name}
+                                                                    </a>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                                            {['actie', 'afgehandeld'].map(s => (
+                                                                <button key={s} onClick={() => updateEmailStatus(e.projectId, e.id, s)}
+                                                                    style={{ fontSize: '0.65rem', padding: '3px 8px', borderRadius: 6, border: `1px solid ${statusKleur[s]}`, background: e.status === s ? statusKleur[s] : 'transparent', color: e.status === s ? '#fff' : statusKleur[s], cursor: 'pointer', fontWeight: 600 }}>
+                                                                    {statusLabel[s]}
+                                                                </button>
+                                                            ))}
+                                                            {e.direction === 'in' && (
+                                                                <button onClick={async () => {
+                                                                    if (e.originalFile?.fileId) {
+                                                                        const data = await haalEmailBestandOp(e.originalFile.fileId);
+                                                                        if (!data) return;
+                                                                        const base64 = await new Promise(res => {
+                                                                            const fr = new FileReader();
+                                                                            fr.onload = () => res(fr.result.split(',')[1]);
+                                                                            fr.readAsDataURL(data.blob);
+                                                                        });
+                                                                        await fetch('/api/outlook/open-msg', {
+                                                                            method: 'POST',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({ content: base64, name: e.originalFile.name }),
+                                                                        });
+                                                                    } else if (e.contact) {
+                                                                        const emailMatch = e.contact.match(/<([^>]+)>/) || e.contact.match(/([^\s]+@[^\s]+)/);
+                                                                        const emailAdres = emailMatch ? emailMatch[1] : e.contact;
+                                                                        window.location.href = `mailto:${emailAdres}?subject=${encodeURIComponent('Re: ' + (e.subject || ''))}`;
+                                                                    }
+                                                                }} style={{ fontSize: '0.65rem', padding: '3px 8px', borderRadius: 6, border: '1px solid #3b82f6', background: 'transparent', color: '#3b82f6', cursor: 'pointer', fontWeight: 600, marginLeft: 'auto' }}>
+                                                                    <i className="fa-solid fa-reply" style={{ marginRight: 4 }} />Beantwoorden
+                                                                </button>
+                                                            )}
+                                                            <button onClick={async () => {
+                                                                setVoorgesteldeTaken(prev => ({ ...prev, [e.id]: { loading: true, taken: [] } }));
+                                                                try {
+                                                                    const res = await fetch('/api/outlook/extract-taken', {
+                                                                        method: 'POST',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ subject: e.subject, body: e.bodyHtml || e.body || e.bodyPreview || '' }),
+                                                                    });
+                                                                    const data = res.ok ? await res.json() : { taken: [] };
+                                                                    setVoorgesteldeTaken(prev => ({ ...prev, [e.id]: { loading: false, taken: data.taken || [] } }));
+                                                                } catch {
+                                                                    setVoorgesteldeTaken(prev => ({ ...prev, [e.id]: { loading: false, taken: [] } }));
+                                                                }
+                                                            }} style={{ fontSize: '0.65rem', padding: '3px 8px', borderRadius: 6, border: '1px solid #a855f7', background: 'transparent', color: '#9333ea', cursor: 'pointer', fontWeight: 600 }}>
+                                                                <i className="fa-solid fa-wand-magic-sparkles" style={{ marginRight: 4 }} />
+                                                                {voorgesteldeTaken[e.id]?.loading ? 'Analyseren...' : 'Taken voorstellen'}
+                                                            </button>
+                                                            {e.outlookId && (
+                                                                <button
+                                                                    onClick={() => archiveerInOutlook(e.projectId, e.id, e.outlookId)}
+                                                                    disabled={e.gearchiveerd}
+                                                                    title={e.gearchiveerd ? 'Al gearchiveerd in Outlook' : `Verplaats naar Projecten/${projects.find(p => p.id === e.projectId)?.name}`}
+                                                                    style={{ fontSize: '0.65rem', padding: '3px 8px', borderRadius: 6, border: `1px solid ${e.gearchiveerd ? '#d1d5db' : '#16a34a'}`, background: 'transparent', color: e.gearchiveerd ? '#9ca3af' : '#16a34a', cursor: e.gearchiveerd ? 'default' : 'pointer', fontWeight: 600 }}>
+                                                                    <i className="fa-solid fa-folder-arrow-down" style={{ marginRight: 4 }} />{e.gearchiveerd ? 'Gearchiveerd' : 'Archiveer'}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        {/* AI voorgestelde taken */}
+                                                        {(voorgesteldeTaken[e.id]?.taken?.length > 0) && (
+                                                            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                                                <span style={{ fontSize: '0.65rem', color: '#9333ea', fontWeight: 600 }}>
+                                                                    <i className="fa-solid fa-wand-magic-sparkles" style={{ marginRight: 4 }} />Voorgestelde taken:
+                                                                </span>
+                                                                {voorgesteldeTaken[e.id].taken.map((t, i) => (
+                                                                    <button key={i} onClick={() => {
+                                                                        const project = projects.find(p => p.id === e.projectId);
+                                                                        const taak = {
+                                                                            id: 't' + Date.now(),
+                                                                            name: t.name,
+                                                                            startDate: t.deadline || formatDate(new Date()),
+                                                                            endDate: t.deadline || project?.endDate || formatDate(new Date()),
+                                                                            assignedTo: [],
+                                                                            completed: false,
+                                                                            notes: [],
+                                                                        };
+                                                                        setProjects(prev => prev.map(p =>
+                                                                            p.id !== e.projectId ? p : { ...p, tasks: [...(p.tasks || []), taak] }
+                                                                        ));
+                                                                        setVoorgesteldeTaken(prev => ({
+                                                                            ...prev,
+                                                                            [e.id]: { ...prev[e.id], taken: prev[e.id].taken.filter((_, j) => j !== i) },
+                                                                        }));
+                                                                    }} style={{ fontSize: '0.68rem', padding: '3px 10px', borderRadius: 12, border: '1px solid #d8b4fe', background: '#faf5ff', color: '#7c3aed', cursor: 'pointer', fontWeight: 500 }}>
+                                                                        <i className="fa-solid fa-plus" style={{ marginRight: 4 }} />{t.name}{t.deadline ? ` · ${t.deadline}` : ''}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {/* Verwijder email */}
+                                                        <div style={{ marginTop: 6 }}>
+                                                            <button onClick={() => {
+                                                                const code = prompt('Voer de verwijdercode in:');
+                                                                if (code === '3333') {
+                                                                    setProjects(prev => prev.map(p => p.id === e.projectId
+                                                                        ? { ...p, emails: (p.emails || []).filter(em => em.id !== e.id) }
+                                                                        : p
+                                                                    ));
+                                                                }
+                                                            }} style={{ fontSize: '0.65rem', padding: '3px 8px', borderRadius: 6, border: '1px solid #fca5a5', background: 'transparent', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>
+                                                                <i className="fa-solid fa-trash" style={{ marginRight: 4 }} />Verwijder uit app
+                                                            </button>
+                                                        </div>
+                                                        {/* Integratie: taak aanmaken + koppelen */}
+                                                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                                            {!e.taskId && (
+                                                                <button onClick={() => addTaskFromEmail(e.projectId, e)}
+                                                                    style={{ fontSize: '0.65rem', padding: '3px 8px', borderRadius: 6, border: '1px solid #8b5cf6', background: 'transparent', color: '#8b5cf6', cursor: 'pointer', fontWeight: 600 }}>
+                                                                    <i className="fa-solid fa-list-check" style={{ marginRight: 4 }} />Maak taak
+                                                                </button>
+                                                            )}
+                                                            <select value={e.taskId || ''} onChange={ev => linkEmailToTask(e.projectId, e.id, ev.target.value || null)}
+                                                                style={{ fontSize: '0.65rem', padding: '3px 6px', borderRadius: 6, border: '1px solid #d1d5db', color: '#475569', maxWidth: 160 }}>
+                                                                <option value="">Koppel aan taak...</option>
+                                                                {(projects.find(p => p.id === e.projectId)?.tasks || []).map(t => (
+                                                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                                                ))}
+                                                            </select>
+                                                            <select value="" onChange={ev => { if (ev.target.value) verplaatsNaarProject(e.id, e.projectId, parseInt(ev.target.value)); }}
+                                                                style={{ fontSize: '0.65rem', padding: '3px 6px', borderRadius: 6, border: '1px solid #d1d5db', color: '#475569', maxWidth: 160 }}>
+                                                                <option value="">→ Verplaats naar project...</option>
+                                                                {projects.filter(p => p.id !== e.projectId).map(p => (
+                                                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                                                ))}
+                                                            </select>
+                                                            {e.taskId && (
+                                                                <span style={{ fontSize: '0.65rem', color: '#22c55e' }}>
+                                                                    <i className="fa-solid fa-link" style={{ marginRight: 3 }} />
+                                                                    {projects.find(p => p.id === e.projectId)?.tasks?.find(t => t.id === e.taskId)?.name}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Rechterkolom: formulier — hele kolom is drop-zone */}
+                            <div style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10 }}
+                                onDrop={handleEmailDrop}
+                                onDragOver={e => { e.preventDefault(); setEmailDragOver(true); }}
+                                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setEmailDragOver(false); }}>
+                                {/* Drag & Drop zone */}
+                                <div style={{ border: `2px dashed ${emailDragOver ? '#3b82f6' : '#e2e8f0'}`, borderRadius: 8, padding: '14px', textAlign: 'center', background: emailDragOver ? '#eff6ff' : '#f8fafc', transition: 'all 0.15s', pointerEvents: 'none' }}>
+                                    <i className="fa-solid fa-cloud-arrow-down" style={{ color: emailDragOver ? '#3b82f6' : '#94a3b8', fontSize: '1.4rem', marginBottom: 4, display: 'block' }} />
+                                    <div style={{ fontSize: '0.75rem', color: emailDragOver ? '#3b82f6' : '#6b7280', fontWeight: 600 }}>
+                                        {emailDragOver ? 'Loslaten om in te lezen...' : 'Sleep een .eml bestand hier naartoe'}
+                                    </div>
+                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: 2 }}>Sleep .msg of .eml bestand vanuit Verkenner</div>
+                                </div>
+
+                                {/* Formulier */}
+                                <div style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b', marginBottom: 2 }}>Nieuw bericht</div>
+                                    <div style={{ display: 'flex', gap: 12 }}>
+                                        {['in', 'out'].map(dir => (
+                                            <label key={dir} style={{ fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                <input type="radio" name="emailDir" value={dir} checked={newEmail.direction === dir}
+                                                    onChange={() => setNewEmail(p => ({ ...p, direction: dir }))} />
+                                                {dir === 'in' ? '↓ Inkomend' : '↑ Uitgaand'}
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <select value={emailFilter !== 'alle' ? emailFilter : ''} onChange={e => {
+                                        setEmailFilter(e.target.value);
+                                        const proj = projects.find(p => p.id === Number(e.target.value));
+                                        if (proj) setNewEmail(prev => ({ ...prev, contact: proj.email || proj.client || '' }));
+                                    }} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.78rem' }}>
+                                        <option value="">— Kies project —</option>
+                                        {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                    <input type="date" value={newEmail.date} onChange={e => setNewEmail(p => ({ ...p, date: e.target.value }))}
+                                        style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.78rem', boxSizing: 'border-box' }} />
+                                    <input placeholder="Contact (naam of e-mail)" value={newEmail.contact} onChange={e => setNewEmail(p => ({ ...p, contact: e.target.value }))}
+                                        style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.78rem', boxSizing: 'border-box' }} />
+                                    <input placeholder="Onderwerp" value={newEmail.subject} onChange={e => setNewEmail(p => ({ ...p, subject: e.target.value }))}
+                                        style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.78rem', boxSizing: 'border-box' }} />
+                                    <select value={newEmail.category || ''} onChange={e => setNewEmail(p => ({ ...p, category: e.target.value || null }))}
+                                        style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.78rem', boxSizing: 'border-box' }}>
+                                        <option value="">Outlook-categorie (optioneel)</option>
+                                        {outlookCategorieen.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                    <textarea placeholder="Berichttekst..." value={newEmail.body} onChange={e => setNewEmail(p => ({ ...p, body: e.target.value }))}
+                                        rows={4} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.78rem', resize: 'vertical', boxSizing: 'border-box' }} />
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.75rem', color: '#475569', cursor: 'pointer', border: '1px dashed #d1d5db', borderRadius: 6, padding: '6px 10px' }}>
+                                        <i className="fa-solid fa-paperclip" />
+                                        {newEmail.attachment ? newEmail.attachment.name : 'Bijlage toevoegen'}
+                                        <input type="file" style={{ display: 'none' }} onChange={e => {
+                                            const f = e.target.files[0];
+                                            if (f) setNewEmail(p => ({ ...p, attachment: { name: f.name, size: f.size } }));
+                                        }} />
+                                        {newEmail.attachment && <span onClick={ev => { ev.preventDefault(); setNewEmail(p => ({ ...p, attachment: null })); }} style={{ marginLeft: 'auto', color: '#94a3b8' }}>✕</span>}
+                                    </label>
+                                    {(() => {
+                                        const pid = Number(emailFilter);
+                                        const kanToevoegen = pid && newEmail.subject.trim();
+                                        return (
+                                            <button onClick={() => { if (kanToevoegen) addEmail(pid); }}
+                                                title={!pid ? 'Kies eerst een project' : !newEmail.subject.trim() ? 'Vul het onderwerp in' : ''}
+                                                style={{ padding: '8px', background: kanToevoegen ? '#3b82f6' : '#94a3b8', color: '#fff', border: 'none', borderRadius: 7, cursor: kanToevoegen ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.82rem', opacity: kanToevoegen ? 1 : 0.6 }}>
+                                                <i className="fa-solid fa-plus" style={{ marginRight: 6 }} />
+                                                {!pid ? 'Kies een project ↑' : !newEmail.subject.trim() ? 'Onderwerp ontbreekt' : 'Toevoegen'}
+                                            </button>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
         </div>
 
         {/* ===== WORKER AVATAR TOOLTIP (fixed = buiten overflow clipping) ===== */}
@@ -3709,18 +4827,25 @@ export default function ProjectenPage() {
             const color = proj.color || 'var(--accent)';
             const dateStr = teamPopup.dateStr || null;
 
-            // Bepaal huidige toewijzing: ALTIJD de hele taak (verzoek compact & gehele taak toewijzen)
-            const assigned = task.assignedTo || [];
+            const assigned = dateStr
+                ? (task.assignedByDay?.[dateStr] ?? task.assignedTo ?? [])
+                : (task.assignedTo || []);
 
             const toggle = (userId) => {
                 const next = assigned.includes(userId)
                     ? assigned.filter(id => id !== userId)
                     : [...assigned, userId];
-                
-                // Sla op in assignedTo voor de hele taak
-                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
-                    ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, assignedTo: next })
-                }));
+                if (dateStr) {
+                    setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                        ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : {
+                            ...tk, assignedByDay: { ...(tk.assignedByDay || {}), [dateStr]: next }
+                        })
+                    }));
+                } else {
+                    setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                        ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, assignedTo: next })
+                    }));
+                }
             };
 
             return (
@@ -3746,7 +4871,9 @@ export default function ProjectenPage() {
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color }}></div>
                                 <div>
                                     <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#1e293b' }}>{task.name}</span>
-                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', marginTop: '1px' }}>📋 Toewijzing (hele taak)</div>
+                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', marginTop: '1px' }}>
+                                {dateStr ? `📅 ${new Date(dateStr + 'T00:00:00').toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })}` : '📋 Toewijzing (hele taak)'}
+                            </div>
                                 </div>
                             </div>
                             <button onClick={() => setTeamPopup(null)}
@@ -3856,6 +4983,59 @@ export default function ProjectenPage() {
                 </>
             );
         })()}
+        {/* ===== AFHANKELIJKHEID POPUP ===== */}
+        {depPopup && (() => {
+            const proj = projects.find(pr => pr.id === depPopup.projectId);
+            if (!proj) return null;
+            const task = proj.tasks.find(t => t.id === depPopup.taskId);
+            if (!task) return null;
+            const otherTasks = proj.tasks.filter(t => t.id !== depPopup.taskId && !t.completed);
+            const px = Math.min(depPopup.x, window.innerWidth - 240);
+            const py = Math.min(depPopup.y, window.innerHeight - 200);
+            const setDep = (depId) => {
+                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, dependsOn: depId })
+                }));
+                setDepPopup(null);
+            };
+            return (
+                <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 99990 }} onClick={() => setDepPopup(null)} />
+                    <div style={{ position: 'fixed', left: px, top: py, zIndex: 99995, background: '#fff', borderRadius: '12px', padding: '12px 14px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: '220px', maxWidth: '260px', border: '1px solid #e2e8f0' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #f1f5f9' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fa-solid fa-link" style={{ color: '#F5850A' }} />
+                                Afhankelijkheid
+                            </span>
+                            <button onClick={() => setDepPopup(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', padding: '2px' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+                        <div style={{ fontSize: '0.62rem', color: '#64748b', marginBottom: '8px' }}>
+                            <span style={{ fontWeight: 600, color: '#1e293b' }}>{task.name}</span> start na:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '180px', overflowY: 'auto' }}>
+                            <button onClick={() => setDep(null)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 8px', border: !task.dependsOn ? '1.5px solid #F5850A' : '1.5px solid #f1f5f9', borderRadius: '6px', background: !task.dependsOn ? '#FFF7ED' : '#f8fafc', cursor: 'pointer', textAlign: 'left' }}>
+                                <i className="fa-solid fa-ban" style={{ fontSize: '0.6rem', color: !task.dependsOn ? '#F5850A' : '#94a3b8', width: '12px' }} />
+                                <span style={{ fontSize: '0.68rem', color: !task.dependsOn ? '#F5850A' : '#64748b', fontWeight: !task.dependsOn ? 700 : 400 }}>(geen)</span>
+                            </button>
+                            {otherTasks.map(ot => {
+                                const active = task.dependsOn === ot.id;
+                                return (
+                                    <button key={ot.id} onClick={() => setDep(ot.id)}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 8px', border: active ? '1.5px solid #F5850A' : '1.5px solid #f1f5f9', borderRadius: '6px', background: active ? '#FFF7ED' : '#f8fafc', cursor: 'pointer', textAlign: 'left' }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: proj.color, flexShrink: 0 }} />
+                                        <span style={{ fontSize: '0.68rem', color: active ? '#F5850A' : '#1e293b', fontWeight: active ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ot.name}</span>
+                                        {active && <i className="fa-solid fa-check" style={{ fontSize: '0.6rem', color: '#F5850A', marginLeft: 'auto', flexShrink: 0 }} />}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </>
+            );
+        })()}
         {quickTaskPopup && (() => {
             const proj = projects.find(pr => pr.id === quickTaskPopup.projectId);
             if (!proj) return null;
@@ -3923,12 +5103,316 @@ export default function ProjectenPage() {
             );
         })()}
 
-        {/* ===== NOTITIE HOVER TOOLTIP OP TIJDLIJN ===== */}
+        {/* ===== DOSSIER TAB ===== */}
+        {tab === 'dossier' && (() => {
+            const projId = dossierProjId ?? selectedProject?.id ?? projects[0]?.id;
+            const proj = projects.find(p => p.id === projId);
+            const projKleur = proj?.color || '#3b82f6';
+
+            const emailItems = (proj?.emails || []).map(e => ({ ...e, _type: 'email', _datum: new Date(e.date || 0) }));
+            const taakItems = (proj?.tasks || []).map(t => ({ ...t, _type: 'taak', _datum: new Date(t.endDate || t.startDate || 0) }));
+            let alleItems = [...emailItems, ...taakItems].sort((a, b) => b._datum - a._datum);
+            if (dossierFilter === 'email') alleItems = alleItems.filter(x => x._type === 'email');
+            else if (dossierFilter === 'taak') alleItems = alleItems.filter(x => x._type === 'taak');
+            else if (dossierFilter === 'open') alleItems = alleItems.filter(x => x._type === 'email' ? x.status !== 'afgehandeld' : !x.completed);
+
+            const openEmails = emailItems.filter(e => e.status !== 'afgehandeld').length;
+            const openTaken = taakItems.filter(t => !t.completed).length;
+
+            const openInOutlookDossier = async (e) => {
+                if (e.originalFile?.fileId) {
+                    const data = await haalEmailBestandOp(e.originalFile.fileId);
+                    if (!data) return;
+                    const base64 = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result.split(',')[1]); fr.readAsDataURL(data.blob); });
+                    await fetch('/api/outlook/open-msg', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: base64, name: e.originalFile.name }) });
+                } else if (e.contact) {
+                    const m = e.contact.match(/<([^>]+)>/) || e.contact.match(/([^\s]+@[^\s]+)/);
+                    window.location.href = `mailto:${m ? m[1] : e.contact}?subject=${encodeURIComponent('Re: ' + (e.subject || ''))}`;
+                }
+            };
+
+            // Groepeer op datum
+            const today = new Date(); today.setHours(0,0,0,0);
+            const gisteren = new Date(today); gisteren.setDate(gisteren.getDate() - 1);
+            const weekGeleden = new Date(today); weekGeleden.setDate(weekGeleden.getDate() - 7);
+            const getDatumGroep = (d) => {
+                if (!d || isNaN(d)) return 'Eerder';
+                const dd = new Date(d); dd.setHours(0,0,0,0);
+                if (dd >= today) return 'Vandaag';
+                if (dd >= gisteren) return 'Gisteren';
+                if (dd >= weekGeleden) return 'Deze week';
+                return 'Eerder';
+            };
+            const groepen = [];
+            let huidigeGroep = null;
+            alleItems.forEach((item, idx) => {
+                const groep = getDatumGroep(item._datum);
+                if (groep !== huidigeGroep) { groepen.push({ label: groep, items: [] }); huidigeGroep = groep; }
+                groepen[groepen.length - 1].items.push({ item, idx });
+            });
+
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)' }}>
+                    {/* ── Vaste header ── */}
+                    <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '12px 20px', flexShrink: 0 }}>
+                        {/* Rij 1: project-kiezer + stats */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                            <div style={{ width: 12, height: 12, borderRadius: '50%', background: projKleur, flexShrink: 0 }} />
+                            <select value={projId || ''} onChange={e => setDossierProjId(Number(e.target.value) || e.target.value)}
+                                style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 700, background: '#fff', color: '#1e293b', flex: 1, maxWidth: 320 }}>
+                                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                            {proj && (
+                                <div style={{ display: 'flex', gap: 10, marginLeft: 4 }}>
+                                    <span style={{ fontSize: '0.72rem', color: openEmails > 0 ? '#dc2626' : '#94a3b8', fontWeight: openEmails > 0 ? 700 : 400 }}>
+                                        <i className="fa-solid fa-envelope" style={{ marginRight: 4 }} />{openEmails} open
+                                    </span>
+                                    <span style={{ fontSize: '0.72rem', color: openTaken > 0 ? '#f59e0b' : '#94a3b8', fontWeight: openTaken > 0 ? 700 : 400 }}>
+                                        <i className="fa-solid fa-list-check" style={{ marginRight: 4 }} />{openTaken} taken
+                                    </span>
+                                </div>
+                            )}
+                            <button onClick={() => setShowSjablonen(v => !v)}
+                                style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 8, border: `1px solid ${showSjablonen ? '#a855f7' : '#d8b4fe'}`, background: showSjablonen ? '#f3e8ff' : '#faf5ff', color: '#7c3aed', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
+                                <i className="fa-solid fa-layer-group" style={{ marginRight: 5 }} />Sjablonen
+                            </button>
+                        </div>
+                        {/* Rij 2: filters */}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            {[['alle', 'fa-inbox', 'Alles'], ['email', 'fa-envelope', 'Emails'], ['taak', 'fa-list-check', 'Taken'], ['open', 'fa-circle-dot', 'Alleen open']].map(([v, ic, l]) => (
+                                <button key={v} onClick={() => setDossierFilter(v)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 20, border: `1px solid ${dossierFilter === v ? projKleur : '#e2e8f0'}`, background: dossierFilter === v ? projKleur + '15' : 'transparent', color: dossierFilter === v ? projKleur : '#64748b', fontSize: '0.72rem', fontWeight: dossierFilter === v ? 700 : 500, cursor: 'pointer' }}>
+                                    <i className={`fa-solid ${ic}`} style={{ fontSize: '0.65rem' }} />{l}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ── Sjablonen paneel ── */}
+                    {showSjablonen && (
+                        <div style={{ background: '#faf5ff', borderBottom: '1px solid #e9d5ff', padding: '12px 20px', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: sjabloonExpanded !== null ? 10 : 0 }}>
+                                {TAAK_TEMPLATES.map((tmpl, ti) => (
+                                    <button key={ti} onClick={() => setSjabloonExpanded(sjabloonExpanded === ti ? null : ti)}
+                                        style={{ padding: '4px 12px', borderRadius: 20, border: `1.5px solid ${sjabloonExpanded === ti ? tmpl.kleur : '#d8b4fe'}`, background: sjabloonExpanded === ti ? tmpl.kleur + '18' : '#fff', color: sjabloonExpanded === ti ? tmpl.kleur : '#7c3aed', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
+                                        {tmpl.naam}
+                                    </button>
+                                ))}
+                            </div>
+                            {sjabloonExpanded !== null && (() => {
+                                const tmpl = TAAK_TEMPLATES[sjabloonExpanded];
+                                return (
+                                    <div style={{ background: '#fff', border: `1.5px solid ${tmpl.kleur}55`, borderRadius: 10, padding: '10px 14px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: tmpl.kleur }}>{tmpl.naam} — {tmpl.taken.length} taken</span>
+                                            <button onClick={() => {
+                                                if (!proj) return;
+                                                const nieuweItems = tmpl.taken.map((naam, i) => ({ id: 't' + (Date.now() + i), name: naam, startDate: proj.startDate || formatDate(new Date()), endDate: proj.endDate || formatDate(new Date()), assignedTo: [], completed: false, notes: [], category: tmpl.naam }));
+                                                setProjects(prev => prev.map(p => p.id !== proj.id ? p : { ...p, tasks: [...(p.tasks || []), ...nieuweItems] }));
+                                                setSjabloonExpanded(null); setShowSjablonen(false);
+                                            }} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: tmpl.kleur, color: '#fff', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                <i className="fa-solid fa-check-double" style={{ marginRight: 5 }} />Alles toevoegen
+                                            </button>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '6px' }}>
+                                            {tmpl.taken.map((naam, i) => (
+                                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, background: '#f8fafc', border: '1px solid #f1f5f9' }}>
+                                                    <span style={{ flex: 1, fontSize: '0.72rem', color: '#334155' }}>{naam}</span>
+                                                    <button onClick={() => {
+                                                        if (!proj) return;
+                                                        setProjects(prev => prev.map(p => p.id !== proj.id ? p : { ...p, tasks: [...(p.tasks || []), { id: 't' + Date.now(), name: naam, startDate: proj.startDate || formatDate(new Date()), endDate: proj.endDate || formatDate(new Date()), assignedTo: [], completed: false, notes: [], category: tmpl.naam }] }));
+                                                    }} style={{ padding: '2px 8px', borderRadius: 5, border: `1px solid ${tmpl.kleur}`, background: 'transparent', color: tmpl.kleur, fontSize: '0.62rem', cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: 600 }}>+ Voeg toe</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    )}
+
+                    {/* ── Scrollbaar tijdlijn-gebied ── */}
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+                        {!proj ? (
+                            <div style={{ textAlign: 'center', color: '#94a3b8', padding: 60 }}>
+                                <i className="fa-solid fa-briefcase" style={{ fontSize: '2rem', marginBottom: 12, display: 'block', opacity: 0.3 }} />
+                                Selecteer een project
+                            </div>
+                        ) : alleItems.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#94a3b8', padding: 60 }}>
+                                <i className="fa-solid fa-inbox" style={{ fontSize: '2rem', marginBottom: 12, display: 'block', opacity: 0.3 }} />
+                                Geen items gevonden voor dit filter
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                                {groepen.map((groep, gi) => (
+                                    <div key={gi}>
+                                        {/* Datumgroep-header */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: gi === 0 ? '0 0 12px' : '20px 0 12px' }}>
+                                            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{groep.label}</span>
+                                            <div style={{ flex: 1, height: 1, background: '#f1f5f9' }} />
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {groep.items.map(({ item, idx }) => {
+                                                if (item._type === 'email') {
+                                                    const isExpanded = dossierExpanded.has(item.id);
+                                                    const heeftTaak = !!(proj.tasks || []).find(t => t.id === item.taskId);
+                                                    const isIn = item.direction === 'in';
+                                                    const accentKleur = isIn ? '#3b82f6' : '#64748b';
+                                                    const statusStijl = item.status === 'actie'
+                                                        ? { bg: '#fef2f2', color: '#dc2626', label: 'Actie vereist' }
+                                                        : item.status === 'afgehandeld'
+                                                        ? { bg: '#f0fdf4', color: '#16a34a', label: 'Afgehandeld' }
+                                                        : null;
+                                                    return (
+                                                        <div key={item.id || idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderLeft: `3px solid ${accentKleur}`, borderRadius: 10, overflow: 'hidden', transition: 'box-shadow 0.15s' }}
+                                                            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'}
+                                                            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
+                                                            {/* Rij */}
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}
+                                                                onClick={() => setDossierExpanded(prev => { const s = new Set(prev); s.has(item.id) ? s.delete(item.id) : s.add(item.id); return s; })}>
+                                                                <div style={{ width: 32, height: 32, borderRadius: '50%', background: accentKleur + '15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                    <i className={`fa-solid ${isIn ? 'fa-envelope-open-text' : 'fa-paper-plane'}`} style={{ color: accentKleur, fontSize: '0.8rem' }} />
+                                                                </div>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontWeight: 600, fontSize: '0.82rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.subject || '(geen onderwerp)'}</div>
+                                                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: 1 }}>
+                                                                        <span style={{ color: '#64748b' }}>{isIn ? 'Van' : 'Aan'}:</span> {item.contact} &nbsp;·&nbsp; {item.date}
+                                                                    </div>
+                                                                </div>
+                                                                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                                                                    {heeftTaak && <span style={{ fontSize: '0.6rem', background: '#eff6ff', color: '#2563eb', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}><i className="fa-solid fa-link" style={{ marginRight: 3 }} />Taak</span>}
+                                                                    {statusStijl && <span style={{ fontSize: '0.6rem', background: statusStijl.bg, color: statusStijl.color, borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>{statusStijl.label}</span>}
+                                                                    <button onClick={e => { e.stopPropagation(); openInOutlookDossier(item); }}
+                                                                        style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>
+                                                                        <i className="fa-solid fa-reply" style={{ marginRight: 4 }} />Beantwoorden
+                                                                    </button>
+                                                                    {!heeftTaak && (
+                                                                        <button onClick={e => { e.stopPropagation(); addTaskFromEmail(proj.id, item); }}
+                                                                            style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#16a34a', cursor: 'pointer', fontWeight: 600 }}>
+                                                                            <i className="fa-solid fa-plus" style={{ marginRight: 4 }} />Taak
+                                                                        </button>
+                                                                    )}
+                                                                    <i className={`fa-solid fa-chevron-${isExpanded ? 'up' : 'down'}`} style={{ color: '#cbd5e1', fontSize: '0.65rem', marginLeft: 2 }} />
+                                                                </div>
+                                                            </div>
+                                                            {/* Uitgevouwen body */}
+                                                            {isExpanded && (
+                                                                <div style={{ borderTop: '1px solid #f1f5f9', padding: '12px 14px 14px', background: '#f8fafc' }}>
+                                                                    {(resolvedBodies[item.id] || item.bodyHtml) ? (
+                                                                        <iframe srcDoc={`<html><head><base target="_blank"><style>body{font-family:sans-serif;font-size:13px;margin:0;padding:8px;color:#1e293b;line-height:1.6}img{max-width:100%}</style></head><body>${resolvedBodies[item.id] || item.bodyHtml}</body></html>`}
+                                                                            sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+                                                                            style={{ width: '100%', border: 'none', borderRadius: 8, minHeight: 100, maxHeight: 420, background: '#fff' }}
+                                                                            onLoad={e => { try { e.target.style.height = Math.min(e.target.contentDocument.body.scrollHeight + 24, 420) + 'px'; } catch { } }} />
+                                                                    ) : (
+                                                                        <p style={{ margin: 0, fontSize: '0.78rem', color: '#475569', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{item.body || item.bodyPreview || '(geen inhoud)'}</p>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                } else {
+                                                    // Taak
+                                                    const uitEmail = !!(proj.emails || []).find(e => e.taskId === item.id);
+                                                    const isDone = item.completed;
+                                                    const accentKleur = isDone ? '#22c55e' : projKleur;
+                                                    return (
+                                                        <div key={item.id || idx} style={{ background: '#fff', border: `1px solid ${isDone ? '#d1fae5' : '#e2e8f0'}`, borderLeft: `3px solid ${accentKleur}`, borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'flex-start', gap: 12, transition: 'box-shadow 0.15s' }}
+                                                            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'}
+                                                            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
+                                                            <button onClick={() => setProjects(prev => prev.map(p => p.id !== proj.id ? p : { ...p, tasks: p.tasks.map(t => t.id !== item.id ? t : { ...t, completed: !t.completed }) }))}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0, marginTop: 1 }}>
+                                                                <i className={`fa-${isDone ? 'solid' : 'regular'} fa-circle-check`} style={{ color: isDone ? '#22c55e' : '#cbd5e1', fontSize: '1.1rem' }} />
+                                                            </button>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3, flexWrap: 'wrap' }}>
+                                                                    <span style={{ fontWeight: 600, fontSize: '0.82rem', color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none' }}>{item.name}</span>
+                                                                    {uitEmail && <span style={{ fontSize: '0.6rem', background: '#eff6ff', color: '#2563eb', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}><i className="fa-solid fa-envelope" style={{ marginRight: 3 }} />Uit email</span>}
+                                                                    {item.category && <span style={{ fontSize: '0.6rem', background: '#f1f5f9', color: '#475569', borderRadius: 20, padding: '2px 8px' }}>{item.category}</span>}
+                                                                </div>
+                                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: (item.progress > 0 || item.memo) ? 7 : 0 }}>
+                                                                    <i className="fa-regular fa-calendar" style={{ marginRight: 4 }} />Deadline: <span style={{ color: '#64748b', fontWeight: 500 }}>{item.endDate || '—'}</span>
+                                                                    {(item.assignedTo || []).length > 0 && <><span style={{ margin: '0 6px' }}>·</span><i className="fa-solid fa-users" style={{ marginRight: 4 }} />{item.assignedTo.length} medewerker(s)</>}
+                                                                </div>
+                                                                {item.progress > 0 && (
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                                                                        <div style={{ flex: 1, height: 5, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
+                                                                            <div style={{ height: '100%', width: `${item.progress}%`, background: accentKleur, borderRadius: 3 }} />
+                                                                        </div>
+                                                                        <span style={{ fontSize: '0.62rem', color: '#64748b', fontWeight: 600, minWidth: 28 }}>{item.progress}%</span>
+                                                                    </div>
+                                                                )}
+                                                                <textarea defaultValue={item.memo || ''} onBlur={e => updateTaskMemo(item.id, proj.id, e.target.value)}
+                                                                    placeholder="Memo toevoegen..."
+                                                                    rows={item.memo ? 2 : 1}
+                                                                    style={{ width: '100%', fontSize: '0.72rem', padding: '5px 8px', borderRadius: 6, border: `1px solid ${item.memo ? '#fde68a' : '#e2e8f0'}`, resize: 'vertical', outline: 'none', color: '#334155', boxSizing: 'border-box', background: item.memo ? '#fffbeb' : '#f8fafc', lineHeight: 1.5 }} />
+                                                            </div>
+                                                            <button onClick={() => { setTab('project'); setSelectedTaskId(item.id); }}
+                                                                style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, border: `1px solid ${accentKleur}44`, background: accentKleur + '12', color: accentKleur, cursor: 'pointer', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                                                <i className="fa-solid fa-calendar-days" style={{ marginRight: 4 }} />Planning
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                }
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        })()}
+
+        {/* ===== TAAK NAAM WIJZIGEN POPUP ===== */}
+        {renamePopup && (() => {
+            const saveRename = () => {
+                const name = renameInput.trim();
+                if (!name) return;
+                setProjects(prev => prev.map(pr => pr.id !== renamePopup.projectId ? pr : {
+                    ...pr, tasks: pr.tasks.map(tk => tk.id !== renamePopup.taskId ? tk : { ...tk, name })
+                }));
+                setRenamePopup(null);
+            };
+            const px = Math.min(renamePopup.x, window.innerWidth - 240);
+            const py = Math.max(renamePopup.y - 90, 8);
+            return (
+                <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 2000 }} onClick={() => setRenamePopup(null)} />
+                    <div style={{ position: 'fixed', left: px, top: py, zIndex: 2001, background: '#fff', borderRadius: '10px', padding: '12px 14px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', border: `1.5px solid ${renamePopup.color}44`, minWidth: '220px' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <i className="fa-solid fa-pen" style={{ color: renamePopup.color }} /> Naam wijzigen
+                        </div>
+                        <input autoFocus value={renameInput} onChange={e => setRenameInput(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setRenamePopup(null); }}
+                            style={{ width: '100%', padding: '5px 8px', border: `1.5px solid ${renamePopup.color}66`, borderRadius: '6px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box', color: '#1e293b', fontWeight: 600 }} />
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                            <button onClick={() => setRenamePopup(null)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '0.68rem', cursor: 'pointer' }}>Annuleer</button>
+                            <button onClick={saveRename} style={{ padding: '4px 12px', borderRadius: '6px', border: 'none', background: renamePopup.color, color: '#fff', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer' }}>Opslaan</button>
+                        </div>
+                    </div>
+                </>
+            );
+        })()}
+        {/* ===== TAAK HOVER TOOLTIP OP TIJDLIJN ===== */}
         {taskTooltip && (
-            <div style={{ position: 'fixed', left: Math.min(taskTooltip.x, window.innerWidth - 260), top: Math.max(taskTooltip.y - 112, 8), zIndex: 2001, background: '#fff', border: `1.5px solid ${taskTooltip.color}44`, borderRadius: '10px', boxShadow: '0 8px 24px rgba(15,23,42,0.15)', padding: '10px 14px', minWidth: '200px', maxWidth: '260px', pointerEvents: 'none' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#1e293b', marginBottom: '5px', lineHeight: 1.3 }}>{taskTooltip.name}</div>
+            <div
+                onMouseEnter={() => clearTimeout(hideTooltipTimerRef.current)}
+                onMouseLeave={() => { hideTooltipTimerRef.current = setTimeout(() => setTaskTooltip(null), 200); }}
+                style={{ position: 'fixed', left: Math.min(taskTooltip.x, window.innerWidth - 260), top: Math.max(taskTooltip.y - 120, 8), zIndex: 2001, background: '#fff', border: `1.5px solid ${taskTooltip.color}44`, borderRadius: '10px', boxShadow: '0 8px 24px rgba(15,23,42,0.15)', padding: '10px 14px', minWidth: '200px', maxWidth: '260px', pointerEvents: 'auto' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '6px', marginBottom: '5px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#1e293b', lineHeight: 1.3, flex: 1 }}>{taskTooltip.name}</div>
+                    <button onClick={() => { setRenameInput(taskTooltip.name); setRenamePopup({ projectId: taskTooltip.projectId, taskId: taskTooltip.taskId, x: taskTooltip.x, y: taskTooltip.y, color: taskTooltip.color }); setTaskTooltip(null); }}
+                        title="Naam wijzigen"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.65rem', padding: '1px 3px', flexShrink: 0, borderRadius: '4px' }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#F5850A'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
+                        <i className="fa-solid fa-pen" />
+                    </button>
+                </div>
                 <div style={{ fontSize: '0.62rem', color: '#64748b', marginBottom: '8px' }}>
-                    {taskTooltip.startDate} → {taskTooltip.endDate}{' · '}{diffWorkdays(parseDate(taskTooltip.startDate), parseDate(taskTooltip.endDate))}d
+                    {diffWorkdays(parseDate(taskTooltip.startDate), parseDate(taskTooltip.endDate))} werkdagen
                 </div>
                 <div style={{ background: '#f1f5f9', borderRadius: '4px', height: '6px', overflow: 'hidden' }}>
                     <div style={{ width: `${taskTooltip.progress}%`, height: '100%', background: '#10b981', borderRadius: '4px' }} />

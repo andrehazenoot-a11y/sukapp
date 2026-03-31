@@ -2,10 +2,12 @@
 // Carlito = metrisch identiek aan Calibri (Google Fonts open-source)
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useAuth } from '../../../components/AuthContext';
 
 export default function ContractSignPage() {
     const params = useParams();
     const router = useRouter();
+    const { getProfile, user } = useAuth();
     const contractId = params.id;
     const canvasRef = useRef(null);
     const [contract, setContract] = useState(null);
@@ -236,11 +238,11 @@ export default function ContractSignPage() {
                 <div style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'rgba(250,250,250,0.8)' }}>
                     <div style={{ fontSize: '0.5rem', fontWeight: 700, color: '#F5850A', textTransform: 'uppercase', marginBottom: '2px' }}>Aannemer</div>
                     <div style={pvRow}><span style={pvLabel}>naam:</span><span>De Schilders uit Katwijk</span></div>
-                    <div style={pvRow}><span style={pvLabel}>straat:</span><span>Ambachtsweg 12</span></div>
-                    <div style={pvRow}><span style={pvLabel}>postcode/plaats:</span><span>2223 AM Katwijk</span></div>
-                    <div style={pvRow}><span style={pvLabel}>telefoon:</span><span>071-1234567</span></div>
-                    <div style={pvRow}><span style={pvLabel}>KvK-nr:</span><span>12345678</span></div>
-                    <div style={pvRow}><span style={pvLabel}>btw-nr:</span><span>NL123456789B01</span></div>
+                    <div style={pvRow}><span style={pvLabel}>straat:</span><span>{getProfile(1)?.adres || 'Ambachtsweg 12'}</span></div>
+                    <div style={pvRow}><span style={pvLabel}>postcode/plaats:</span><span>{getProfile(1)?.postcode || '2223 AM Katwijk'}</span></div>
+                    <div style={pvRow}><span style={pvLabel}>telefoon:</span><span>{getProfile(1)?.telefoon || '—'}</span></div>
+                    <div style={pvRow}><span style={pvLabel}>KvK-nr:</span><span>{getProfile(1)?.kvk || '—'}</span></div>
+                    <div style={pvRow}><span style={pvLabel}>btw-nr:</span><span>{getProfile(1)?.btwNummer || '—'}</span></div>
                 </div>
                 <div style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #dbeafe', background: 'rgba(248,250,255,0.8)' }}>
                     <div style={{ fontSize: '0.5rem', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '2px' }}>Onderaannemer</div>
@@ -357,7 +359,7 @@ export default function ContractSignPage() {
                         {c.aannemerHandtekening && <img src={c.aannemerHandtekening} style={{ maxHeight: '70px', maxWidth: '100%', objectFit: 'contain' }} alt="Handtekening Aannemer" />}
                     </div>
                     <div style={{ fontSize: '0.58rem', fontWeight: 600, color: '#2c3b4e' }}>De Schilders uit Katwijk</div>
-                    <div style={{ fontSize: '0.56rem', color: '#475569', marginTop: '2px' }}>Namens: <strong>{c.aannemerNaam || 'André Hazenoot'}</strong></div>
+                    <div style={{ fontSize: '0.56rem', color: '#475569', marginTop: '2px' }}>Namens: <strong>{c.aannemerNaam || user?.name || ''}</strong></div>
                     <div style={{ fontSize: '0.54rem', color: '#6b7a8d', marginTop: '4px' }}>Plaats: Katwijk<br />Datum: {c.aannemerDatum ? fmtDate(c.aannemerDatum) : today}</div>
                 </div>
                 <div style={{ border: '1px solid #d4dbe3', borderRadius: '4px', padding: '12px 14px' }}>

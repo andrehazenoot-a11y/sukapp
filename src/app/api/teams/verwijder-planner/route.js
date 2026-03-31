@@ -15,7 +15,7 @@ export async function DELETE(req) {
 
     // Planner vereist een ETag bij DELETE
     const getRes = await fetch(`https://graph.microsoft.com/v1.0/planner/plans/${planId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'Accept-Language': 'en-US' },
     });
     if (!getRes.ok) return NextResponse.json({ error: 'Plan niet gevonden' }, { status: 404 });
     const etag = getRes.headers.get('ETag') || '';

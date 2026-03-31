@@ -38,10 +38,8 @@
 body {
     background-color: var(--bg-black);
     color: var(--text-light);
-    height: 100vh;
     font-size: 16px;
     line-height: 1.6;
-    overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -51,6 +49,8 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh; /* For mobile safari */
+    overflow: hidden;
 }
 
 /* --- SIDEBAR --- */

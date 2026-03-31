@@ -29,7 +29,7 @@ export async function GET(req) {
     try {
         const token = await getAppToken();
         const res = await fetch(`https://graph.microsoft.com/v1.0/planner/tasks/${taskId}/details`, {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${token}`, 'Accept-Language': 'en-US' },
         });
         if (!res.ok) return NextResponse.json({ error: await res.text() }, { status: res.status });
         return NextResponse.json(await res.json());

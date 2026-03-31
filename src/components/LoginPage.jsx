@@ -223,23 +223,6 @@ export default function LoginPage() {
                     </form>
                 </div>
 
-                {/* Demo accounts info */}
-                <div style={{
-                    marginTop: '12px', background: 'rgba(255,255,255,0.15)',
-                    borderRadius: '10px', padding: '10px 16px',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    backdropFilter: 'blur(8px)'
-                }}>
-                    <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                        <i className="fa-solid fa-info-circle" style={{ marginRight: '6px' }}></i>{t('login.demoAccounts')}
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: '0.88rem', color: 'rgba(255,255,255,0.8)' }}>
-                        <span><strong style={{ color: '#fff' }}>admin</strong> / admin123</span>
-                        <span><strong style={{ color: '#fff' }}>schilder</strong> / verf2025</span>
-                        <span><strong style={{ color: '#fff' }}>zzp</strong> / zzp2025</span>
-                        <span><strong style={{ color: '#fff' }}>voorman</strong> / voorman123</span>
-                    </div>
-                </div>
 
                 {/* Footer */}
                 <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.45)', fontSize: '0.75rem', marginTop: '10px', fontWeight: 500 }}>

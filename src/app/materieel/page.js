@@ -3,19 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../components/AuthContext';
 
-// == MEDEWERKERS ==
-const MEDEWERKERS = ['Jan Modaal', 'Piet Kwast', 'Klaas Roller', 'Henk de Vries', 'Tom Bakker', 'Bas Jansen'];
 const LOCATIES = ['Magazijn', 'Bus 1', 'Bus 2', 'Bus 3', 'Project Den Haag', 'Project Leiden', 'Project Katwijk', 'Werkplaats'];
-
-// == TELEFOON (voor WhatsApp) ==
-const TELEFOON = {
-    'Jan Modaal': '31612345678',
-    'Piet Kwast': '31612345679',
-    'Klaas Roller': '31612345680',
-    'Henk de Vries': '31612345681',
-    'Tom Bakker': '31612345682',
-    'Bas Jansen': '31612345683'
-};
 
 // == DEMO DATA ==
 const INITIAL_ITEMS = [
@@ -88,7 +76,11 @@ const formatDate = (d) => { if (!d) return '—'; const [y, m, day] = d.split('-
 
 export default function MaterieelPage() {
     const [activeTab, setActiveTab] = useState('inventaris');
-    const [items, setItems] = useState(INITIAL_ITEMS);
+    const [items, setItems] = useState(() => {
+        try { const s = localStorage.getItem('schildersapp_materieel'); if (s) return JSON.parse(s); } catch {}
+        return INITIAL_ITEMS;
+    });
+    const saveItems = (updated) => { setItems(updated); try { localStorage.setItem('schildersapp_materieel', JSON.stringify(updated)); } catch {} };
     const [filter, setFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('alle');
     const [selectedItem, setSelectedItem] = useState(null);
@@ -110,8 +102,9 @@ export default function MaterieelPage() {
     const [snelMeldZoek, setSnelMeldZoek] = useState('');
     const [snelMeldOpen, setSnelMeldOpen] = useState(false);
 
-    const { user } = useAuth();
-    const currentUser = user?.name || 'Jan Modaal';
+    const { user, getAllUsers } = useAuth();
+    const currentUser = user?.name || '';
+    const MEDEWERKERS = getAllUsers().map(u => u.name);
     const mijnItems = items.filter(i => i.inGebruikDoor === currentUser);
     const beschikbareItems = items.filter(i => !i.inGebruikDoor);
 
@@ -129,7 +122,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
         setSnelPakItem('');
         setSnelPakLocatie('');
         setSnelPakMedewerker('');
@@ -147,7 +140,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
     };
 
     // Snel reparatie melden
@@ -165,7 +158,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
         setSnelMeldItem('');
         setSnelMeldProbleem('');
     };
@@ -228,7 +221,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
         setRepairForm({ omschrijving: '', melder: '' });
         setShowRepairModal(false);
         setSelectedItem(updated.find(i => i.id === selectedItem.id));
@@ -246,7 +239,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
         if (selectedItem?.id === itemId) setSelectedItem(updated.find(i => i.id === itemId));
     };
 
@@ -261,7 +254,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
         setShowKeuringModal(false);
         setKeuringForm({ datum: '', resultaat: 'goedgekeurd', opmerking: '' });
         setSelectedItem(updated.find(i => i.id === selectedItem.id));
@@ -287,7 +280,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
         setShowUitgifteModal(false);
         setUitgifteForm({ medewerker: '', locatie: '', opmerking: '' });
         setSelectedItem(updated.find(i => i.id === selectedItem.id));
@@ -305,7 +298,7 @@ export default function MaterieelPage() {
             }
             return i;
         });
-        setItems(updated);
+        saveItems(updated);
         if (selectedItem?.id === itemId) setSelectedItem(updated.find(i => i.id === itemId));
     };
 

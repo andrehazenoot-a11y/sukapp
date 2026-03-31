@@ -119,7 +119,7 @@ export default function ProfielPage() {
             voornaam: '', achternaam: '',
             telefoon: '', email: '',
             adres: '', postcode: '', woonplaats: '',
-            iban: '', tenaamstelling: '',
+            iban: '', tenaamstelling: '', bsn: '',
             // Tarieven
             uurtarief: '', dagTarief: '',
             // VCA
@@ -141,30 +141,108 @@ export default function ProfielPage() {
     const [saved, setSaved] = useState(false);
     const [activeSection, setActiveSection] = useState('gegevens');
 
+    // ── DASHBOARD OVERVIEW MODE ──
+    const [dashboardMode, setDashboardMode] = useState(true);
+    const [teamList, setTeamList] = useState([]);
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
+
+    useEffect(() => {
+        try {
+            setTeamList(JSON.parse(localStorage.getItem('wa_medewerkers')) || []);
+        } catch {}
+    }, [dashboardMode]);
+
+    const openEmployee = (emp) => {
+        setSelectedEmployeeId(emp.id);
+        const defaultW = { voornaam: '', achternaam: '', geboortedatum: '', telefoon: '', email: '', adres: '', postcode: '', woonplaats: '', bsn: '', iban: '', nationaliteit: 'Nederlands', burgerlijkeStaat: '', noodcontact: '', noodcontactTel: '', datumInDienst: '', datumUitDienst: '', contractType: 'Vast', proeftijdTot: '', functie: '', afdeling: '', arbeidsovereenkomstGetekend: false, arbeidsovereenkomstDatum: '', aanvullendeOvereenkomsten: [], docIdentiteitsbewijs: false, docIdType: 'Paspoort', docIdVerloopdatum: '', docLoonbelasting: false, docLoonbelastingDatum: '', docWerkvergunning: false, docWerkvergunningNummer: '', docWerkvergunningVerloopdatum: '', docSollicitatie: false, docSollicitatieDatum: '', uurloon: '', salarisschaal: '', periodiek: '', pensioen: false, pensioenOmschrijving: '', eindejaarsuitkering: false, eindejaarsPercentage: '', onkostenvergoeding: '', autoVanDeZaak: false, autoKenteken: '', autoType: '', fietsVanDeZaak: false, fietsType: '', vcaNummer: '', vcaVerloopdatum: '', vcaType: 'VCA Basis', bhvCertificaat: false, bhvNummer: '', bhvVerloopdatum: '', vogVerklaring: false, vogDatum: '', opleidingen: [], leerovereenkomst: false, leerovereenkomstNotitie: '', loopbaanAfspraken: '', contractUren: 37.5, werkdagen: ['ma', 'di', 'wo', 'do', 'vr'], overwerkAfspraken: '', advDagen: 0, verlofRegelingen: '', vakDagenJaar: 25, vakDagenVorigJaar: 0, competenties: [], functioneringsGesprekken: [], persoonlijkOntwikkelingsplan: '', bijzonderhedenVertrouwelijk: '', zorgverzekeraar: '', zorgPolisnummer: '', medischeKeuring: false, medischeKeuringDatum: '', ziekteverzuimLog: [], specialiteiten: [], notities: '', afspraken: [] };
+        const defaultZ = { bedrijfsnaam: '', kvkNummer: '', btwNummer: '', voornaam: '', achternaam: '', telefoon: '', email: '', adres: '', postcode: '', woonplaats: '', iban: '', tenaamstelling: '', bsn: '', uurtarief: '', dagTarief: '', vcaNummer: '', vcaVerloopdatum: '', vcaType: 'VCA Basis', vogVerklaring: false, vogDatum: '', specialiteiten: [], aansprakelijkheid: false, aansprakelijkheidNummer: '', aansprakelijkheidVerloopdatum: '', cav: false, cavNummer: '', cavVerloopdatum: '', beschikbaarheid: 'Voltijd', modelovereenkomsten: [], notities: '', afspraken: [] };
+
+        if (emp.type === 'zzp') {
+            setProfielType('zzp');
+            setZzpProfiel({ ...defaultZ, ...emp });
+        } else {
+            setProfielType('werknemer');
+            setProfiel({ ...defaultW, ...emp });
+        }
+        setDashboardMode(false);
+        setActiveSection('gegevens');
+    };
+
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+
+    // ── Intercept Magic Intake Import Link ──
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const search = new URLSearchParams(window.location.search);
+        const importData = search.get('import');
+        if (!importData) return;
+        try {
+            const dec = JSON.parse(atob(decodeURIComponent(importData)));
+            
+            const newEmp = {
+                id: Date.now(),
+                type: dec.type || 'werknemer',
+                status: 'Actief',
+                naam: dec.naam,
+                voornaam: dec.naam?.split(' ')[0] || '',
+                achternaam: dec.naam?.split(' ').slice(1).join(' ') || '',
+                telefoon: dec.telefoon,
+                email: dec.email,
+                adres: dec.adres,
+                postcode: dec.postcode,
+                woonplaats: dec.woonplaats,
+                bsn: dec.bsn,
+                iban: dec.iban,
+                tenaamstelling: dec.tenaamstelling,
+                noodcontact: dec.noodcontact,
+                noodcontactTel: dec.noodcontactTel,
+                vcaVerloopdatum: dec.vcaValid,
+                vcaNummer: dec.vcaNummer,
+                bedrijfsnaam: dec.bedrijfsnaam,
+                kvkNummer: dec.kvk,
+                btwNummer: dec.btw,
+                uurtarief: dec.uurtarief,
+                nationaliteit: dec.nationaliteit || 'Nederlands',
+                vogVerklaring: dec.vog || false,
+                vogDatum: dec.vogDatum || '',
+            };
+            
+            openEmployee(newEmp);
+            alert(`Intake formulier van ${dec.naam} succesvol ingeladen!\n\nLoop de gegevens na en klik rechtsboven op 'Profiel Opslaan' om de kandidaat toe te voegen aan het personeelsdossier.`);
+            window.history.replaceState({}, document.title, pathname);
+        } catch (e) {
+            console.error('Fout bij importeren', e);
+        }
+    }, [pathname]);
+
     // Save
     const saveProfiel = () => {
-        localStorage.setItem(storageKey, JSON.stringify(profiel));
-        localStorage.setItem(zzpStorageKey, JSON.stringify(zzpProfiel));
+        try {
+            let waMedewerkers = JSON.parse(localStorage.getItem('wa_medewerkers') || '[]');
+            const userIndex = selectedEmployeeId ? waMedewerkers.findIndex(w => w.id === selectedEmployeeId) : -1;
+            
+            const p = profielType === 'zzp' ? zzpProfiel : profiel;
+            const fullNaam = profielType === 'zzp' ? (p.bedrijfsnaam || `${p.voornaam || ''} ${p.achternaam || ''}`.trim()) : `${p.voornaam || ''} ${p.achternaam || ''}`.trim();
 
-        // ── Sync naar centrale profielstore (gebruikt door WhatsApp, contracten, etc.) ──
-        if (user?.id) {
-            const syncData = profielType === 'zzp' ? {
-                naam: `${zzpProfiel.voornaam} ${zzpProfiel.achternaam}`.trim() || user.name,
-                telefoon: zzpProfiel.telefoon,
-                kvk: zzpProfiel.kvkNummer,
-                btwNummer: zzpProfiel.btwNummer,
-                adres: zzpProfiel.adres,
-                postcode: `${zzpProfiel.postcode} ${zzpProfiel.woonplaats}`.trim(),
-                uurtarief: parseFloat(zzpProfiel.uurtarief) || 0,
-                type: 'zzp',
-            } : {
-                naam: `${profiel.voornaam} ${profiel.achternaam}`.trim() || user.name,
-                telefoon: profiel.telefoon,
-                adres: profiel.adres,
-                postcode: `${profiel.postcode} ${profiel.woonplaats}`.trim(),
-                type: 'medewerker',
+            const fullData = {
+                ...p, // include all fields directly!
+                id: selectedEmployeeId || Date.now(),
+                naam: fullNaam || 'Nieuwe Medewerker',
+                type: profielType,
+                status: 'Actief',
             };
-            updateProfile(user.id, syncData);
+
+            if (userIndex >= 0) {
+                waMedewerkers[userIndex] = fullData;
+            } else {
+                waMedewerkers.push(fullData);
+                setSelectedEmployeeId(fullData.id); // set id if it was newly created
+            }
+            
+            localStorage.setItem('wa_medewerkers', JSON.stringify(waMedewerkers));
+            setTeamList(waMedewerkers); // Update dashboard list immediately
+        } catch (e) {
+            console.error('Failed saving to wa_medewerkers', e);
         }
 
         setSaved(true);
@@ -192,9 +270,9 @@ export default function ProfielPage() {
 
     // Afspraken
     const addAfspraak = () => {
-        const newA = { id: Date.now(), datum: '', onderwerp: '', notitie: '' };
-        if (profielType === 'zzp') setZzpProfiel(prev => ({ ...prev, afspraken: [...prev.afspraken, newA] }));
-        else setProfiel(prev => ({ ...prev, afspraken: [...prev.afspraken, newA] }));
+        const newA = { id: Date.now(), datum: '', onderwerp: '', notitie: '', herinneringActief: true };
+        if (profielType === 'zzp') setZzpProfiel(prev => ({ ...prev, afspraken: [...(prev.afspraken || []), newA] }));
+        else setProfiel(prev => ({ ...prev, afspraken: [...(prev.afspraken || []), newA] }));
     };
     const updateAfspraak = (id, field, value) => {
         const fn = prev => ({ ...prev, afspraken: prev.afspraken.map(a => a.id === id ? { ...a, [field]: value } : a) });
@@ -283,15 +361,36 @@ export default function ProfielPage() {
     const daysLeft = (datum) => datum ? Math.ceil((new Date(datum) - new Date()) / (1000 * 60 * 60 * 24)) : null;
     const expiryStatus = (datum) => { const d = daysLeft(datum); if (d === null) return 'none'; return d < 0 ? 'expired' : d < 90 ? 'warning' : 'valid'; };
 
+    const computeAfspraak = (a) => {
+        if (!a.datum) return null;
+        let cDate = new Date(a.datum);
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        cDate.setHours(0,0,0,0);
+        const type = a.herhaalType || 'geen';
+        const num = Math.max(1, a.herhaalAantal || 1);
+        if (type !== 'geen' && cDate < today) {
+            while (cDate <= today) {
+                if (type === 'dagen') cDate.setDate(cDate.getDate() + num);
+                if (type === 'weken') cDate.setDate(cDate.getDate() + num * 7);
+                if (type === 'maanden') cDate.setMonth(cDate.getMonth() + num);
+                if (type === 'jaren') cDate.setFullYear(cDate.getFullYear() + num);
+            }
+        }
+        return { label: `Afspraak: ${a.onderwerp || 'Zonder titel'}`, datum: cDate.toISOString().split('T')[0], section: 'notities', icon: 'fa-handshake' };
+    };
+
     const expiryItems = profielType === 'zzp' ? [
         { label: 'VCA Certificaat', datum: zzpProfiel.vcaVerloopdatum, section: 'vca', icon: 'fa-certificate' },
         { label: 'Aansprakelijkheidsverzekering', datum: zzpProfiel.aansprakelijkheidVerloopdatum, section: 'verzekeringen', icon: 'fa-shield-halved' },
         { label: 'CAV Verzekering', datum: zzpProfiel.cavVerloopdatum, section: 'verzekeringen', icon: 'fa-shield-halved' },
+        ...(zzpProfiel.afspraken || []).filter(a => a.herinneringActief !== false).map(computeAfspraak).filter(Boolean),
     ].filter(i => i.datum) : [
         { label: 'VCA Certificaat', datum: profiel.vcaVerloopdatum, section: 'opleiding', icon: 'fa-certificate' },
         { label: 'BHV Certificaat', datum: profiel.bhvVerloopdatum, section: 'opleiding', icon: 'fa-kit-medical' },
         { label: 'Identiteitsbewijs', datum: profiel.docIdVerloopdatum, section: 'documenten', icon: 'fa-id-card' },
         { label: 'Werkvergunning', datum: profiel.docWerkvergunningVerloopdatum, section: 'documenten', icon: 'fa-passport' },
+        ...(profiel.afspraken || []).filter(a => a.herinneringActief !== false).map(computeAfspraak).filter(Boolean),
     ].filter(i => i.datum);
 
     const alertItems = expiryItems.filter(i => expiryStatus(i.datum) !== 'valid');
@@ -334,15 +433,99 @@ export default function ProfielPage() {
     }, [profielType]);
 
 
+    if (dashboardMode) {
+        return (
+            <div className="content-area">
+                <div className="page-header" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <h1 style={{ marginBottom: '4px', fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <i className="fa-solid fa-users" style={{ color: '#F5850A' }}></i>
+                            Team
+                        </h1>
+                        <p style={{ margin: 0, fontSize: '0.95rem', color: '#64748b', maxWidth: '700px' }}>
+                            Beheer het volledige personeelsdossier van je werknemers en aangesloten ZZP'ers.
+                        </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <button onClick={() => window.location.href = '/onboarding'} style={{ padding: '10px 16px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', border: '1px solid rgba(56, 189, 248, 0.3)', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.15s' }} onMouseOver={e => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.2)'} onMouseOut={e => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)'}>
+                            <i className="fa-solid fa-wand-magic-sparkles"></i> Intake Link Sturen
+                        </button>
+                        <button onClick={() => {
+                            const newId = Date.now();
+                            openEmployee({ id: newId, naam: 'Nieuwe Medewerker', type: 'werknemer' });
+                        }} style={{ padding: '10px 16px', borderRadius: '8px', background: 'linear-gradient(135deg, #F5850A, #E07000)', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 10px rgba(245,133,10,0.2)' }}>
+                            <i className="fa-solid fa-user-plus"></i> Handmatig Profiel
+                        </button>
+                    </div>
+                </div>
+
+                <div className="panel" style={{ padding: '0', overflow: 'hidden' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px' }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                <th style={{ padding: '16px', fontSize: '0.8rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Naam</th>
+                                <th style={{ padding: '16px', fontSize: '0.8rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Type / Functie</th>
+                                <th style={{ padding: '16px', fontSize: '0.8rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Contact</th>
+                                <th style={{ padding: '16px', fontSize: '0.8rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Status</th>
+                                <th style={{ padding: '16px', width: '50px' }}></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {teamList.map(emp => (
+                                <tr key={emp.id} onClick={() => openEmployee(emp)} style={{ borderBottom: '1px solid #e2e8f0', cursor: 'pointer', transition: 'background 0.15s' }} onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                                    <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: emp.type === 'zzp' ? 'rgba(59,130,246,0.1)' : 'rgba(245,133,10,0.1)', color: emp.type === 'zzp' ? '#3b82f6' : '#F5850A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem' }}>
+                                            <i className={`fa-solid ${emp.type === 'zzp' ? 'fa-building' : 'fa-user'}`}></i>
+                                        </div>
+                                        {emp.naam || `${emp.voornaam || ''} ${emp.achternaam || ''}`.trim() || 'Onbekend'}
+                                    </td>
+                                    <td style={{ padding: '16px', color: '#475569', fontSize: '0.9rem' }}>
+                                        {emp.type === 'zzp' ? <span style={{ color: '#3b82f6', fontWeight: 600 }}>ZZP'er</span> : <span style={{ color: '#F5850A', fontWeight: 600 }}>Werknemer</span>}
+                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{emp.functie || emp.bedrijfsnaam || '-'}</div>
+                                    </td>
+                                    <td style={{ padding: '16px', color: '#475569', fontSize: '0.9rem' }}>
+                                        <div><i className="fa-solid fa-phone" style={{ width: '16px', color: '#94a3b8' }}></i> {emp.telefoon || '-'}</div>
+                                    </td>
+                                    <td style={{ padding: '16px' }}>
+                                        <span style={{ padding: '4px 10px', borderRadius: '99px', fontSize: '0.75rem', fontWeight: 600, background: emp.status === 'Inactief' ? '#f1f5f9' : 'rgba(34,197,94,0.1)', color: emp.status === 'Inactief' ? '#64748b' : '#16a34a' }}>
+                                            {emp.status || 'Actief'}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '16px', color: '#cbd5e1', textAlign: 'right' }}>
+                                        <i className="fa-solid fa-chevron-right"></i>
+                                    </td>
+                                </tr>
+                            ))}
+                            {teamList.length === 0 && (
+                                <tr>
+                                    <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                        Nog geen personeel of ZZP'ers in het dossier. Gebruik de Intake Generator of voeg handmatig een nieuw profiel toe.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="content-area">
+            {/* Terugknop header */}
+            <div style={{ marginBottom: '16px' }}>
+                <button onClick={() => setDashboardMode(true)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <i className="fa-solid fa-arrow-left"></i> Terug naar teamoverzicht
+                </button>
+            </div>
+
             <div className="page-header" style={{ marginBottom: '16px' }}>
                 <h1 style={{ marginBottom: '4px', fontSize: '1.6rem' }}>
-                    <i className="fa-solid fa-id-card" style={{ marginRight: '10px', color: '#F5850A' }}></i>
-                    {profielType === 'zzp' ? "ZZP Profiel" : "Mijn Profiel"}
+                    <i className="fa-solid fa-user-pen" style={{ marginRight: '10px', color: '#F5850A' }}></i>
+                    {profielType === 'zzp' ? "Dossier ZZP'er" : "Personeelsdossier"}
                 </h1>
                 <p style={{ margin: 0, fontSize: '0.95rem', color: '#64748b' }}>
-                    {profielType === 'zzp' ? "Beheer je bedrijfsgegevens, certificaten en tarieven." : "Beheer je persoonlijke gegevens, certificaten en afspraken."}
+                    {profielType === 'zzp' ? "Beheer bedrijfsgegevens, certificaten en tarieven van deze ZZP'er." : "Beheer persoonlijke gegevens, certificaten en afspraken van deze medewerker."}
                 </p>
             </div>
 
@@ -835,6 +1018,7 @@ export default function ProfielPage() {
                                 <div></div>
                                 <Field label="IBAN" icon="fa-building-columns" field="iban" placeholder="NL00 RABO 0000 0000 00" obj={zzpProfiel} upd={updateZzp} />
                                 <Field label="Tenaamstelling" icon="fa-pen" field="tenaamstelling" placeholder="J. Jansen" obj={zzpProfiel} upd={updateZzp} />
+                                <Field label="BSN Nummer" icon="fa-id-card" field="bsn" placeholder="123456789" obj={zzpProfiel} upd={updateZzp} />
                             </div>
                         </div>
                     )}
@@ -975,6 +1159,23 @@ export default function ProfielPage() {
                                     </>
                                 )}
                             </div>
+                            {/* VOG Verklaring */}
+                            <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '12px', paddingTop: '14px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                                        <i className="fa-solid fa-file-shield" style={{ marginRight: '6px', color: '#8b5cf6' }}></i>VOG (Goed Gedrag)
+                                    </span>
+                                    <div onClick={() => update('vogVerklaring', !profiel.vogVerklaring)}
+                                        style={{ width: '44px', height: '24px', borderRadius: '12px', cursor: 'pointer', background: profiel.vogVerklaring ? '#22c55e' : '#cbd5e1', transition: 'background 0.2s', position: 'relative' }}>
+                                        <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: '#fff', position: 'absolute', top: '3px', left: profiel.vogVerklaring ? '23px' : '3px', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                                    </div>
+                                </div>
+                                {profiel.vogVerklaring && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0 16px' }}>
+                                        <Field label="Afgiftedatum" icon="fa-calendar-check" field="vogDatum" type="date" obj={profiel} upd={update} />
+                                    </div>
+                                )}
+                            </div>
                             {/* Opleidingen */}
                             <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '12px', paddingTop: '14px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -1040,6 +1241,24 @@ export default function ProfielPage() {
                                 </div>
                                 <Field label="Certificaatnummer" icon="fa-hashtag" field="vcaNummer" placeholder="VCA-2026-XXXX" obj={zzpProfiel} upd={updateZzp} />
                                 <Field label="Verloopdatum" icon="fa-calendar-xmark" field="vcaVerloopdatum" type="date" obj={zzpProfiel} upd={updateZzp} />
+                            </div>
+                            
+                            {/* VOG Verklaring (ZZP) */}
+                            <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '16px', paddingTop: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                                        <i className="fa-solid fa-file-shield" style={{ marginRight: '6px', color: '#8b5cf6' }}></i>VOG (Goed Gedrag)
+                                    </span>
+                                    <div onClick={() => updateZzp('vogVerklaring', !zzpProfiel.vogVerklaring)}
+                                        style={{ width: '44px', height: '24px', borderRadius: '12px', cursor: 'pointer', background: zzpProfiel.vogVerklaring ? '#22c55e' : '#cbd5e1', transition: 'background 0.2s', position: 'relative' }}>
+                                        <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: '#fff', position: 'absolute', top: '3px', left: zzpProfiel.vogVerklaring ? '23px' : '3px', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                                    </div>
+                                </div>
+                                {zzpProfiel.vogVerklaring && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0 16px' }}>
+                                        <Field label="Afgiftedatum" icon="fa-calendar-check" field="vogDatum" type="date" obj={zzpProfiel} upd={updateZzp} />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1567,7 +1786,10 @@ export default function ProfielPage() {
                                 {activeProfiel.afspraken.length === 0 ? (
                                     <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', borderRadius: '10px', border: '2px dashed #e2e8f0' }}>
                                         <i className="fa-solid fa-calendar-plus" style={{ fontSize: '1.5rem', marginBottom: '8px', display: 'block' }}></i>
-                                        Nog geen afspraken. Klik op "Afspraak toevoegen" om te beginnen.
+                                        Nog geen afspraken. Klik op &quot;Afspraak toevoegen&quot; om te beginnen.
+                                        <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                            💡 Geef je afspraak een datum en zet de <strong style={{color:'#3b82f6'}}>Radar aan</strong> voor automatische notificaties in het dashboard.
+                                        </div>
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1578,10 +1800,38 @@ export default function ProfielPage() {
                                                         <input type="date" value={afspraak.datum} onChange={e => updateAfspraak(afspraak.id, 'datum', e.target.value)}
                                                             style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', background: '#fff' }} />
                                                         <input type="text" value={afspraak.onderwerp} onChange={e => updateAfspraak(afspraak.id, 'onderwerp', e.target.value)}
-                                                            placeholder="Onderwerp" style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', background: '#fff' }} />
+                                                            placeholder="Onderwerp (bijv: Loon overmaken, Factuur of Evaluatie)" style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', background: '#fff', fontWeight: 600 }} />
                                                     </div>
-                                                    <input type="text" value={afspraak.notitie} onChange={e => updateAfspraak(afspraak.id, 'notitie', e.target.value)}
-                                                        placeholder="Notitie..." style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.78rem', color: '#64748b', background: '#fff' }} />
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: '8px', marginBottom: '6px' }}>
+                                                        <input type="text" value={afspraak.notitie} onChange={e => updateAfspraak(afspraak.id, 'notitie', e.target.value)}
+                                                            placeholder="Verdere toelichting of afspraakdetails..." style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.78rem', color: '#64748b', background: '#fff' }} />
+                                                        <div onClick={() => updateAfspraak(afspraak.id, 'herinneringActief', afspraak.herinneringActief === false ? true : false)} 
+                                                            style={{ cursor: 'pointer', padding: '5px 10px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, background: afspraak.herinneringActief !== false ? '#3b82f6' : '#e2e8f0', color: afspraak.herinneringActief !== false ? '#fff' : '#94a3b8', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', transition: 'all 0.15s' }}>
+                                                            <i className={`fa-solid ${afspraak.herinneringActief !== false ? 'fa-bell' : 'fa-bell-slash'}`}></i> 
+                                                            {afspraak.herinneringActief !== false ? 'Radar Aan' : 'Radar Uit'}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <i className="fa-solid fa-rotate" style={{ color: '#94a3b8', fontSize: '0.8rem' }}></i>
+                                                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Herhaal:</span>
+                                                        <input type="number" min="1" value={afspraak.herhaalAantal || 1} onChange={e => updateAfspraak(afspraak.id, 'herhaalAantal', parseInt(e.target.value) || 1)}
+                                                            style={{ width: '50px', padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', background: '#fff', textAlign: 'center' }} />
+                                                        <select value={afspraak.herhaalType || 'geen'} onChange={e => updateAfspraak(afspraak.id, 'herhaalType', e.target.value)}
+                                                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', background: '#fff', cursor: 'pointer', width: '90px' }}>
+                                                            <option value="geen">Niet</option>
+                                                            <option value="dagen">Dagen</option>
+                                                            <option value="weken">Weken</option>
+                                                            <option value="maanden">Maanden</option>
+                                                            <option value="jaren">Jaren</option>
+                                                        </select>
+
+                                                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginLeft: '8px' }}>Waarschuw:</span>
+                                                        <select value={afspraak.waarschuwWie || 'iedereen'} onChange={e => updateAfspraak(afspraak.id, 'waarschuwWie', e.target.value)}
+                                                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', background: '#fff', cursor: 'pointer', flex: 1 }}>
+                                                            <option value="iedereen">Iedereen (Algemeen Dashboard)</option>
+                                                            <option value="mijzelf">Alleen Mijzelf</option>
+                                                        </select>
+                                                    </div>
                                                 </div>
                                                 <button onClick={() => removeAfspraak(afspraak.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.85rem', padding: '4px', flexShrink: 0 }}>
                                                     <i className="fa-solid fa-trash-can"></i>

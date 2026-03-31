@@ -893,7 +893,7 @@ function UrenstaatBody({ user, week, weeks, year }) {
                             <tbody key={`wk-${w}`}>
                                 {/* Week-header rij */}
                                 <tr key={`wh-${w}`}>
-                                    <td colSpan={9} style={{ ...weekThS, borderTop: index > 0 ? '2px solid #1e293b' : '1px solid #F5850A' }}>
+                                    <td colSpan={9} style={{ ...weekThS, borderTop: index > 0 ? '6px solid #f1f5f9' : '1px solid #F5850A' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <span>Week {w}</span>
                                             <span>·</span>
@@ -923,9 +923,9 @@ function UrenstaatBody({ user, week, weeks, year }) {
                             </tbody>
                         ))}
                         <tfoot>
-                            <tr style={{ background: '#fff' }}>
-                                <td colSpan={8} style={{ padding: '8px', textAlign: 'right', color: '#1e293b', fontWeight: 800, borderTop: '2px solid #1e293b', fontSize: '11px', fontFamily: FONT }}>Totaal uren</td>
-                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 900, color: '#000', borderTop: '2px solid #1e293b', background: '#f8fafc', fontSize: '12px', fontFamily: FONT }}>{grandTotal}</td>
+                            <tr style={{ background: '#F5850A' }}>
+                                <td colSpan={8} style={{ padding: '8px', textAlign: 'right', color: '#fff', fontWeight: 800, fontSize: '11px', fontFamily: FONT, border: '1px solid #e07008' }}>Totaal uren</td>
+                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 900, color: '#fff', background: '#e07008', fontSize: '12px', fontFamily: FONT, border: '1px solid #c96007' }}>{grandTotal}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -1070,7 +1070,7 @@ function SamengevoegdBody({ entries, year }) {
                     {weekData.map(({ week: w, monday, sunday, rows, weekTotal }, index) => (
                         <tbody key={`wk-${w}`}>
                             <tr key={`wh-${w}`}>
-                                <td colSpan={9} style={{ fontSize: '10px', fontWeight: 800, color: '#fff', background: '#F5850A', padding: '2px 8px', letterSpacing: '0.04em', textTransform: 'uppercase', border: '1px solid #F5850A', borderTop: index > 0 ? '2px solid #1e293b' : '1px solid #F5850A' }}>
+                                <td colSpan={9} style={{ fontSize: '10px', fontWeight: 800, color: '#fff', background: '#F5850A', padding: '2px 8px', letterSpacing: '0.04em', textTransform: 'uppercase', border: '1px solid #F5850A', borderTop: index > 0 ? '6px solid #f1f5f9' : '1px solid #F5850A' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <span>Week {w}</span>
                                         <span>·</span>
@@ -1100,9 +1100,9 @@ function SamengevoegdBody({ entries, year }) {
                         </tbody>
                     ))}
                     <tfoot>
-                        <tr style={{ background: '#fff' }}>
-                            <td colSpan={8} style={{ padding: '8px', textAlign: 'right', color: '#1e293b', fontWeight: 800, borderTop: '2px solid #1e293b', fontSize: '11px', fontFamily: FONT }}>Totaal uren</td>
-                            <td style={{ padding: '8px', textAlign: 'center', fontWeight: 900, color: '#000', borderTop: '2px solid #1e293b', background: '#f8fafc', fontSize: '12px', fontFamily: FONT }}>{grandTotal}</td>
+                        <tr style={{ background: '#F5850A' }}>
+                            <td colSpan={8} style={{ padding: '8px', textAlign: 'right', color: '#fff', fontWeight: 800, fontSize: '11px', fontFamily: FONT, border: '1px solid #e07008' }}>Totaal uren</td>
+                            <td style={{ padding: '8px', textAlign: 'center', fontWeight: 900, color: '#fff', background: '#e07008', fontSize: '12px', fontFamily: FONT, border: '1px solid #c96007' }}>{grandTotal}</td>
                         </tr>
                     </tfoot>
                 </table>

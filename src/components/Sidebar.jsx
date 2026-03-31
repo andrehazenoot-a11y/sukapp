@@ -12,8 +12,26 @@ export default function Sidebar({ user, onLogout }) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [moreOpen, setMoreOpen] = useState(false);
     const [topLangOpen, setTopLangOpen] = useState(false);
+    const [ongelezen, setOngelezen] = useState(0);
+    const [notifOpen, setNotifOpen] = useState(false);
+    const [alleMeldingen, setAlleMeldingen] = useState([]);
+    const notifRef = useRef(null);
     const moreRef = useRef(null);
     const langRef = useRef(null);
+
+    useEffect(() => {
+        const laadOngelezen = () => {
+            try {
+                const meldingen = JSON.parse(localStorage.getItem('schildersapp_meldingen') || '[]');
+                const naam = user?.name || '';
+                const count = meldingen.filter(m => m.aan === naam && !m.gelezen).length;
+                setOngelezen(count);
+            } catch {}
+        };
+        laadOngelezen();
+        const interval = setInterval(laadOngelezen, 5000);
+        return () => clearInterval(interval);
+    }, [user?.name]);
 
     const { hasAccess } = useAuth();
     const { t, language, setLanguage, languages } = useLanguage();
@@ -30,6 +48,7 @@ export default function Sidebar({ user, onLogout }) {
         const handleClickOutside = (event) => {
             if (moreRef.current && !moreRef.current.contains(event.target)) setMoreOpen(false);
             if (langRef.current && !langRef.current.contains(event.target)) setTopLangOpen(false);
+            if (notifRef.current && !notifRef.current.contains(event.target)) setNotifOpen(false);
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -228,11 +247,13 @@ export default function Sidebar({ user, onLogout }) {
                 onMouseOut={e => e.currentTarget.style.background = 'transparent'}
                 >
                     <i className="fa-regular fa-bell"></i>
-                    <span style={{
-                        position: 'absolute', top: '2px', right: '2px', background: '#EF4444', color: '#fff',
-                        fontSize: '0.55rem', fontWeight: 800, width: '16px', height: '16px', borderRadius: '50%',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #F5850A'
-                    }}>3</span>
+                    {ongelezen > 0 && (
+                        <span style={{
+                            position: 'absolute', top: '2px', right: '2px', background: '#EF4444', color: '#fff',
+                            fontSize: '0.55rem', fontWeight: 800, width: '16px', height: '16px', borderRadius: '50%',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #F5850A'
+                        }}>{ongelezen > 9 ? '9+' : ongelezen}</span>
+                    )}
                 </button>
 
                 {onLogout && (

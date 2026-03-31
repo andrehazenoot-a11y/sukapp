@@ -19,7 +19,7 @@ export const ALL_PAGES = [
         ]
     },
     {
-        id: 'profiel', name: 'Mijn Profiel', path: '/profiel', icon: 'fa-id-card', subs: [
+        id: 'profiel', name: 'Team', path: '/profiel', icon: 'fa-users', subs: [
             { id: 'profiel.werknemer', name: 'Werknemer profiel', icon: 'fa-user-tie' },
             { id: 'profiel.zzp', name: 'ZZP profiel', icon: 'fa-file-contract' },
         ]
@@ -50,6 +50,8 @@ export const ALL_PAGES = [
             { id: 'whatsapp.termijnen', name: 'Termijnen', icon: 'fa-chart-bar' },
         ]
     },
+    { id: 'toolbox', name: 'Toolbox Meeting', path: '/toolbox', icon: 'fa-screwdriver-wrench' },
+    { id: 'onboarding', name: 'Intake Generator', path: '/onboarding', icon: 'fa-wand-magic-sparkles' },
 ];
 
 // == Demo gebruikers — in productie vervangen door database ==

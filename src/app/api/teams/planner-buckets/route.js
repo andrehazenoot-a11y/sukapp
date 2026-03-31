@@ -28,7 +28,7 @@ export async function GET(req) {
     try {
         const token = await getAppToken();
         const res = await fetch(`https://graph.microsoft.com/v1.0/planner/plans/${planId}/buckets`, {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${token}`, 'Accept-Language': 'en-US' },
         });
         if (!res.ok) return NextResponse.json({ error: await res.text() }, { status: res.status });
         const data = await res.json();
@@ -46,7 +46,7 @@ export async function POST(req) {
         const token = await getAppToken();
         const res = await fetch('https://graph.microsoft.com/v1.0/planner/buckets', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept-Language': 'en-US' },
             body: JSON.stringify({ planId, name, orderHint: ' !' }),
         });
         if (!res.ok) return NextResponse.json({ error: await res.text() }, { status: res.status });

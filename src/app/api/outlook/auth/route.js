@@ -23,9 +23,12 @@ export async function GET(req) {
     const code = searchParams.get('code');
 
     if (!code) {
+        const returnTo = searchParams.get('returnTo') || '/projecten';
+        const state = Buffer.from(returnTo).toString('base64');
         const url = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize?` +
             `client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-            `&scope=Mail.ReadWrite+Mail.ReadWrite.Shared+offline_access+MailboxSettings.Read+Calendars.ReadWrite+Contacts.Read+Channel.Create+Channel.ReadBasic.All+ChannelSettings.ReadWrite.All+Tasks.ReadWrite+Team.ReadBasic.All+TeamsTab.Create+ChannelMessage.Send&response_mode=query`;
+            `&scope=Mail.ReadWrite+Mail.ReadWrite.Shared+offline_access+MailboxSettings.Read+Calendars.ReadWrite+Contacts.Read+Channel.Create+Channel.ReadBasic.All+ChannelSettings.ReadWrite.All+Tasks.ReadWrite+Team.ReadBasic.All+TeamsTab.Create+ChannelMessage.Send+ChannelMessage.Read.All&response_mode=query` +
+            `&state=${encodeURIComponent(state)}`;
         return NextResponse.redirect(url);
     }
 
@@ -48,7 +51,10 @@ export async function GET(req) {
             await slaRefreshTokenOp(tokens.refresh_token);
         }
 
-        const res = NextResponse.redirect(new URL('/projecten', req.url));
+        const stateParam = searchParams.get('state') || '';
+        let returnTo = '/projecten';
+        try { returnTo = Buffer.from(stateParam, 'base64').toString('utf8') || '/projecten'; } catch {}
+        const res = NextResponse.redirect(new URL(returnTo, req.url));
         res.cookies.set('ms_access_token', tokens.access_token, { httpOnly: true, maxAge: 3600, path: '/' });
         if (tokens.refresh_token) {
             res.cookies.set('ms_refresh_token', tokens.refresh_token, { httpOnly: true, maxAge: 30 * 86400, path: '/' });

@@ -8,7 +8,7 @@ import LoginPage from './LoginPage';
 import Sidebar from './Sidebar';
 import ChatBot from './ChatBot';
 
-const PUBLIC_ROUTES = ['/meerwerk-akkoord'];
+const PUBLIC_ROUTES = ['/meerwerk-akkoord', '/intake'];
 
 // Wrapper die login/dashboard logica afhandelt
 function AppContent({ children }) {
