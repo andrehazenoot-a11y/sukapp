@@ -357,12 +357,12 @@ export default function UrenPage() {
 
     const searchParams = useSearchParams();
     const tabFromUrl = searchParams.get('tab');
-    const [activeTab, setActiveTab] = useState(tabFromUrl === 'verlof' ? 'verlof' : tabFromUrl === 'planner' ? 'planner' : 'uren');
+    const [activeTab, setActiveTab] = useState(tabFromUrl === 'planner' ? 'planner' : tabFromUrl === 'overzicht' ? 'overzicht' : 'verlof');
     // Sync tab when URL params change (sidebar navigation)
     useEffect(() => {
-        if (tabFromUrl === 'verlof') setActiveTab('verlof');
-        else if (tabFromUrl === 'planner') setActiveTab('planner');
-        else setActiveTab('uren');
+        if (tabFromUrl === 'planner') setActiveTab('planner');
+        else if (tabFromUrl === 'overzicht') setActiveTab('overzicht');
+        else setActiveTab('verlof');
     }, [tabFromUrl]);
     const [showWeekend, setShowWeekend] = useState(false);
     const [weekNum, setWeekNum] = useState(currentWeekNum);
@@ -410,7 +410,16 @@ export default function UrenPage() {
         { key: `${YEAR}-12-25`, name: '1e Kerstdag', date: '25 december' },
         { key: `${YEAR}-12-26`, name: '2e Kerstdag', date: '26 december' },
     ];
-    const defaultEnabled = Object.fromEntries(ALL_HOLIDAYS.map(h => [h.key, true]));
+    
+    // Eigen feestdagen
+    const [customHolidays, setCustomHolidays] = useState(() => {
+        try { return JSON.parse(localStorage.getItem(`schildersapp_custom_holidays_${YEAR}`)) || []; } catch { return []; }
+    });
+    const [newHolidayName, setNewHolidayName] = useState('');
+    const [newHolidayDate, setNewHolidayDate] = useState('');
+
+    const COMBINED_HOLIDAYS = [...ALL_HOLIDAYS, ...customHolidays].sort((a, b) => a.key.localeCompare(b.key));
+    const defaultEnabled = Object.fromEntries(COMBINED_HOLIDAYS.map(h => [h.key, true]));
     const [enabledHolidays, setEnabledHolidays] = useState(() => {
         try {
             const stored = JSON.parse(localStorage.getItem(`schildersapp_feestdagen_${YEAR}`));
@@ -423,6 +432,31 @@ export default function UrenPage() {
             localStorage.setItem(`schildersapp_feestdagen_${YEAR}`, JSON.stringify(next));
             return next;
         });
+    };
+
+    const addCustomHoliday = () => {
+        if (!newHolidayName || !newHolidayDate) return;
+        const [y, m, d] = newHolidayDate.split('-');
+        const mNames = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+        const dateStr = `${parseInt(d)} ${mNames[parseInt(m)-1]}`;
+        const item = { key: newHolidayDate, name: newHolidayName, date: dateStr, isCustom: true };
+        const updated = [...customHolidays, item].sort((a,b) => a.key.localeCompare(b.key));
+        setCustomHolidays(updated);
+        localStorage.setItem(`schildersapp_custom_holidays_${YEAR}`, JSON.stringify(updated));
+        
+        setEnabledHolidays(prev => {
+            const next = { ...prev, [newHolidayDate]: true };
+            localStorage.setItem(`schildersapp_feestdagen_${YEAR}`, JSON.stringify(next));
+            return next;
+        });
+        setNewHolidayName('');
+        setNewHolidayDate('');
+    };
+
+    const removeCustomHoliday = (key) => {
+        const updated = customHolidays.filter(h => h.key !== key);
+        setCustomHolidays(updated);
+        localStorage.setItem(`schildersapp_custom_holidays_${YEAR}`, JSON.stringify(updated));
     };
 
     const DAYS = getDaysForWeek(weekNum, yearNum);
@@ -533,7 +567,6 @@ export default function UrenPage() {
             </div>
 
             <div className="tabs" style={{ marginBottom: '14px' }}>
-                <button className={`tab-btn ${activeTab === 'uren' ? 'active' : ''}`} onClick={() => setActiveTab('uren')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Urenregistratie</button>
                 <button className={`tab-btn ${activeTab === 'verlof' ? 'active' : ''}`} onClick={() => setActiveTab('verlof')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Verlof Aanvragen</button>
                 <button className={`tab-btn ${activeTab === 'planner' ? 'active' : ''}`} onClick={() => setActiveTab('planner')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Personeelsplanner</button>
                 <button className={`tab-btn ${activeTab === 'overzicht' ? 'active' : ''}`} onClick={() => setActiveTab('overzicht')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>
@@ -894,7 +927,7 @@ export default function UrenPage() {
                                 Feestdagen {YEAR} — aan/uit
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '8px' }}>
-                                {ALL_HOLIDAYS.map(h => (
+                                {COMBINED_HOLIDAYS.map(h => (
                                     <div key={h.key} style={{
                                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                         padding: '8px 14px', borderRadius: '8px',
@@ -903,26 +936,51 @@ export default function UrenPage() {
                                         transition: 'all 0.2s'
                                     }}>
                                         <div>
-                                            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: enabledHolidays[h.key] ? '#1e293b' : '#94a3b8' }}>{h.name}</div>
+                                            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: enabledHolidays[h.key] ? '#1e293b' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {h.name}
+                                                {h.isCustom && <i className="fa-solid fa-user-pen" style={{ fontSize: '0.6rem', color: '#cbd5e1' }} title="Zelf toegevoegd" />}
+                                            </div>
                                             <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{h.date}</div>
                                         </div>
-                                        {/* Toggle switch */}
-                                        <div onClick={() => toggleHoliday(h.key)} style={{
-                                            width: '44px', height: '24px', borderRadius: '12px', cursor: 'pointer',
-                                            background: enabledHolidays[h.key] ? '#F5850A' : '#cbd5e1',
-                                            position: 'relative', transition: 'background 0.2s',
-                                            flexShrink: 0
-                                        }}>
-                                            <div style={{
-                                                width: '18px', height: '18px', borderRadius: '50%',
-                                                background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                                                position: 'absolute', top: '3px',
-                                                left: enabledHolidays[h.key] ? '23px' : '3px',
-                                                transition: 'left 0.2s'
-                                            }} />
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            {/* Toggle switch */}
+                                            <div onClick={() => toggleHoliday(h.key)} style={{
+                                                width: '44px', height: '24px', borderRadius: '12px', cursor: 'pointer',
+                                                background: enabledHolidays[h.key] ? '#F5850A' : '#cbd5e1',
+                                                position: 'relative', transition: 'background 0.2s',
+                                                flexShrink: 0
+                                            }}>
+                                                <div style={{
+                                                    width: '18px', height: '18px', borderRadius: '50%',
+                                                    background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                                                    position: 'absolute', top: '3px',
+                                                    left: enabledHolidays[h.key] ? '23px' : '3px',
+                                                    transition: 'left 0.2s'
+                                                }} />
+                                            </div>
+                                            {h.isCustom && (
+                                                <button onClick={() => removeCustomHoliday(h.key)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}>
+                                                    <i className="fa-solid fa-trash" />
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                            
+                            {/* Toevoegen custom feestdag */}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '14px', alignItems: 'flex-end', padding: '12px', borderRadius: '8px', background: '#fff', border: '1px solid #e2e8f0' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>Nieuwe Feestdag Naam</label>
+                                    <input value={newHolidayName} onChange={e => setNewHolidayName(e.target.value)} placeholder="Bijv: Carnaval, Bedrijfsuitje..." style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem' }} />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>Datum</label>
+                                    <input type="date" value={newHolidayDate} onChange={e => setNewHolidayDate(e.target.value)} style={{ padding: '8px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', width: '130px' }} />
+                                </div>
+                                <button onClick={addCustomHoliday} disabled={!newHolidayName || !newHolidayDate} style={{ padding: '8px 14px', borderRadius: '6px', border: 'none', background: (!newHolidayName || !newHolidayDate) ? '#cbd5e1' : '#F5850A', color: '#fff', fontWeight: 600, fontSize: '0.8rem', cursor: (!newHolidayName || !newHolidayDate) ? 'not-allowed' : 'pointer' }}>
+                                    <i className="fa-solid fa-plus" /> Toevoegen
+                                </button>
                             </div>
                             <div style={{ marginTop: '10px', fontSize: '0.72rem', color: '#94a3b8' }}>
                                 <i className="fa-solid fa-info-circle" style={{ marginRight: '4px' }}></i>
@@ -938,7 +996,7 @@ export default function UrenPage() {
 
                         // Build active holiday set from admin toggles
                         const holidayNames = {};
-                        ALL_HOLIDAYS.forEach(h => { if (enabledHolidays[h.key]) holidayNames[h.key] = h.name; });
+                        COMBINED_HOLIDAYS.forEach(h => { if (enabledHolidays[h.key]) holidayNames[h.key] = h.name; });
                         const holidaySet = new Set(Object.keys(holidayNames));
 
                         // Load team vacation data for calendar overlay
@@ -1198,7 +1256,7 @@ export default function UrenPage() {
 
                 // Build active holidays set
                 const activeHolidays = {};
-                ALL_HOLIDAYS.forEach(h => { if (enabledHolidays[h.key]) activeHolidays[h.key] = h.name; });
+                COMBINED_HOLIDAYS.forEach(h => { if (enabledHolidays[h.key]) activeHolidays[h.key] = h.name; });
                 const holidaySet = new Set(Object.keys(activeHolidays));
 
                 // Load vacation days for each employee from localStorage
@@ -1285,7 +1343,7 @@ export default function UrenPage() {
                                                     const [, mo] = d.split('-');
                                                     return parseInt(mo) === m + 1;
                                                 });
-                                                const holidaysThisMonth = ALL_HOLIDAYS.filter(h => {
+                                                const holidaysThisMonth = COMBINED_HOLIDAYS.filter(h => {
                                                     if (!enabledHolidays[h.key]) return false;
                                                     const [, mo] = h.key.split('-');
                                                     return parseInt(mo) === m + 1;

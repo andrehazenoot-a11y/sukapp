@@ -149,6 +149,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const [projectNotesCache, setProjectNotesCache] = useState(null); // geladen project-notities
     const [projectNotesLoading, setProjectNotesLoading] = useState(false);
     const [noteTooltip, setNoteTooltip] = useState(null); // { notes[], x, y, taskName }
+    const [noteUploading, setNoteUploading] = useState(false);
+    const [noteDragOver, setNoteDragOver] = useState(false);
 
     // Taak toevoegen
     const [showAddTask, setShowAddTask] = useState(false);
@@ -163,7 +165,64 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const [quickTaskName, setQuickTaskName] = useState('');
 
     // Alleen planning taken weergeven in de gantt
-    const planningTasks = useMemo(() => (proj.tasks || []).filter(t => t.kanbanStatus === 'planning'), [proj.tasks]);
+    const planningTasks = useMemo(() => (proj.tasks || []), [proj.tasks]);
+
+    // ===== BEZETTING STATES EN HOOKS =====
+    const [allProjects, setAllProjects] = useState([]);
+    const [workerAbsences, setWorkerAbsences] = useState([]);
+    const [enabledHolidays, setEnabledHolidays] = useState({});
+    const [bzFilter, setBzFilter] = useState('iedereen');
+
+    useEffect(() => {
+        const h = (e) => { if (e.detail?.taskId) { setNotePopup({ taskId: e.detail.taskId }); } };
+        window.addEventListener('open-task-notes-modal', h);
+        return () => window.removeEventListener('open-task-notes-modal', h);
+    }, []);
+
+    useEffect(() => {
+        const loadAll = () => {
+            try {
+                const sp = localStorage.getItem('schildersapp_projecten');
+                if (sp) setAllProjects(JSON.parse(sp));
+                const wa = localStorage.getItem('schilders-absences');
+                if (wa) setWorkerAbsences(JSON.parse(wa));
+                const eh = localStorage.getItem('schildersapp_enabled_holidays');
+                if (eh) setEnabledHolidays(JSON.parse(eh));
+            } catch (e) { console.error('Fout bij laden Bezetting data', e); }
+        };
+        loadAll();
+        const handleSync = () => loadAll();
+        window.addEventListener('storage', handleSync);
+        window.addEventListener('schilders-sync', handleSync);
+        return () => {
+            window.removeEventListener('storage', handleSync);
+            window.removeEventListener('schilders-sync', handleSync);
+        };
+    }, []);
+
+    const HOLIDAYS_2026 = {
+        '2026-01-01': 'Nieuwjaarsdag',
+        '2026-04-03': 'Goede Vrijdag',
+        '2026-04-05': '1e Paasdag',
+        '2026-04-06': '2e Paasdag',
+        '2026-04-27': 'Koningsdag',
+        '2026-05-05': 'Bevrijdingsdag',
+        '2026-05-14': 'Hemelvaartsdag',
+        '2026-05-24': '1e Pinksterdag',
+        '2026-05-25': '2e Pinksterdag',
+        '2026-12-25': '1e Kerstdag',
+        '2026-12-26': '2e Kerstdag'
+    };
+
+    const isHoliday = useCallback((d) => {
+        if (!d) return false;
+        const s = formatDate(d);
+        if (HOLIDAYS_2026[s]) {
+            if (Object.keys(enabledHolidays).length === 0) return HOLIDAYS_2026[s];
+            return enabledHolidays[s] !== false ? HOLIDAYS_2026[s] : false;
+        }
+        return false;
+    }, [enabledHolidays]);
 
     // Refs
     const ganttWrapperRef = useRef(null);
@@ -778,7 +837,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 {/* 3-laags header: Jaar / Maand / Week / Dag */}
                 {/* Jaar */}
                 <div className="gantt-header-row year-row">
-                    <div className="gantt-header-label">&nbsp;</div>
+                    <div className="gantt-header-label" style={{ minWidth: '420px', maxWidth: '420px' }}>&nbsp;</div>
+                    <div className="gantt-progress-col header">&nbsp;</div>
                     <div className="gantt-team-col header">&nbsp;</div>
                     {yearSpans.map((s, i) => (
                         <div key={i} className="gantt-header-span year-span" style={{ flex: s.days, minWidth: s.days * cellW }}>{s.year}</div>
@@ -786,7 +846,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 </div>
                 {/* Maand */}
                 <div className="gantt-header-row month-row">
-                    <div className="gantt-header-label">&nbsp;</div>
+                    <div className="gantt-header-label" style={{ minWidth: '420px', maxWidth: '420px' }}>&nbsp;</div>
+                    <div className="gantt-progress-col header">&nbsp;</div>
                     <div className="gantt-team-col header">&nbsp;</div>
                     {monthSpans.map((s, i) => (
                         <div key={i} className="gantt-header-span month-span" style={{ flex: s.days, minWidth: s.days * cellW, cursor: 'pointer' }}
@@ -796,7 +857,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 </div>
                 {/* Week */}
                 <div className="gantt-header-row week-row">
-                    <div className="gantt-header-label" style={{ fontSize: '0.6rem', color: '#94a3b8' }}>Week</div>
+                    <div className="gantt-header-label" style={{ fontSize: '0.6rem', color: '#94a3b8', minWidth: '420px', maxWidth: '420px' }}>Week</div>
+                    <div className="gantt-progress-col header">&nbsp;</div>
                     <div className="gantt-team-col header">&nbsp;</div>
                     {weekSpans.map((s, i) => (
                         <div key={i} className="gantt-header-span" onClick={() => { setViewMode('week'); setCurrentDate(new Date(s.startDate)); }}
@@ -808,7 +870,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 </div>
                 {/* Dag */}
                 <div className="gantt-header-row day-row">
-                    <div className="gantt-header-label" style={{ fontWeight: 700, fontSize: '0.7rem' }}>Project / Taak</div>
+                    <div className="gantt-header-label" style={{ fontWeight: 700, fontSize: '0.7rem', minWidth: '420px', maxWidth: '420px' }}>Project / Taak</div>
+                    <div className="gantt-progress-col header">Vtg</div>
                     <div className="gantt-team-col header">Team</div>
                     {timelineDates.map((d, i) => (
                         <div key={i} className={`gantt-header-cell ${isWeekend(d) ? 'weekend' : ''} ${todayStr === formatDate(d) ? 'today' : ''}`}
@@ -864,6 +927,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                             </span>
                         </div>
                     </div>
+                    {/* Voortgang kolom project */}
+                    <div className="gantt-progress-col" style={{ background: '#f8fafc' }} />
                     {/* Project-niveau team kolom */}
                     {(() => {
                         const taskWorkerIds = [...new Set(planningTasks.filter(t => !t.completed).flatMap(t => t.assignedTo || []))];
@@ -1006,50 +1071,36 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                     >{t.name}</div>
                                 </div>
 
-                                {/* Actie-knoppen: omhoog, omlaag, kopieer, notitie, verwijder */}
+                                {/* Actie-knoppen top rij: omhoog, omlaag, verwijder */}
                                 {[
                                     { icon: 'fa-chevron-up',   title: 'Omhoog',   color: '#94a3b8', hover: '#3b82f6', action: e => { e.stopPropagation(); moveTaskUp(t.id); } },
                                     { icon: 'fa-chevron-down', title: 'Omlaag',   color: '#94a3b8', hover: '#3b82f6', action: e => { e.stopPropagation(); moveTaskDown(t.id); } },
-                                    { icon: 'fa-copy',         title: 'Kopiëren', color: '#94a3b8', hover: '#8b5cf6', action: e => { e.stopPropagation(); duplicateTask(t.id); } },
                                 ].map((btn, i) => (
                                     <button key={i} onClick={btn.action} title={btn.title}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: btn.color, flexShrink: 0, fontSize: '0.65rem', transition: 'color 0.15s' }}
-                                        onMouseEnter={e => e.currentTarget.style.color = btn.hover}
-                                        onMouseLeave={e => e.currentTarget.style.color = btn.color}>
+                                        onMouseEnter={e => { e.currentTarget.style.color = btn.hover; e.currentTarget.style.background = 'rgba(59,130,246,0.08)'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.color = btn.color; e.currentTarget.style.background = 'none'; }}>
                                         <i className={`fa-solid ${btn.icon}`} />
                                     </button>
                                 ))}
-                                {/* Notitie-knop */}
-                                <button onClick={e => { e.stopPropagation(); setNotePopup({ taskId: t.id }); setNoteInput(''); }}
-                                    title={`Notities (${(t.notes || []).length})`}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', position: 'relative', transition: 'color 0.15s' }}
-                                    onMouseEnter={e => e.currentTarget.style.color = '#f59e0b'}
-                                    onMouseLeave={e => e.currentTarget.style.color = (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1'}>
-                                    <i className="fa-solid fa-note-sticky" />
-                                    {(t.notes || []).length > 0 && (
-                                        <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#f59e0b', color: '#fff', borderRadius: '50%', fontSize: '0.38rem', width: '10px', height: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}>
-                                            {(t.notes || []).length}
-                                        </span>
-                                    )}
-                                </button>
                                 {/* Verwijder-knop */}
                                 <button onClick={e => { e.stopPropagation(); deleteTask(t.id); }}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: '#cbd5e1', flexShrink: 0, fontSize: '0.7rem', transition: 'color 0.15s' }}
-                                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                                    onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
+                                    onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'none'; }}>
                                     <i className="fa-solid fa-xmark" />
                                 </button>
-
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', paddingLeft: '19px' }}>
                                 <input type="date" value={t.startDate} onClick={e => e.stopPropagation()}
                                     onChange={e => { if (e.target.value) updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, startDate: e.target.value }) })); }}
                                     style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
                                 {t.startDate && t.endDate && (() => {
-                                    const currentDays = diffDays(parseDate(t.startDate), parseDate(t.endDate)) + 1;
+                                    const currentDays = Math.max(diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)), 1);
                                     const changeDays = (newDays) => {
                                         if (newDays < 1) return;
-                                        const newEnd = formatDate(addDays(parseDate(t.startDate), newDays - 1));
+                                        // addWorkdays starts today, so add newDays - 1
+                                        const newEnd = formatDate(addWorkdays(parseDate(t.startDate), newDays - 1));
                                         updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: newEnd }) }));
                                     };
                                     return (
@@ -1074,88 +1125,157 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 <input type="date" value={t.endDate} onClick={e => e.stopPropagation()}
                                     onChange={e => { if (e.target.value) updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== t.id ? tk : { ...tk, endDate: e.target.value }) })); }}
                                     style={{ width: '88px', fontSize: '0.58rem', padding: '1px 2px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', color: '#475569', cursor: 'pointer', outline: 'none' }} />
+                                
+                                {/* Rij-2 knoppen: kopiëren, memo, notities (recht uitlijnen) */}
+                                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '1px' }}>
+                                    <button onClick={e => { e.stopPropagation(); duplicateTask(t.id); }} title="Kopiëren"
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: '#94a3b8', flexShrink: 0, fontSize: '0.65rem', transition: 'color 0.15s' }}
+                                        onMouseEnter={e => { e.currentTarget.style.color = '#8b5cf6'; e.currentTarget.style.background = 'rgba(139,92,246,0.08)'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none'; }}>
+                                        <i className="fa-solid fa-copy" />
+                                    </button>
+                                    {/* Memo-indicator */}
+                                    {t.memo && (
+                                        <span title={t.memo} style={{ color: '#f59e0b', fontSize: '0.65rem', cursor: 'default' }}>
+                                            <i className="fa-solid fa-note-sticky" />
+                                        </span>
+                                    )}
+                                    {/* Notitie-knop */}
+                                    <button onClick={e => { e.stopPropagation(); setNotePopup({ taskId: t.id }); setNoteInput(''); setNoteTab('nieuw'); }}
+                                        title={`Notities (${(t.notes || []).length})`}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1', flexShrink: 0, fontSize: '0.65rem', position: 'relative', transition: 'color 0.15s' }}
+                                        onMouseEnter={e => { e.currentTarget.style.color = '#f59e0b'; e.currentTarget.style.background = 'rgba(245,158,11,0.08)'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.color = (t.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1'; e.currentTarget.style.background = 'none'; }}>
+                                        <i className="fa-solid fa-note-sticky" />
+                                        {(t.notes || []).length > 0 && (
+                                            <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#f59e0b', color: '#fff', borderRadius: '50%', fontSize: '0.48rem', width: '12px', height: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}>
+                                                {(t.notes || []).length}
+                                            </span>
+                                        )}
+                                    </button>
+                                    {/* Attachment-indicator */}
+                                    {(t.attachments || []).length > 0 && (
+                                        <button onClick={e => { e.stopPropagation(); setNotePopup({ taskId: t.id }); setNoteInput(''); setNoteTab('bijlagen'); }}
+                                            title={`Bijlagen (${(t.attachments || []).length})`}
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', borderRadius: '3px', color: '#10b981', flexShrink: 0, fontSize: '0.62rem', position: 'relative', transition: 'color 0.15s' }}>
+                                            <i className="fa-solid fa-paperclip" />
+                                            <span style={{ position: 'absolute', top: '-3px', right: '-3px', background: '#10b981', color: '#fff', borderRadius: '50%', fontSize: '0.48rem', minWidth: '12px', height: '12px', padding: '0 2px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}>
+                                                {(t.attachments || []).length}
+                                            </span>
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                        {/* TEAM KOLOM */}
-                        <div className="gantt-team-col" style={{ background: noTeam ? '#fef2f2' : '#f8fafc', borderLeft: noTeam ? '2px solid #fecaca' : '1px solid #e2e8f0' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
-                                {(t.assignedTo || []).slice(0, 4).map((uid, idx) => {
-                                    const u = allUsers.find(x => x.id === uid);
-                                    if (!u) return null;
-                                    const initials = u.name ? u.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
-                                    return (
-                                        <div key={uid} className="gantt-worker-avatar"
-                                            style={{ width: '18px', height: '18px', fontSize: '0.42rem', fontWeight: 700, background: proj.color, color: '#fff', marginLeft: idx > 0 ? '-5px' : '0', border: '2px solid #fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto', flexShrink: 0 }}
-                                            onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setWorkerTooltip({ name: u.name || u.email, x: r.left + r.width / 2, y: r.top }); }}
-                                            onMouseLeave={() => setWorkerTooltip(null)}>
-                                            {initials}
-                                        </div>
-                                    );
-                                })}
-                                {(t.assignedTo || []).length > 4 && (
-                                    <div style={{ width: '18px', height: '18px', fontSize: '0.38rem', fontWeight: 700, background: '#e2e8f0', color: '#64748b', marginLeft: '-5px', border: '2px solid #fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        +{(t.assignedTo || []).length - 4}
+                        {/* ===== VOORTGANG KOLOM (taak) ===== */}
+                        {(() => {
+                            const prog = t.progress || 0;
+                            const col = prog > 0 ? '#10b981' : '#cbd5e1';
+                            return (
+                                <div className="gantt-progress-col" style={{ background: '#fff' }}>
+                                    <div
+                                        title={`Voortgang: ${prog}%`}
+                                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: col, background: col + '18', borderRadius: '6px', padding: '3px 4px' }}>
+                                        <i className="fa-solid fa-chart-simple" style={{ fontSize: '0.7rem' }} />
+                                        <span style={{ fontSize: '0.58rem', fontWeight: 800, lineHeight: 1 }}>{prog}%</span>
                                     </div>
-                                )}
-                                {(t.assignedTo || []).length === 0 && (
-                                    <span title="Geen medewerkers ingepland" style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: '3px',
-                                        fontSize: '0.55rem', fontWeight: 700,
-                                        color: '#ef4444',
-                                        background: '#fee2e2',
-                                        border: '1px solid #fca5a5',
-                                        borderRadius: '5px',
-                                        padding: '1px 5px',
-                                        whiteSpace: 'nowrap',
-                                    }}>
-                                        <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '0.45rem' }} />
-                                        niet ingepland
-                                    </span>
-                                )}
-                            </div>
-                            <button
-                                onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ taskId: t.id, x: r.left, y: r.bottom }); }}
-                                title="Personeel inplannen"
-                                style={{ width: '18px', height: '18px', borderRadius: '50%', border: `1.5px solid ${noTeam ? '#ef4444' : '#d1d5db'}`, background: noTeam ? '#ef4444' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: noTeam ? '#fff' : '#94a3b8', fontSize: '0.5rem', transition: 'all 0.15s', outline: 'none', pointerEvents: 'auto' }}
-                                onMouseEnter={e => { e.currentTarget.style.borderColor = proj.color; e.currentTarget.style.color = '#fff'; e.currentTarget.style.background = proj.color; }}
-                                onMouseLeave={e => { e.currentTarget.style.borderColor = noTeam ? '#ef4444' : '#d1d5db'; e.currentTarget.style.color = noTeam ? '#fff' : '#94a3b8'; e.currentTarget.style.background = noTeam ? '#ef4444' : '#fff'; }}>
-                                <i className="fa-solid fa-plus" />
-                            </button>
+                                </div>
+                            );
+                        })()}
+                        {/* TEAM KOLOM (taak) */}
+                        <div className="gantt-team-col" style={{ background: '#fff' }}>
+                            {(() => {
+                                const taskWorkers = (t.assignedTo || []).map(uid => allUsers.find(u => u.id === uid)).filter(Boolean);
+                                const hasWorkers = taskWorkers.length > 0;
+                                return (
+                                    <div
+                                        title={hasWorkers ? taskWorkers.map(u => u.name).join(', ') + ' — klik om te beheren' : 'Niemand ingepland — klik om toe te voegen'}
+                                        onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ taskId: t.id, x: r.left, y: r.bottom }); }}
+                                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer', transition: 'all 0.15s', background: hasWorkers ? proj.color + '22' : 'rgba(239,68,68,0.1)', border: `1.5px solid ${hasWorkers ? proj.color + '88' : '#ef444466'}`, color: hasWorkers ? proj.color : '#ef4444', pointerEvents: 'auto', gap: '1px' }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = hasWorkers ? proj.color + '44' : 'rgba(239,68,68,0.22)'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = hasWorkers ? proj.color + '22' : 'rgba(239,68,68,0.1)'; }}>
+                                        <i className={`fa-solid fa-${hasWorkers ? 'users' : 'user-plus'}`} style={{ fontSize: '0.55rem' }} />
+                                        {hasWorkers && <span style={{ fontSize: '0.46rem', fontWeight: 700, lineHeight: 1 }}>{taskWorkers.length}</span>}
+                                    </div>
+                                );
+                            })()}
                         </div>
-                        <div className="gantt-row-timeline">
+                        <div className="gantt-row-timeline" style={{ position: 'relative' }}>
+                            {/* Achtergrondcellen — twee zones per cel */}
                             {timelineDates.map((d, i) => {
                                 const ds = formatDate(d);
+                                const inRange = ds >= t.startDate && ds <= t.endDate;
                                 const weekend = isWeekend(d);
-                                const isHol = isHoliday(d);
+                                const holiday = !weekend && isHoliday(d);
+                                const isToday = formatDate(today) === ds;
+                                // Toegewezen personen op deze dag
+                                const dayAssigned = (() => {
+                                    const dayIds = t.assignedByDay?.[ds] ?? t.assignedTo ?? [];
+                                    return dayIds
+                                        .map(uid => allUsers.find(u => u.id === uid))
+                                        .filter(Boolean);
+                                })();
                                 return (
                                     <div key={i}
-                                        className={`gantt-cell ${weekend ? 'weekend' : ''} ${todayStr === ds ? 'today' : ''}`}
-                                        style={{ cursor: weekend || isHol ? 'default' : 'crosshair', pointerEvents: 'auto' }}
-                                        onMouseDown={weekend || isHol ? undefined : (e) => {
-                                            const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
-                                            if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
-                                            handleDrawMouseDown(e, ds, t.id);
-                                        }}
-                                    />
+                                        className={`gantt-cell ${weekend ? 'weekend' : ''} ${holiday ? 'holiday' : ''} ${isToday ? 'today' : ''}`}
+                                        style={{ display: 'flex', flexDirection: 'column', padding: 0 }}
+                                    >
+                                        {/* Bovenste zone: klikbaar voor draw-create */}
+                                        <div
+                                            style={{ height: '30px', flexShrink: 0, cursor: weekend || holiday ? 'default' : 'crosshair', pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            onMouseDown={weekend || holiday ? undefined : (e) => {
+                                                const path = e.nativeEvent.composedPath ? e.nativeEvent.composedPath() : [];
+                                                if (path.some(el => el.classList && (el.classList.contains('gantt-bar') || el.classList.contains('resize-handle')))) return;
+                                                handleDrawMouseDown(e, ds, t.id);
+                                            }}
+                                        >
+                                            {holiday && <i className="fa-solid fa-star" style={{ fontSize: '0.4rem', color: '#F5850A', pointerEvents: 'none', zIndex: 1 }} title={isHoliday(d)} />}
+                                        </div>
+                                        {/* Onderste zone: persoons-chips */}
+                                        <div style={{
+                                            height: '24px', display: 'flex', alignItems: 'center',
+                                            gap: '1px', padding: '0 2px', overflow: 'hidden',
+                                            background: weekend ? 'transparent'
+                                                : holiday ? 'rgba(245,133,10,0.05)'
+                                                : inRange ? 'rgba(0,0,0,0.02)'
+                                                : 'rgba(0,0,0,0.018)',
+                                            borderTop: holiday ? '1px solid rgba(245,133,10,0.15)'
+                                                : inRange && !weekend ? `1px solid ${proj.color}22`
+                                                : '1px solid rgba(0,0,0,0.04)',
+                                        }}>
+                                            {!weekend && !holiday && inRange && (
+                                                <div
+                                                    title={dayAssigned.length > 0 ? dayAssigned.map(u => u.name).join(', ') + ' — klik om te wijzigen' : 'Niemand ingepland — klik om toe te voegen'}
+                                                    onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ taskId: t.id, dateStr: ds, x: r.left, y: r.bottom + 4 }); }}
+                                                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '18px', height: '18px', borderRadius: '50%', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s', background: dayAssigned.length > 0 ? proj.color + '22' : 'rgba(239,68,68,0.1)', border: `1.5px solid ${dayAssigned.length > 0 ? proj.color + '88' : '#ef444466'}`, color: dayAssigned.length > 0 ? proj.color : '#ef4444', pointerEvents: 'auto', gap: '1px' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? proj.color + '44' : 'rgba(239,68,68,0.22)'; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? proj.color + '22' : 'rgba(239,68,68,0.1)'; }}>
+                                                    <i className={`fa-solid fa-${dayAssigned.length > 0 ? 'users' : 'user-plus'}`} style={{ fontSize: '0.38rem' }} />
+                                                    {dayAssigned.length > 0 && <span style={{ fontSize: '0.34rem', fontWeight: 700, lineHeight: 1 }}>{dayAssigned.length}</span>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 );
                             })}
-
+                            
                             {/* Preview-balk tijdens draw-create */}
                             {drawCreate && drawCreate.taskId === t.id && (() => {
                                 const segs = getBarSegments(drawCreate.startDate, drawCreate.endDate, proj.color + '88');
                                 return segs.map((seg, si) => (
                                     <div key={si} style={{
                                         ...seg,
-                                        position: 'absolute', top: '5px', height: '20px',
+                                        position: 'absolute', top: '4px', height: '18px',
                                         borderRadius: '5px',
                                         border: `2px dashed ${proj.color}`,
+                                        background: proj.color + '44',
                                         pointerEvents: 'none', zIndex: 10,
                                     }} />
                                 ));
                             })()}
 
                             {t.startDate && t.endDate && (() => {
-                                const barColor = noTeam ? 'repeating-linear-gradient(45deg, #ef444455, #ef444455 4px, #ef444422 4px, #ef444422 8px)' : proj.color + 'cc';
+                                const barColor = proj.color + 'bb';
 
                                 const segs = getBarSegments(t.startDate, t.endDate, barColor);
                                 if (!segs.length) return null;
@@ -1167,27 +1287,32 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                                 style={{
                                                     ...segStyle,
                                                     display: 'flex', alignItems: 'center',
-                                                    cursor: 'grab', height: '20px', top: '5px',
-                                                    borderRadius: si === 0 && segs.length === 1 ? '6px' : si === 0 ? '6px 0 0 6px' : si === segs.length - 1 ? '0 6px 6px 0' : '0',
-                                                    border: selectedTaskId === t.id ? '2px solid #F5850A' : noTeam ? '1.5px dashed #ef4444' : '1px solid rgba(0,0,0,0.08)',
-                                                    boxSizing: (selectedTaskId === t.id || noTeam) ? 'border-box' : undefined,
-                                                    boxShadow: selectedTaskId === t.id ? '0 0 0 3px rgba(245,133,10,0.25)' : noTeam ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+                                                    cursor: 'grab', height: '24px', top: '3px', fontSize: '0.42rem',
+                                                    borderRadius: si === 0 && segs.length === 1 ? '7px' : si === 0 ? '7px 0 0 7px' : si === segs.length - 1 ? '0 7px 7px 0' : '0',
+                                                    border: '1px solid rgba(0,0,0,0.08)',
+                                                    boxShadow: selectedTaskId === t.id
+                                                        ? `0 0 0 2.5px #F5850A, 0 0 12px #F5850A66`
+                                                        : '0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.08)',
+                                                    ...(selectedTaskId === t.id && { filter: 'brightness(1.15)' }),
+                                                    overflow: 'hidden',
                                                 }}>
+                                                {/* Glans-overlay */}
+                                                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.22) 0%, transparent 55%)', borderRadius: 'inherit', pointerEvents: 'none' }} />
+                                                {/* Lichte overlay over hele balk */}
+                                                <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.48)', pointerEvents: 'none' }} />
+                                                {/* Voortgang */}
+                                                <div style={{ position: 'absolute', bottom: 0, left: 0, width: `${t.progress || 0}%`, height: '3px', background: '#16a34a', pointerEvents: 'none' }} />
                                                 {si === 0 && <div className="resize-handle resize-handle-left" />}
                                                 {si === segs.length - 1 && <div className="resize-handle resize-handle-right" />}
                                             </div>
                                         ))}
                                         <div style={{
-                                            position: 'absolute', left: segs[0].left, top: '5px', height: '20px',
+                                            position: 'absolute', left: segs[0].left, top: '3px', height: '24px',
                                             width: `calc(${segs[segs.length - 1].left} + ${segs[segs.length - 1].width} - ${segs[0].left})`,
-                                            pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '4px', paddingRight: '4px', minWidth: 0, overflow: 'visible', zIndex: 3
+                                            pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '5px', paddingRight: '5px', minWidth: 0, overflow: 'visible', zIndex: 3
                                         }}>
-                                            <div style={{ position: 'sticky', left: '4px', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
-                                                {noTeam && <i className="fa-solid fa-user-slash" style={{ fontSize: '0.5rem', flexShrink: 0, color: '#ef4444' }} />}
-                                                <div style={{ color: noTeam ? '#ef4444' : '#fff', fontWeight: 600, fontSize: '0.62rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>{t.name}</div>
-                                                <div style={{ color: noTeam ? '#ef4444' : 'rgba(255,255,255,0.95)', fontSize: '0.55rem', fontWeight: 700, paddingLeft: '2px', flexShrink: 0, whiteSpace: 'nowrap', textShadow: '0px 0px 3px rgba(0,0,0,0.8)' }}>
-                                                    ({diffWorkdays(parseDate(t.startDate), parseDate(t.endDate))}d)
-                                                </div>
+                                            <div style={{ position: 'sticky', left: '5px', display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden' }}>
+                                                <div style={{ color: '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, textShadow: '0px 0px 3px rgba(0,0,0,0.6)' }}>{t.name}</div>
                                                 {/* 📝 Notitie badge op balk */}
                                                 {(t.notes || []).length > 0 && (
                                                     <span
@@ -1263,6 +1388,8 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                         {t.startDate} → {t.endDate}
                                     </div>
                                 </div>
+                                {/* Lege voortgang kolom voor voltooide taken */}
+                                <div className="gantt-progress-col" style={{ background: '#f8fafc' }} />
                                 {/* Lege team kolom voor voltooide taken */}
                                 <div className="gantt-team-col" style={{ background: '#f1f5f9', justifyContent: 'center' }}>
                                     <span style={{ fontSize: '0.55rem', color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -1295,11 +1422,10 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                                 {segs.map((segStyle, si) => (
                                                     <div key={si} className="gantt-bar"
                                                         style={{
-                                                            ...segStyle,
-                                                            height: '16px', top: '7px', opacity: 0.5,
-                                                            background: '#10b981aa',
+                                                            ...segStyle, height: '16px', top: '7px',
+                                                            display: 'flex', alignItems: 'center',
+                                                            opacity: 0.45, background: '#10b981aa', cursor: 'default',
                                                             borderRadius: si === 0 && segs.length === 1 ? '4px' : si === 0 ? '4px 0 0 4px' : si === segs.length - 1 ? '0 4px 4px 0' : '0',
-                                                            cursor: 'default',
                                                         }}>
                                                     </div>
                                                 ))}
@@ -1335,6 +1461,142 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         </button>
                     </div>
                 )}
+
+                {/* ===== BEZETTING / BESCHIKBAARHEID ===== */}
+                <div style={{ borderTop: '2px solid #F5850A', background: '#fffbf5' }}>
+                    {(() => {
+                        const allUserIds = allUsers.map(u => u.id);
+                        
+                        // Vakantiedagen ophalen
+                        const vacDaysByUserId = {};
+                        const YEAR = new Date().getFullYear();
+                        allUsers.forEach(u => {
+                            let vacDays = [];
+                            try { vacDays = JSON.parse(localStorage.getItem(`schildersapp_vakantie_${YEAR}_${u.name.replace(/\s+/g, '_')}`)) || []; } catch {}
+                            if (vacDays.length === 0) {
+                                try { vacDays = JSON.parse(localStorage.getItem(`schildersapp_vakantie_${YEAR}`)) || []; } catch {}
+                            }
+                            if (vacDays.length > 0) vacDaysByUserId[u.id] = new Set(vacDays);
+                        });
+
+                        const busyByDay = {};
+                        const absentByDay = {};
+                        timelineDates.forEach(d => {
+                            const ds = formatDate(d);
+                            busyByDay[ds] = new Set(
+                                allProjects.flatMap(pr =>
+                                    (pr.tasks || [])
+                                        .filter(t => !t.completed && ds >= t.startDate && ds <= t.endDate)
+                                        .flatMap(t => {
+                                            if (t.assignedByDay && t.assignedByDay[ds] !== undefined) return t.assignedByDay[ds];
+                                            return t.assignedTo || [];
+                                        })
+                                )
+                            );
+                            
+                            const absentSet = new Set(
+                                (workerAbsences || []).filter(a => ds >= a.startDate && ds <= a.endDate).map(a => a.userId)
+                            );
+                            if (isHoliday(d)) {
+                                allUserIds.forEach(id => absentSet.add(id));
+                            }
+                            allUsers.forEach(u => {
+                                if (vacDaysByUserId[u.id]?.has(ds)) absentSet.add(u.id);
+                            });
+                            absentByDay[ds] = absentSet;
+                        });
+
+                        const bzFilteredUsers = allUsers.filter(u => {
+                            if (u.role === 'Beheerder') return false;
+                            if (bzFilter === 'iedereen') return true;
+
+                            let isBusy = false;
+                            let isAbsent = false;
+
+                            for (const d of timelineDates) {
+                                if (isWeekend(d)) continue;
+                                const ds = formatDate(d);
+                                if (isHoliday(d)) continue;
+
+                                if (absentByDay[ds]?.has(u.id)) isAbsent = true;
+                                if (busyByDay[ds]?.has(u.id) && !absentByDay[ds]?.has(u.id)) isBusy = true;
+                            }
+
+                            if (bzFilter === 'ingepland') return isBusy;
+                            if (bzFilter === 'niet_ingepland') return !isBusy && !isAbsent;
+                            if (bzFilter === 'vakantie') return isAbsent;
+                            return true;
+                        });
+
+                        return (
+                            <>
+                                <div style={{ display: 'flex', minWidth: 'max-content', background: 'linear-gradient(90deg,#fff7ed,#fffbf5)', borderBottom: '1px solid #fed7aa', position: 'sticky', top: 0, zIndex: 5 }}>
+                                    <div className="gantt-header-label" style={{ minWidth: '420px', maxWidth: '420px', fontSize: '0.62rem', fontWeight: 700, color: '#F5850A', display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 8px' }}>
+                                        <i className="fa-solid fa-users" style={{ fontSize: '0.7rem' }} />
+                                        <span>Bezetting</span>
+                                        <span style={{ fontSize: '0.5rem', color: '#94a3b8', fontWeight: 400 }}>({bzFilteredUsers.length} pers.)</span>
+                                        <select
+                                            value={bzFilter}
+                                            onChange={e => setBzFilter(e.target.value)}
+                                            onClick={e => e.stopPropagation()}
+                                            style={{ marginLeft: 'auto', marginRight: '6px', fontSize: '0.6rem', padding: '2px 4px', borderRadius: '4px', border: '1px solid #fed7aa', color: '#F5850A', outline: 'none', background: '#fff', cursor: 'pointer' }}>
+                                            <option value="iedereen">Iedereen</option>
+                                            <option value="ingepland">Ingepland</option>
+                                            <option value="niet_ingepland">Niet ingepland</option>
+                                            <option value="vakantie">Vakantie/Afwezig</option>
+                                        </select>
+                                    </div>
+                                    <div className="gantt-progress-col" style={{ background: 'transparent' }}></div>
+                                    <div className="gantt-team-col" style={{ background: 'transparent', fontSize: '0.48rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1px', lineHeight: 1.2 }}>
+                                        <span style={{ color: '#F5850A' }}>&#9679; bezet</span>
+                                        <span style={{ color: '#22c55e' }}>&#9679; vrij</span>
+                                    </div>
+                                    <div className="gantt-row-timeline" style={{ background: 'transparent', minHeight: '26px' }} />
+                                </div>
+                                
+                                {bzFilteredUsers.map(u => {
+                                    const initials = u.name ? u.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+                                    return (
+                                        <div key={u.id} className="gantt-row" style={{ background: '#fff' }}>
+                                            <div className="gantt-row-label" style={{ minWidth: '420px', maxWidth: '420px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.55rem', fontWeight: 800 }}>{initials}</div>
+                                                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#1e293b' }}>{u.name || u.email}</div>
+                                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', marginLeft: 'auto' }}>{u.role}</div>
+                                            </div>
+                                            <div className="gantt-progress-col" style={{ background: '#f8fafc' }} />
+                                            <div className="gantt-team-col" style={{ background: '#f8fafc' }} />
+                                            <div className="gantt-row-timeline">
+                                                {timelineDates.map((d, i) => {
+                                                    const ds = formatDate(d);
+                                                    const weekend = isWeekend(d);
+                                                    const holiday = isHoliday(d);
+                                                    const isAbsent = absentByDay[ds]?.has(u.id) || holiday;
+                                                    const isBusy = busyByDay[ds]?.has(u.id) && !isAbsent;
+
+                                                    let bg = 'transparent';
+                                                    if (weekend) bg = '#f1f3f6';
+                                                    else if (isAbsent) bg = 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 3px, #e2e8f0 3px, #e2e8f0 6px)';
+                                                    else if (isBusy) bg = 'rgba(245,133,10,0.15)';
+                                                    else bg = 'rgba(34,197,94,0.06)';
+
+                                                    return (
+                                                        <div key={i} className={`gantt-cell ${weekend ? 'weekend' : ''}`}
+                                                            style={{
+                                                                background: bg,
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            }}>
+                                                            {!weekend && !isAbsent && isBusy && <i className="fa-solid fa-briefcase" style={{ color: '#F5850A', fontSize: '0.45rem' }} />}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </>
+                        );
+                    })()}
+                </div>
             </div>
 
         {/* ===== WORKER TOOLTIP + TEAM POPUP ===== */}
@@ -1481,28 +1743,28 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             if (!task) return null;
             const notes = task.notes || [];
 
-            // Laad project-notities via API wanneer Koppel-tab actief is
+            // Laad project-notities (lokaal) wanneer Koppel-tab actief is
             const pNotes = projectNotesCache || [];
             if (noteTab === 'koppel' && !projectNotesCache && !projectNotesLoading) {
                 setProjectNotesLoading(true);
-                fetch(`/api/notes?projectId=${proj.id}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            const mapped = (data.notes || []).map(n => ({
-                                id: n.id,
-                                text: n.content || n.text || '',
-                                author: n.author || 'Onbekend',
-                                type: n.type || 'info',
-                                date: n.date ? new Date(n.date).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' })
-                                    : n.created_at ? new Date(n.created_at).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
-                            }));
-                            setProjectNotesCache(mapped);
-                        } else setProjectNotesCache([]);
-                    })
-                    .catch(() => setProjectNotesCache([]))
-                    .finally(() => setProjectNotesLoading(false));
-
+                try {
+                    const localNotes = localStorage.getItem(`schildersapp_notes_${proj.id}`);
+                    if (localNotes) {
+                        const parsed = JSON.parse(localNotes);
+                        setProjectNotesCache(parsed.map(n => ({
+                            id: n.id,
+                            text: n.text || n.content || '',
+                            author: n.author || 'Onbekend',
+                            type: n.type || 'info',
+                            date: n.date || '',
+                        })));
+                    } else {
+                        setProjectNotesCache([]);
+                    }
+                } catch (e) {
+                    setProjectNotesCache([]);
+                }
+                setProjectNotesLoading(false);
             }
 
             const addNote = () => {
@@ -1519,6 +1781,37 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             };
             const deleteNote = (nid) => {
                 updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: (tk.notes || []).filter(n => n.id !== nid) }) }));
+            };
+            const removeAttachment = (idx) => {
+                if (window.confirm('Bijlage verwijderen?')) {
+                    updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, attachments: (tk.attachments || []).filter((_, i) => i !== idx) }) }));
+                }
+            };
+            const handleTaskUpload = async (files) => {
+                if (!files || files.length === 0) return;
+                setNoteUploading(true);
+                const results = [];
+                for (const file of Array.from(files)) {
+                    try {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        formData.append('projectId', proj.id);
+                        formData.append('category', 'taken');
+                        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                        const uploadResult = await res.json();
+                        if (uploadResult.success) {
+                            results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, url: uploadResult.url, data: null });
+                        } else {
+                            const dataUrl = await new Promise(res2 => { const r = new FileReader(); r.onload = ev => res2(ev.target.result); r.readAsDataURL(file); });
+                            results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: dataUrl });
+                        }
+                    } catch {
+                        const dataUrl = await new Promise(res2 => { const r = new FileReader(); r.onload = ev => res2(ev.target.result); r.readAsDataURL(file); });
+                        results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: dataUrl });
+                    }
+                }
+                updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, attachments: [...(tk.attachments || []), ...results] }) }));
+                setNoteUploading(false);
             };
             const NOTE_TYPE_COLORS = { info: '#3b82f6', actie: '#f59e0b', probleem: '#ef4444', klant: '#10b981', planning: '#8b5cf6' };
 
@@ -1546,15 +1839,18 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                 <i className="fa-solid fa-chevron-right" style={{ fontSize: '0.48rem', color: '#cbd5e1' }} />
                                 <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>{task.name}</span>
                             </div>
-                            {/* Tabs: Nieuw / Koppel */}
+                            {/* Tabs: Nieuw / Koppel / Bijlagen */}
                             <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '3px', gap: '3px' }}>
-                                {[['nieuw', 'fa-plus', 'Nieuwe notitie'], ['koppel', 'fa-link', 'Koppel project-notitie']].map(([v, icon, lbl]) => (
+                                {[['nieuw', 'fa-plus', 'Notitie'], ['koppel', 'fa-link', 'Koppelen'], ['bijlagen', 'fa-paperclip', 'Bijlagen']].map(([v, icon, lbl]) => (
                                     <button key={v} onClick={() => {
                                         setNoteTab(v);
                                         if (v === 'koppel') setProjectNotesCache(null);
                                     }}
                                         style={{ flex: 1, padding: '5px 8px', borderRadius: '6px', border: 'none', background: noteTab === v ? '#fff' : 'transparent', color: noteTab === v ? '#1e293b' : '#94a3b8', fontWeight: noteTab === v ? 700 : 500, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', boxShadow: noteTab === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
                                         <i className={`fa-solid ${icon}`} style={{ fontSize: '0.6rem' }} />{lbl}
+                                        {v === 'bijlagen' && (task.attachments || []).length > 0 && (
+                                            <span style={{ marginLeft: 2, background: noteTab === v ? '#eff6ff' : '#e2e8f0', color: noteTab === v ? '#3b82f6' : '#64748b', borderRadius: 10, padding: '1px 5px', fontSize: '0.55rem', fontWeight: 700 }}>{(task.attachments || []).length}</span>
+                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -1591,15 +1887,14 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                             )}
 
 
-                            {noteTab === 'nieuw' ? (
-                                notes.length === 0 && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', color: '#94a3b8', gap: '8px' }}>
-                                        <i className="fa-regular fa-note-sticky" style={{ fontSize: '1.8rem', opacity: 0.35 }} />
-                                        <span style={{ fontSize: '0.75rem', fontStyle: 'italic' }}>Schrijf hieronder een nieuwe notitie</span>
-                                    </div>
-                                )
-                            ) : (
-                                // Koppel tab
+                            {noteTab === 'nieuw' && notes.length === 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', color: '#94a3b8', gap: '8px' }}>
+                                    <i className="fa-regular fa-note-sticky" style={{ fontSize: '1.8rem', opacity: 0.35 }} />
+                                    <span style={{ fontSize: '0.75rem', fontStyle: 'italic' }}>Schrijf hieronder een nieuwe notitie</span>
+                                </div>
+                            )}
+
+                            {noteTab === 'koppel' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Projectnotities om te koppelen</div>
                                     {projectNotesLoading && (
@@ -1635,6 +1930,62 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                     })}
                                 </div>
                             )}
+
+                            {noteTab === 'bijlagen' && (() => {
+                                const taskAtts = task.attachments || [];
+                                return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bestand uploaden</div>
+                                        <label
+                                            onDragOver={e => { e.preventDefault(); setNoteDragOver(true); }}
+                                            onDragLeave={() => setNoteDragOver(false)}
+                                            onDrop={e => { e.preventDefault(); setNoteDragOver(false); handleTaskUpload(e.dataTransfer.files); }}
+                                            style={{
+                                                border: noteDragOver ? '2px dashed #3b82f6' : '2px dashed #cbd5e1',
+                                                background: noteDragOver ? '#eff6ff' : '#f8fafc',
+                                                borderRadius: '10px', padding: '20px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.15s'
+                                            }}>
+                                            {noteUploading ? (
+                                                <div style={{ color: '#3b82f6', fontSize: '0.8rem' }}><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Uploaden...</div>
+                                            ) : (
+                                                <div style={{ color: '#64748b', fontSize: '0.75rem', lineHeight: 1.5 }}>
+                                                    <i className="fa-solid fa-cloud-arrow-up" style={{ fontSize: '1.4rem', color: noteDragOver ? '#3b82f6' : '#94a3b8', marginBottom: 6 }} /><br/>
+                                                    <strong>Sleep bestanden hierheen</strong> of klik om te uploaden
+                                                    <div style={{ fontSize: '0.65rem', marginTop: 4, opacity: 0.7 }}>Foto's, PDF, Word, Excel, E-mail</div>
+                                                </div>
+                                            )}
+                                            <input type="file" multiple style={{ display: 'none' }} onChange={e => handleTaskUpload(e.target.files)} disabled={noteUploading} />
+                                        </label>
+
+                                        {taskAtts.length > 0 && (
+                                            <div style={{ marginTop: '4px' }}>
+                                                <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Bijlagen ({taskAtts.length})</div>
+                                                {taskAtts.map((att, i) => {
+                                                    const isImg = att.type?.startsWith('image/') || ['.jpg','.jpeg','.png','.gif'].some(ext => att.name?.toLowerCase().endsWith(ext));
+                                                    const icon = isImg ? 'fa-image' : att.type?.includes('pdf') ? 'fa-file-pdf' : 'fa-file';
+                                                    const url = att.url || att.data;
+                                                    return (
+                                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '6px' }}>
+                                                            <i className={`fa-solid ${icon}`} style={{ color: isImg ? '#10b981' : '#ef4444', fontSize: '0.9rem' }} />
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: '0.72rem', color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+                                                                <div style={{ fontSize: '0.55rem', color: '#94a3b8' }}>{Math.round(att.size / 1024)} KB</div>
+                                                            </div>
+                                                            {url && (
+                                                                <button onClick={() => window.open(url, '_blank')} style={{ background: '#f1f5f9', border: 'none', borderRadius: '5px', padding: '3px 8px', fontSize: '0.65rem', color: '#3b82f6', fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>Open</button>
+                                                            )}
+                                                            <button onClick={() => removeAttachment(i)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.75rem', padding: '2px 4px' }}
+                                                                onMouseEnter={e => e.currentTarget.style.color = '#ef4444'} onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
+                                                                <i className="fa-solid fa-trash" />
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* Nieuw notitie invoer — alleen bij 'nieuw' tab */}

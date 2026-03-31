@@ -51,7 +51,7 @@ export const ALL_PAGES = [
         ]
     },
     { id: 'toolbox', name: 'Toolbox Meeting', path: '/toolbox', icon: 'fa-screwdriver-wrench' },
-    { id: 'onboarding', name: 'Intake Generator', path: '/onboarding', icon: 'fa-wand-magic-sparkles' },
+    // { id: 'onboarding', name: 'Intake Generator', path: '/onboarding', icon: 'fa-wand-magic-sparkles' },
 ];
 
 // == Demo gebruikers — in productie vervangen door database ==

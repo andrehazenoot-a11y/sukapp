@@ -2197,6 +2197,7 @@ export default function ProjectDossierPage() {
         setProjects(newProjects);
         try {
             localStorage.setItem('schildersapp_projecten', JSON.stringify(newProjects));
+            window.dispatchEvent(new Event('schilders-sync'));
         } catch (e) {
             // localStorage vol (QuotaExceededError) — toon waarschuwing maar verlies geen data
             console.error('localStorage vol:', e);
@@ -2872,6 +2873,7 @@ export default function ProjectDossierPage() {
                                     <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Taaknaam</th>
                                     <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '170px' }}>Periode</th>
                                     <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '70px' }}>Team</th>
+                                    <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '56px' }}>📝</th>
                                     <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '56px' }}>📎</th>
                                     <th style={{ padding: '8px 10px', width: '44px' }}></th>
                                 </tr>
@@ -2921,6 +2923,17 @@ export default function ProjectDossierPage() {
                                                     ))}
                                                 </div>
                                             </td>
+                                            {/* 📝 Notities knop */}
+                                            <td style={{ padding: '10px 6px', textAlign: 'center' }}>
+                                                <button onClick={() => { setActiveTab('planning'); setTimeout(() => window.dispatchEvent(new CustomEvent('open-task-notes-modal', { detail: { taskId: task.id } })), 100); }}
+                                                    title={`Notities (${(task.notes || []).length})`}
+                                                    style={{ position: 'relative', background: (task.notes || []).length > 0 ? '#fffbeb' : 'none', border: (task.notes || []).length > 0 ? '1px solid #fde68a' : 'none', color: (task.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1', cursor: 'pointer', fontSize: '0.82rem', padding: '4px 7px', borderRadius: '7px', display: 'flex', alignItems: 'center', gap: '3px', transition: 'all 0.15s' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.background = '#fffbeb'; e.currentTarget.style.color = '#f59e0b'; e.currentTarget.style.border = '1px solid #fde68a'; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.background = (task.notes || []).length > 0 ? '#fffbeb' : 'none'; e.currentTarget.style.color = (task.notes || []).length > 0 ? '#f59e0b' : '#cbd5e1'; e.currentTarget.style.border = (task.notes || []).length > 0 ? '1px solid #fde68a' : 'none'; }}>
+                                                    <i className="fa-solid fa-note-sticky" />
+                                                    {(task.notes || []).length > 0 && <span style={{ fontSize: '0.65rem', fontWeight: 700 }}>{(task.notes || []).length}</span>}
+                                                </button>
+                                            </td>
                                             {/* 📎 Bijlagen knop */}
                                             <td style={{ padding: '10px 6px', textAlign: 'center' }}>
                                                 <button onClick={() => setOpenAttachTask(isAttachOpen ? null : task.id)}
@@ -2944,7 +2957,7 @@ export default function ProjectDossierPage() {
                                         {/* Verwijder bevestiging */}
                                         {isDeleteConfirm && (
                                             <tr key={task.id + '_del'}>
-                                                <td colSpan={6} style={{ padding: '0 10px 12px 10px', background: '#fef2f2', borderBottom: '2px solid #fecaca' }}>
+                                                <td colSpan={7} style={{ padding: '0 10px 12px 10px', background: '#fef2f2', borderBottom: '2px solid #fecaca' }}>
                                                     <div style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #fecaca', background: '#fff5f5', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                                         <div style={{ flex: 1 }}>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: attachments.length > 0 ? '6px' : '0' }}>
@@ -2988,7 +3001,7 @@ export default function ProjectDossierPage() {
                                             const isDragOver = dragOverTask === task.id;
                                             return (
                                             <tr key={task.id + '_attach'}>
-                                                <td colSpan={6} style={{ padding: '0 10px 12px', background: '#fffbf5', borderBottom: '1px solid #fed7aa' }}>
+                                                <td colSpan={7} style={{ padding: '0 10px 12px', background: '#fffbf5', borderBottom: '1px solid #fed7aa' }}>
                                                     <div
                                                         onDragEnter={e => { e.preventDefault(); setDragOverTask(task.id); }}
                                                         onDragOver={e => { e.preventDefault(); setDragOverTask(task.id); }}
