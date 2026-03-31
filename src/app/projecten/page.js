@@ -1844,7 +1844,6 @@ export default function ProjectenPage() {
                     { id: 'personeel', icon: 'fa-users', label: 'Personeelsplanning' },
                     { id: 'jaar', icon: 'fa-calendar', label: 'Jaarplanning' },
                     { id: 'mappen', icon: 'fa-folder-open', label: 'Projectmappen' },
-                    { id: 'dossier', icon: 'fa-briefcase', label: 'Dossier' },
                 ].map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
                         style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px', borderRadius: '7px', border: 'none', background: tab === t.id ? 'var(--accent)' : 'transparent', color: tab === t.id ? '#fff' : '#64748b', fontWeight: tab === t.id ? 700 : 500, fontSize: '0.78rem', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
