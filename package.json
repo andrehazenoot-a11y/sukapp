@@ -23,7 +23,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "ssh2": "^1.17.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "eslint": "^9",

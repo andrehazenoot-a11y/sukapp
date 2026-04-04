@@ -16,14 +16,14 @@ async function getSynologySid() {
     const url = `${SYNO_HOST}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=${encodeURIComponent(SYNO_USER)}&passwd=${encodeURIComponent(SYNO_PASS)}&session=FileStation&format=sid`;
     const res = await fetch(url);
     const data = await res.json();
-    if (!data.success) throw new Error(`Auth mislukt: code ${data.error?.code}`);
+    if (!data.success) { cachedSid = null; throw new Error(`Auth mislukt: code ${data.error?.code}`); }
 
     cachedSid = data.data.sid;
     sidExpiry = now + SID_TTL_MS;
     return cachedSid;
 }
 
-// GET /api/file?path=/homes/Andrehazenoot/schildersapp/projecten/1/foto.jpg
+// GET /api/file?path=/homes/schildersapp/projecten/1/foto.jpg
 export async function GET(request) {
     try {
         const { searchParams } = new URL(request.url);
@@ -34,24 +34,36 @@ export async function GET(request) {
         }
 
         const sid = await getSynologySid();
-        const downloadUrl = `${SYNO_HOST}/webapi/entry.cgi?api=SYNO.FileStation.Download&version=2&method=download&path=${encodeURIComponent(filePath)}&mode=download&_sid=${sid}`;
+        const downloadUrl = `${SYNO_HOST}/webapi/entry.cgi?api=SYNO.FileStation.Download&version=2&method=download&path=${encodeURIComponent(filePath)}&mode=open&_sid=${sid}`;
 
-        const fileRes = await fetch(downloadUrl);
+        // Forward Range header zodat video's gespoeld kunnen worden
+        const rangeHeader = request.headers.get('range');
+        const fetchHeaders = rangeHeader ? { Range: rangeHeader } : {};
 
-        if (!fileRes.ok) {
+        const fileRes = await fetch(downloadUrl, { headers: fetchHeaders });
+
+        if (!fileRes.ok && fileRes.status !== 206) {
             return NextResponse.json({ error: 'Bestand niet gevonden op Synology' }, { status: 404 });
         }
 
         const contentType = fileRes.headers.get('content-type') || 'application/octet-stream';
-        const buffer = await fileRes.arrayBuffer();
+        const contentLength = fileRes.headers.get('content-length');
+        const contentRange = fileRes.headers.get('content-range');
+        const fileName = filePath.split('/').pop() || 'bestand';
 
-        return new NextResponse(buffer, {
-            status: 200,
-            headers: {
-                'Content-Type': contentType,
-                'Cache-Control': 'public, max-age=86400', // 24 uur cache
-                'Content-Length': buffer.byteLength.toString(),
-            },
+        const headers = {
+            'Content-Type': contentType,
+            'Content-Disposition': `inline; filename="${fileName}"`,
+            'Cache-Control': 'public, max-age=86400',
+            'Accept-Ranges': 'bytes',
+        };
+        if (contentLength) headers['Content-Length'] = contentLength;
+        if (contentRange) headers['Content-Range'] = contentRange;
+
+        // Stream de data door — laad niet alles in RAM
+        return new NextResponse(fileRes.body, {
+            status: fileRes.status,
+            headers,
         });
 
     } catch (error) {

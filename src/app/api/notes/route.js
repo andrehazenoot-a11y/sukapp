@@ -58,6 +58,31 @@ export async function POST(request) {
     }
 }
 
+export async function PUT(request) {
+    try {
+        const body = await request.json();
+        const { id, content, type, photo, mediaType, addReply } = body;
+        if (!id) return NextResponse.json({ success: false, error: 'id verplicht' }, { status: 400 });
+        const notes = readNotes();
+        const idx = notes.findIndex(n => String(n.id) === String(id));
+        if (idx < 0) return NextResponse.json({ success: false, error: 'Niet gevonden' }, { status: 404 });
+        if (addReply) {
+            // Reactie toevoegen aan bestaande notitie
+            const reply = { id: Date.now(), author: addReply.author || 'Schilder', text: addReply.text, created_at: new Date().toISOString() };
+            const replies = [...(notes[idx].replies || []), reply];
+            notes[idx] = { ...notes[idx], replies };
+            writeNotes(notes);
+            return NextResponse.json({ success: true, replyId: reply.id });
+        }
+        if (!content) return NextResponse.json({ success: false, error: 'content verplicht' }, { status: 400 });
+        notes[idx] = { ...notes[idx], content, type: type || notes[idx].type, photo: photo !== undefined ? photo : notes[idx].photo, mediaType: mediaType !== undefined ? mediaType : notes[idx].mediaType, updated_at: new Date().toISOString() };
+        writeNotes(notes);
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+}
+
 export async function DELETE(request) {
     try {
         const { searchParams } = new URL(request.url);

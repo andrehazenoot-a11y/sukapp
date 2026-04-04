@@ -1,0 +1,66 @@
+[
+  {
+    "id": 1775056237625,
+    "project_id": "2",
+    "author": "Jan Modaal",
+    "content": "verdeggaan",
+    "photo": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fnotitie-media%2F1775057649602_image011.png",
+    "date": "2026-04-01",
+    "type": "actie",
+    "created_at": "2026-04-01T15:10:37.625Z",
+    "replies": [
+      {
+        "id": 1775059356289,
+        "author": "Jan Modaal",
+        "text": "ik ga ernaar kijken",
+        "created_at": "2026-04-01T16:02:36.289Z"
+      }
+    ],
+    "updated_at": "2026-04-01T15:34:10.564Z",
+    "mediaType": "image"
+  },
+  {
+    "id": 1775059442152,
+    "project_id": 2,
+    "author": "Jan Modaal",
+    "content": ",san,na,snasnm,nsac",
+    "photo": null,
+    "date": "2026-04-01",
+    "type": "probleem",
+    "created_at": "2026-04-01T16:04:02.152Z",
+    "replies": []
+  },
+  {
+    "id": 1775231397871,
+    "project_id": 2,
+    "author": "Jan Modaal",
+    "content": "cvvccvcncvvvcvvvvvvvvvvvvvvvvvvv",
+    "photo": null,
+    "date": "2026-04-03",
+    "type": "info",
+    "created_at": "2026-04-03T15:49:57.871Z",
+    "replies": []
+  },
+  {
+    "id": 1775231408132,
+    "project_id": 2,
+    "author": "Jan Modaal",
+    "content": "ffffffffffffffffffffff",
+    "photo": null,
+    "date": "2026-04-03",
+    "type": "info",
+    "created_at": "2026-04-03T15:50:08.132Z",
+    "replies": []
+  },
+  {
+    "id": 1775240436226,
+    "project_id": 2,
+    "author": "Jan Modaal",
+    "content": "zie hier de offerte",
+    "photo": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fnotitie-media%2F1775240415040_O.26-009_-_Hanno_en_Esther_Pijl_-_Matheneseelaan_10_-_Oegsgeest__2_.pdf",
+    "date": "2026-04-03",
+    "type": "info",
+    "created_at": "2026-04-03T18:20:36.226Z",
+    "replies": []
+  }
+]

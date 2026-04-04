@@ -25,6 +25,9 @@ export const ALL_PAGES = [
         ]
     },
     {
+        id: 'materiaal', name: 'Materiaalzoeker', path: '/materiaal', icon: 'fa-box-open', subs: []
+    },
+    {
         id: 'materieel', name: 'Materieel (3140)', path: '/materieel', icon: 'fa-toolbox', subs: [
             { id: 'materieel.overzicht', name: 'Overzicht', icon: 'fa-list' },
             { id: 'materieel.toevoegen', name: 'Toevoegen / Bewerken', icon: 'fa-plus' },
@@ -64,7 +67,7 @@ const USERS = [
 
 // Standaard rechten per gebruiker (alle pagina-ids)
 const DEFAULT_PERMISSIONS = {
-    1: ['dashboard', 'urenregistratie', 'urenregistratie.mijn', 'urenregistratie.team', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'materieel.toevoegen', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'zzp', 'zzp.facturen', 'zzp.documenten', 'projecten', 'projecten.overzicht', 'projecten.planning', 'whatsapp', 'whatsapp.uren', 'whatsapp.contracten', 'whatsapp.termijnen'],
+    1: ['dashboard', 'urenregistratie', 'urenregistratie.mijn', 'urenregistratie.team', 'uren', 'uren.registratie', 'uren.verlof', 'materiaal', 'materieel', 'materieel.overzicht', 'materieel.toevoegen', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'zzp', 'zzp.facturen', 'zzp.documenten', 'projecten', 'projecten.overzicht', 'projecten.planning', 'whatsapp', 'whatsapp.uren', 'whatsapp.contracten', 'whatsapp.termijnen'],
     2: ['dashboard', 'urenregistratie', 'urenregistratie.mijn', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'profiel', 'profiel.werknemer', 'projecten', 'projecten.overzicht', 'projecten.planning'],
     3: ['dashboard', 'zzp', 'zzp.facturen', 'zzp.documenten'],
     4: ['dashboard', 'urenregistratie', 'urenregistratie.mijn', 'uren', 'uren.registratie', 'uren.verlof', 'materieel', 'materieel.overzicht', 'materieel.toevoegen', 'verfvoorraad', 'verfvoorraad.voorraad', 'verfvoorraad.scan', 'projecten', 'projecten.overzicht', 'projecten.planning'],

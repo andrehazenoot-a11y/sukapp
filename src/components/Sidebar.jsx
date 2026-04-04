@@ -75,6 +75,7 @@ export default function Sidebar({ user, onLogout }) {
         navItems.push({ name: t('sidebar.accessControl'), path: '/toegang', icon: 'fa-shield-halved' });
     }
 
+
     const maxVisible = isMobile ? 0 : 5; 
     const visibleItems = navItems.slice(0, maxVisible);
     const moreItems = navItems.slice(maxVisible);
@@ -184,6 +185,21 @@ export default function Sidebar({ user, onLogout }) {
 
             {/* Right Side */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginLeft: 'auto' }}>
+                {/* Medewerker Portaal knop */}
+                <Link href="/medewerker" style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    padding: '7px 13px', borderRadius: '8px', textDecoration: 'none',
+                    background: pathname.startsWith('/medewerker') ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.12)',
+                    color: '#fff', fontSize: '0.82rem', fontWeight: 600,
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    transition: 'all 0.15s',
+                }}
+                onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                onMouseOut={e => e.currentTarget.style.background = pathname.startsWith('/medewerker') ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.12)'}
+                >
+                    <i className="fa-solid fa-mobile-screen-button"></i>
+                    {!isMobile && <span>Medewerker</span>}
+                </Link>
                 <div ref={langRef} style={{ position: 'relative' }}>
                     <button onClick={() => setTopLangOpen(!topLangOpen)} style={{
                         background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px',

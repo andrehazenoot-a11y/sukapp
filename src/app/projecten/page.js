@@ -186,7 +186,7 @@ const MONTHS_FULL = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Ju
 const DAYS_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
 
 export default function ProjectenPage() {
-    const { getAllUsers } = useAuth();
+    const { getAllUsers, user } = useAuth();
     const allUsers = getAllUsers();
     const [tab, setTab] = useState('project');
     useEffect(() => { document.title = 'Projectplanning | SchildersApp Katwijk'; }, []);
@@ -217,6 +217,16 @@ export default function ProjectenPage() {
     const [expandedProjects, setExpandedProjects] = useState(new Set());
     const [showCompletedProjects, setShowCompletedProjects] = useState(new Set());
     const [colorPickerProject, setColorPickerProject] = useState(null);
+    const [wachtrijPick, setWachtrijPick] = useState({}); // { [taskId]: Set<workerId> }
+    const [wachtrijOpen, setWachtrijOpen] = useState(null); // taskId van open picker
+    const [wachtrijDropPos, setWachtrijDropPos] = useState({ x: 0, y: 0 });
+    const [batchMode, setBatchMode] = useState(false);
+    const [batchSelected, setBatchSelected] = useState(new Set());
+    const [batchWorkerOpen, setBatchWorkerOpen] = useState(false);
+    const [batchWorkerPos, setBatchWorkerPos] = useState({ x: 0, y: 0 });
+    const [workerSearch, setWorkerSearch] = useState('');
+    const [mijntakenWeekOffset, setMijntakenWeekOffset] = useState(0);
+    const [mijntakenOpenNotes, setMijntakenOpenNotes] = useState(null);
     const [showNewForm, setShowNewForm] = useState(false);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [newProject, setNewProject] = useState({ name: '', client: '', address: '', startDate: '', endDate: '', estimatedHours: '' });
@@ -287,6 +297,11 @@ export default function ProjectenPage() {
     // Taak bewerken vanuit personeelsplanning
     const [taskEditPopup, setTaskEditPopup] = useState(null); // { projId, taskId, x, y }
     const [taskEditForm, setTaskEditForm] = useState({ name: '', startDate: '', endDate: '' });
+    const [personeelTask, setPersoneelTask] = useState(null); // { projId, taskId }
+    const [personeelTaskForm, setPersoneelTaskForm] = useState({ name:'', startDate:'', endDate:'', progress:0 });
+    const [personeelPanelTab, setPersoneelPanelTab] = useState('notitie'); // 'notitie' | 'koppelen' | 'bijlagen'
+    const [personeelNoteInput, setPersoneelNoteInput] = useState('');
+    const [personeelNoteType, setPersoneelNoteType] = useState('info');
     // Toewijzen vanuit bezetting-rij (klik op beschikbaar persoon)
     const [assignPopup, setAssignPopup] = useState(null); // { userId, userName, dateStr, x, y, tasks[] }
     // Afwezigheid bewerken
@@ -414,16 +429,27 @@ export default function ProjectenPage() {
         } else if (viewMode === '8w') {
             count = 56;
         } else if (viewMode === '1m') {
-            // Per maand: start from 1st of month (padded to Monday), end at last day (padded to Sunday)
             const mStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
             const mEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
             start = getMonday(mStart);
             count = diffDays(start, mEnd) + 1;
-            // Zorg dat end altijd een complete week is door de remainder aan te vullen
+            const remainder = count % 7;
+            if (remainder !== 0) count += (7 - remainder);
+        } else if (viewMode === '6m') {
+            const mStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+            const mEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 6, 0);
+            start = getMonday(mStart);
+            count = diffDays(start, mEnd) + 1;
+            const remainder = count % 7;
+            if (remainder !== 0) count += (7 - remainder);
+        } else if (viewMode === '1y') {
+            const mStart = new Date(currentDate.getFullYear(), 0, 1);
+            const mEnd = new Date(currentDate.getFullYear(), 12, 0);
+            start = getMonday(mStart);
+            count = diffDays(start, mEnd) + 1;
             const remainder = count % 7;
             if (remainder !== 0) count += (7 - remainder);
         } else {
-            // Fallback old 'month' mode = 8 weken
             count = 56;
         }
 
@@ -445,7 +471,11 @@ export default function ProjectenPage() {
         } else if (viewMode === '2w') {
             d.setDate(d.getDate() + dir * 14);
         } else if (viewMode === '8w') {
-            d.setDate(d.getDate() + dir * 28); // scroll by 4 weeks for smoother nav
+            d.setDate(d.getDate() + dir * 28);
+        } else if (viewMode === '6m') {
+            d.setMonth(d.getMonth() + dir * 6);
+        } else if (viewMode === '1y') {
+            d.setFullYear(d.getFullYear() + dir);
         } else {
             // 1m
             d.setMonth(d.getMonth() + dir);
@@ -1844,6 +1874,7 @@ export default function ProjectenPage() {
                     { id: 'personeel', icon: 'fa-users', label: 'Personeelsplanning' },
                     { id: 'jaar', icon: 'fa-calendar', label: 'Jaarplanning' },
                     { id: 'mappen', icon: 'fa-folder-open', label: 'Projectmappen' },
+                    { id: 'mijntaken', icon: 'fa-person-digging', label: 'Mijn Taken' },
                 ].map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
                         style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px', borderRadius: '7px', border: 'none', background: tab === t.id ? 'var(--accent)' : 'transparent', color: tab === t.id ? '#fff' : '#64748b', fontWeight: tab === t.id ? 700 : 500, fontSize: '0.78rem', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
@@ -2607,6 +2638,7 @@ export default function ProjectenPage() {
                                                         const holiday = !weekend && isHoliday(d);
                                                         const isToday = formatDate(today) === ds;
                                                         // Toegewezen personen op deze dag
+                                                        const hasDayOverride = t.assignedByDay?.[ds] !== undefined;
                                                         const dayAssigned = (() => {
                                                             const dayIds = t.assignedByDay?.[ds] ?? t.assignedTo ?? [];
                                                             return dayIds
@@ -2633,22 +2665,25 @@ export default function ProjectenPage() {
                                                                 <div style={{
                                                                     height: '24px', display: 'flex', alignItems: 'center',
                                                                     gap: '1px', padding: '0 2px', overflow: 'hidden',
-                                                                    background: weekend ? 'transparent'
+                                                                    background: hasDayOverride && inRange && !weekend && !holiday
+                                                                        ? `repeating-linear-gradient(45deg,${p.color}18,${p.color}18 3px,${p.color}08 3px,${p.color}08 6px)`
+                                                                        : weekend ? 'transparent'
                                                                         : holiday ? 'rgba(245,133,10,0.05)'
                                                                         : inRange ? 'rgba(0,0,0,0.02)'
                                                                         : 'rgba(0,0,0,0.018)',
                                                                     borderTop: holiday ? '1px solid rgba(245,133,10,0.15)'
+                                                                        : hasDayOverride && inRange && !weekend ? `1px solid ${p.color}66`
                                                                         : inRange && !weekend ? `1px solid ${p.color}22`
                                                                         : '1px solid rgba(0,0,0,0.04)',
                                                                 }}>
                                                                     {!weekend && !holiday && inRange && (
                                                                         <div
-                                                                            title={dayAssigned.length > 0 ? dayAssigned.map(u => u.name).join(', ') + ' — klik om te wijzigen' : 'Niemand ingepland — klik om toe te voegen'}
+                                                                            title={`${hasDayOverride ? '⟳ Gewijzigd via medewerker — ' : ''}${dayAssigned.length > 0 ? dayAssigned.map(u => u.name).join(', ') + ' — klik om te wijzigen' : 'Niemand ingepland — klik om toe te voegen'}`}
                                                                             onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setTeamPopup({ projectId: p.id, taskId: t.id, dateStr: ds, x: r.left, y: r.bottom + 4 }); }}
-                                                                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '18px', height: '18px', borderRadius: '50%', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s', background: dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)', border: `1.5px solid ${dayAssigned.length > 0 ? p.color + '88' : '#ef444466'}`, color: dayAssigned.length > 0 ? p.color : '#ef4444', pointerEvents: 'auto', gap: '1px' }}
+                                                                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '18px', height: '18px', borderRadius: '50%', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s', background: hasDayOverride ? `repeating-linear-gradient(45deg,${p.color}44,${p.color}44 3px,${p.color}22 3px,${p.color}22 6px)` : dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)', border: hasDayOverride ? `1.5px solid ${p.color}` : `1.5px solid ${dayAssigned.length > 0 ? p.color + '88' : '#ef444466'}`, color: dayAssigned.length > 0 ? p.color : '#ef4444', pointerEvents: 'auto', gap: '1px' }}
                                                                             onMouseEnter={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? p.color + '44' : 'rgba(239,68,68,0.22)'; }}
-                                                                            onMouseLeave={e => { e.currentTarget.style.background = dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}>
-                                                                            <i className={`fa-solid fa-${dayAssigned.length > 0 ? 'users' : 'user-plus'}`} style={{ fontSize: '0.38rem' }} />
+                                                                            onMouseLeave={e => { e.currentTarget.style.background = hasDayOverride ? `repeating-linear-gradient(45deg,${p.color}44,${p.color}44 3px,${p.color}22 3px,${p.color}22 6px)` : dayAssigned.length > 0 ? p.color + '22' : 'rgba(239,68,68,0.1)'; }}>
+                                                                            <i className={`fa-solid fa-${hasDayOverride ? 'rotate' : dayAssigned.length > 0 ? 'users' : 'user-plus'}`} style={{ fontSize: '0.38rem' }} />
                                                                             {dayAssigned.length > 0 && <span style={{ fontSize: '0.34rem', fontWeight: 700, lineHeight: 1 }}>{dayAssigned.length}</span>}
                                                                         </div>
                                                                     )}
@@ -2959,7 +2994,7 @@ export default function ProjectenPage() {
                                         {(() => {
                                             // Bereken direct gefilterde lijst
                                             const bzFilteredUsers = allUsers.filter(u => {
-                                                if (u.role === 'Beheerder') return false; // standaard verbergen in bezetting
+
                                                 if (bzFilter === 'iedereen') return true;
 
                                                 let isBusy = false;
@@ -3633,10 +3668,11 @@ export default function ProjectenPage() {
 
             {/* ===== TAB 2: PERSONEELSPLANNING ===== */}
             {tab === 'personeel' && (() => {
-                const workers = allUsers.filter(u => u.role !== 'Beheerder');
+                const workers = allUsers;
                 const tStart = timelineDates[0];
                 const tEnd = timelineDates[timelineDates.length - 1];
                 const totalDays = timelineDates.length;
+                const YEAR = today.getFullYear();
 
                 const ABS_TYPES = {
                     vakantie:  { label: 'Vakantie',       color: '#f59e0b', icon: 'fa-umbrella-beach',   bg: 'rgba(245,158,11,0.12)' },
@@ -3644,6 +3680,16 @@ export default function ProjectenPage() {
                     vrije_dag: { label: 'Vrije dag',      color: '#ec4899', icon: 'fa-calendar-xmark',   bg: 'rgba(236,72,153,0.12)' },
                     dokter:    { label: 'Dokter/Tandarts',color: '#eab308', icon: 'fa-stethoscope',       bg: 'rgba(234,179,8,0.12)'  },
                 };
+
+                // Verlof-/vakantiedagen per medewerker uit de uren/verlof-pagina
+                const vacDaysGantt = {};
+                allUsers.forEach(u => {
+                    const namePart = u.name ? u.name.replace(/\s/g, '_') : '';
+                    let vacDays = [];
+                    try { vacDays = JSON.parse(localStorage.getItem(`schildersapp_vakantie_${YEAR}_${namePart}`)) || []; } catch {}
+                    if (vacDays.length === 0) { try { vacDays = JSON.parse(localStorage.getItem(`schildersapp_vakantie_${YEAR}`)) || []; } catch {} }
+                    if (vacDays.length > 0) vacDaysGantt[u.id] = new Set(vacDays);
+                });
 
                 const toggleWorkerOnProject = (userId, projId) => {
                     setProjects(prev => prev.map(pr => {
@@ -3656,32 +3702,442 @@ export default function ProjectenPage() {
                 const getWorkerBars = (userId) => {
                     const bars = [];
                     projects.forEach(proj => (proj.tasks||[]).forEach(task => {
-                        if (!(task.assignedTo||[]).includes(userId)) return;
+                        const inAssignedTo = (task.assignedTo||[]).includes(userId);
+                        const inAssignedByDay = !inAssignedTo && Object.values(task.assignedByDay||{}).some(ids => ids.includes(userId));
+                        if (!inAssignedTo && !inAssignedByDay) return;
                         try {
-                            const s = parseDate(task.startDate), e = parseDate(task.endDate);
-                            if (s > tEnd || e < tStart) return;
-                            const segs = getWorkdaySegments(s, e, tStart, tEnd, totalDays);
-                            segs.forEach((seg, si) => bars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length }));
+                            if (inAssignedByDay) {
+                                // Alleen balkjes voor de specifieke dagen waarop de user via assignedByDay is toegewezen
+                                // isOverride=true → gestreepte weergave in Gantt
+                                Object.entries(task.assignedByDay || {}).forEach(([ds, ids]) => {
+                                    if (!ids.includes(userId)) return;
+                                    try {
+                                        const d = parseDate(ds);
+                                        if (d < tStart || d > tEnd) return;
+                                        const segs = getWorkdaySegments(d, d, tStart, tEnd, totalDays);
+                                        segs.forEach((seg, si) => bars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length, isOverride: true }));
+                                    } catch {}
+                                });
+                            } else {
+                                // inAssignedTo: balk tekenen maar dagen met assignedByDay-uitsluiting overslaan
+                                const _twd = (task.workerDates||{})[userId];
+                                const s = parseDate(_twd?.startDate || task.startDate);
+                                const e = parseDate(_twd?.endDate   || task.endDate);
+                                if (s > tEnd || e < tStart) return;
+
+                                const excludedDays = new Set(
+                                    Object.entries(task.assignedByDay || {})
+                                        .filter(([, ids]) => !ids.includes(userId))
+                                        .map(([ds]) => ds)
+                                );
+
+                                if (excludedDays.size === 0) {
+                                    const segs = getWorkdaySegments(s, e, tStart, tEnd, totalDays);
+                                    segs.forEach((seg, si) => bars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length }));
+                                } else {
+                                    // Splits balk rondom uitgesloten dagen
+                                    let segStart = null;
+                                    const cur = new Date(s);
+                                    while (cur <= e) {
+                                        const ds = formatDate(cur);
+                                        const isExcluded = excludedDays.has(ds);
+                                        if (!isExcluded && segStart === null) {
+                                            segStart = new Date(cur);
+                                        } else if (isExcluded && segStart !== null) {
+                                            const segEnd = new Date(cur.getTime() - 86400000);
+                                            const segs = getWorkdaySegments(segStart, segEnd, tStart, tEnd, totalDays);
+                                            segs.forEach((seg, si) => bars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length }));
+                                            segStart = null;
+                                        }
+                                        cur.setDate(cur.getDate() + 1);
+                                    }
+                                    if (segStart !== null) {
+                                        const segs = getWorkdaySegments(segStart, e, tStart, tEnd, totalDays);
+                                        segs.forEach((seg, si) => bars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length }));
+                                    }
+                                }
+                            }
                         } catch {}
                     }));
                     return bars;
                 };
 
-                const getAbsBars = (userId) => (workerAbsences||[]).filter(a=>a.userId===userId).flatMap(a => {
-                    try {
-                        const s = parseDate(a.startDate), e = parseDate(a.endDate);
-                        if (s > tEnd || e < tStart) return [];
-                        return getWorkdaySegments(s, e, tStart, tEnd, totalDays).map((seg, si, arr) => ({ ...a, left: seg.left, width: seg.width, si, total: arr.length }));
-                    } catch { return []; }
-                });
+                const getAbsBars = (userId) => {
+                    const result = [];
+                    // Handmatig ingevoerde afwezigheid
+                    (workerAbsences||[]).filter(a=>a.userId===userId).forEach(a => {
+                        try {
+                            const s = parseDate(a.startDate), e = parseDate(a.endDate);
+                            if (s > tEnd || e < tStart) return;
+                            getWorkdaySegments(s, e, tStart, tEnd, totalDays).forEach((seg, si, arr) => {
+                                result.push({ ...a, left: seg.left, width: seg.width, si, total: arr.length });
+                            });
+                        } catch {}
+                    });
+                    // Vakantiedagen uit uren/verlof-pagina — samenvoegen tot aaneengesloten periodes
+                    const vacSet = vacDaysGantt[userId];
+                    if (vacSet) {
+                        const sorted = [...vacSet].filter(ds => { try { const d=parseDate(ds); return d>=tStart&&d<=tEnd; } catch { return false; } }).sort();
+                        let i = 0;
+                        while (i < sorted.length) {
+                            let j = i;
+                            while (j + 1 < sorted.length) {
+                                const cur = parseDate(sorted[j]), next = parseDate(sorted[j+1]);
+                                // Alleen samenvoegen als het gat uitsluitend weekend-dagen bevat (geen werkdagen ertussen)
+                                let gapHasWorkday = false;
+                                const check = new Date(cur); check.setDate(check.getDate() + 1);
+                                while (check < next) {
+                                    const dow = check.getDay();
+                                    if (dow !== 0 && dow !== 6) { gapHasWorkday = true; break; }
+                                    check.setDate(check.getDate() + 1);
+                                }
+                                if (!gapHasWorkday) { j++; } else { break; }
+                            }
+                            try {
+                                const s = parseDate(sorted[i]), e = parseDate(sorted[j]);
+                                getWorkdaySegments(s, e, tStart, tEnd, totalDays).forEach((seg, si, arr) => {
+                                    result.push({ id: `vac-${userId}-${sorted[i]}`, userId, type: 'vakantie', startDate: sorted[i], endDate: sorted[j], fromVerlof: true, left: seg.left, width: seg.width, si, total: arr.length });
+                                });
+                            } catch {}
+                            i = j + 1;
+                        }
+                    }
+                    return result;
+                };
 
-                const isAbsent = (userId, ds) => (workerAbsences||[]).some(a => a.userId===userId && ds>=a.startDate && ds<=a.endDate);
+                const isAbsent = (userId, ds) =>
+                    (workerAbsences||[]).some(a => a.userId===userId && ds>=a.startDate && ds<=a.endDate) ||
+                    !!(vacDaysGantt[userId]?.has(ds));
+
+                const getAbsenceConflicts = (userId, startDate, endDate) => {
+                    try {
+                        const s = parseDate(startDate), e = parseDate(endDate);
+                        const manual = (workerAbsences||[]).filter(a => {
+                            if (a.userId !== userId) return false;
+                            try { const as=parseDate(a.startDate),ae=parseDate(a.endDate); return as<=e && ae>=s; } catch { return false; }
+                        });
+                        // Voeg verlof-dagen toe als conflicten
+                        const vacSet = vacDaysGantt[userId];
+                        const vacConflicts = [];
+                        if (vacSet) {
+                            let cur = new Date(s);
+                            while (cur <= e) {
+                                const ds = formatDate(cur);
+                                if (vacSet.has(ds)) vacConflicts.push({ userId, type: 'vakantie', startDate: ds, endDate: ds, fromVerlof: true });
+                                cur.setDate(cur.getDate() + 1);
+                            }
+                        }
+                        return [...manual, ...vacConflicts];
+                    } catch { return []; }
+                };
+
+                const getTaskOverlaps = (workerId, startDate, endDate, excludeTaskId) => {
+                    try {
+                        const s = parseDate(startDate), e = parseDate(endDate);
+                        return projects.flatMap(pr => (pr.tasks||[])
+                            .filter(t => t.id !== excludeTaskId && (t.assignedTo||[]).includes(workerId) && t.startDate && t.endDate)
+                            .filter(t => { try { const ts=parseDate(t.startDate),te=parseDate(t.endDate); return ts<e && te>s; } catch { return false; } })
+                            .map(t => ({ task: t, proj: pr }))
+                        );
+                    } catch { return []; }
+                };
+
+                // Taken zonder medewerker (wachtrij)
+                const unassignedTasks = [];
+                projects.forEach(proj => {
+                    (proj.tasks || []).forEach(task => {
+                        if (!(task.assignedTo || []).length) {
+                            unassignedTasks.push({ proj, task });
+                        }
+                    });
+                });
 
                 const dailyCounts = timelineDates.map(d => {
                     if (isWeekend(d)) return null; // gesloten op za/zo
                     const ds = formatDate(d);
                     return workers.filter(u => !isAbsent(u.id,ds) && projects.some(proj => (proj.tasks||[]).some(t => (t.assignedTo||[]).includes(u.id) && ds>=t.startDate && ds<=t.endDate))).length;
                 });
+
+                const justDraggedRef = { current: false };
+
+                const showToast = (msg, type='warn') => {
+                    const existing = document.querySelector('.planning-toast');
+                    if (existing) existing.parentNode.removeChild(existing);
+                    const t = document.createElement('div');
+                    t.className = 'planning-toast';
+                    t.style.cssText = `position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:${type==='error'?'#ef4444':'#f59e0b'};color:#fff;padding:10px 22px;border-radius:10px;font-size:0.82rem;font-weight:700;z-index:100001;box-shadow:0 4px 14px rgba(0,0,0,0.18);white-space:pre-line;text-align:center;max-width:380px;`;
+                    t.textContent = msg;
+                    document.body.appendChild(t);
+                    setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 4000);
+                };
+
+                const handleWachtrijDrop = (e, workerId) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.remove('drag-over');
+                    let data;
+                    try { data = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
+                    const { taskId, projId } = data;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const dayIdx = Math.max(0, Math.min(Math.floor(x / zoomLevel), timelineDates.length - 1));
+                    const dropDate = timelineDates[dayIdx];
+                    const worker = workers.find(w => w.id === workerId);
+                    const workerName = worker?.name || 'Medewerker';
+                    // Bereken doeldatums voor validatie
+                    const targetTask = projects.flatMap(pr=>pr.tasks||[]).find(t=>t.id===taskId);
+                    const preSpan = (targetTask?.startDate && targetTask?.endDate)
+                        ? diffWorkdays(parseDate(targetTask.startDate), parseDate(targetTask.endDate)) : 1;
+                    const preNs = snapToWorkday(dropDate);
+                    const preNe = addWorkdays(preNs, preSpan);
+                    const preNsStr = formatDate(preNs), preNeStr = formatDate(preNe);
+                    // Afwezigheid check
+                    const absConflicts = getAbsenceConflicts(workerId, preNsStr, preNeStr);
+                    if (absConflicts.length > 0) {
+                        const labels = absConflicts.map(a => `${ABS_TYPES[a.type]?.label||a.type} (${a.startDate} t/m ${a.endDate})`).join('\n');
+                        if (!window.confirm(`⚠️ ${workerName} heeft afwezigheid in deze periode:\n${labels}\n\nToch inplannen?`)) return;
+                    }
+                    // Overlap check
+                    const overlaps = getTaskOverlaps(workerId, preNsStr, preNeStr, taskId);
+                    if (overlaps.length > 0) {
+                        const names = [...new Set(overlaps.map(o => o.task.name))].join(', ');
+                        if (!window.confirm(`⚠️ Overlap met bestaande taken van ${workerName}:\n${names}\n\nToch inplannen?`)) return;
+                    }
+                    setProjects(prev => prev.map(pr => {
+                        if (String(pr.id) !== String(projId)) return pr;
+                        return { ...pr, tasks: pr.tasks.map(t => {
+                            if (t.id !== taskId) return t;
+                            const span = (t.startDate && t.endDate)
+                                ? diffWorkdays(parseDate(t.startDate), parseDate(t.endDate)) : 1;
+                            const ns = snapToWorkday(dropDate);
+                            const ne = addWorkdays(ns, span);
+                            return { ...t, startDate: formatDate(ns), endDate: formatDate(ne),
+                                         assignedTo: [...new Set([...(t.assignedTo||[]), workerId])] };
+                        })};
+                    }));
+                };
+
+                const handleBarMouseDown = (e, bar, workerId) => {
+                    if (e.button !== 0) return;
+                    const isLeft  = e.target.classList.contains('resize-handle-left');
+                    const isRight = e.target.classList.contains('resize-handle-right');
+                    const isMove  = !isLeft && !isRight;
+                    e.preventDefault(); e.stopPropagation();
+                    const _wd = (bar.task.workerDates||{})[workerId];
+                    const origStart = _wd?.startDate || bar.task.startDate;
+                    const origEnd   = _wd?.endDate   || bar.task.endDate;
+                    const hasIndividual = !!_wd;
+                    const origSpan = diffWorkdays(parseDate(origStart), parseDate(origEnd));
+                    let rawDaysMoved = 0;
+                    const startX = e.clientX;
+                    justDraggedRef.current = false;
+
+                    // Bar DOM element voor visueel slepen zonder React re-renders
+                    const barEl = e.currentTarget;
+                    const origStyleLeft = barEl.style.left;
+                    const origStyleWidth = barEl.style.width;
+                    const origLeftPx = parseFloat(origStyleLeft) || 0;
+                    const origWidthPx = parseFloat(origStyleWidth) || 0;
+
+                    const wachtrijEl = document.querySelector('.wachtrij-panel--sidebar');
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = `position:fixed;inset:0;z-index:99999;cursor:${isMove?'grabbing':'col-resize'};`;
+                    document.body.appendChild(overlay);
+                    document.body.style.userSelect = 'none';
+                    const tip = document.createElement('div');
+                    tip.style.cssText = 'position:fixed;background:#1e293b;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.72rem;font-weight:700;z-index:100000;pointer-events:none;white-space:nowrap;opacity:0;transition:opacity 0.1s;';
+                    document.body.appendChild(tip);
+                    const fmt = s => { const d=parseDate(s); return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; };
+                    const isOverWachtrij = (clientX, clientY) => {
+                        if (!wachtrijEl) return false;
+                        const r = wachtrijEl.getBoundingClientRect();
+                        return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+                    };
+
+                    let ghostEls = [];
+
+                    // Herstel visuele stijlen op de balk
+                    const resetBarStyle = () => {
+                        barEl.style.transform = '';
+                        barEl.style.left = origStyleLeft;
+                        barEl.style.width = origStyleWidth;
+                        barEl.style.opacity = '';
+                        barEl.style.zIndex = '';
+                        // Herstel alle segmenten van deze taak
+                        barEl.parentNode.querySelectorAll(`.task-bar[data-task-id="${bar.task.id}"]`).forEach(el => {
+                            el.style.opacity = ''; el.style.transform = '';
+                        });
+                        ghostEls.forEach(g => { if (g.parentNode) g.parentNode.removeChild(g); });
+                        ghostEls = [];
+                    };
+
+                    // State update: eenmalig bij loslaten
+                    const applyFinal = (rawDays) => {
+                        if (isLeft) {
+                            const ns = snapToWorkday(addDays(parseDate(origStart), rawDays));
+                            if (ns >= parseDate(origEnd)) return;
+                            setProjects(prev => prev.map(pr => pr.id !== bar.proj.id ? pr : { ...pr,
+                                tasks: pr.tasks.map(t => t.id !== bar.task.id ? t : hasIndividual
+                                    ? { ...t, workerDates: { ...(t.workerDates||{}), [workerId]: { startDate: formatDate(ns), endDate: (t.workerDates?.[workerId]?.endDate || t.endDate) } } }
+                                    : { ...t, startDate: formatDate(ns) }) }));
+                        } else if (isRight) {
+                            const ne = snapToWorkdayBack(addDays(parseDate(origEnd), rawDays));
+                            if (ne <= parseDate(origStart)) return;
+                            setProjects(prev => prev.map(pr => pr.id !== bar.proj.id ? pr : { ...pr,
+                                tasks: pr.tasks.map(t => t.id !== bar.task.id ? t : hasIndividual
+                                    ? { ...t, workerDates: { ...(t.workerDates||{}), [workerId]: { startDate: (t.workerDates?.[workerId]?.startDate || t.startDate), endDate: formatDate(ne) } } }
+                                    : { ...t, endDate: formatDate(ne) }) }));
+                        } else {
+                            const ns = snapToWorkday(addDays(parseDate(origStart), rawDays));
+                            const ne = addWorkdays(ns, origSpan);
+                            setProjects(prev => prev.map(pr => pr.id !== bar.proj.id ? pr : { ...pr,
+                                tasks: pr.tasks.map(t => t.id !== bar.task.id ? t : hasIndividual
+                                    ? { ...t, workerDates: { ...(t.workerDates||{}), [workerId]: { startDate: formatDate(ns), endDate: formatDate(ne) } } }
+                                    : { ...t, startDate: formatDate(ns), endDate: formatDate(ne) }) }));
+                        }
+                    };
+
+                    let rafId = null;
+                    const onMove = (mv) => {
+                        if (rafId) cancelAnimationFrame(rafId);
+                        rafId = requestAnimationFrame(() => {
+                            const pixelOffset = mv.clientX - startX;
+                            const rawDays = Math.round(pixelOffset / zoomLevel);
+                            tip.style.left = (mv.clientX + 14) + 'px';
+                            tip.style.top  = (mv.clientY - 36) + 'px';
+
+                            if (Math.abs(pixelOffset) > 4) {
+                                justDraggedRef.current = true;
+                                rawDaysMoved = rawDays;
+                            }
+
+                            if (isMove && wachtrijEl) {
+                                const over = isOverWachtrij(mv.clientX, mv.clientY);
+                                wachtrijEl.classList.toggle('drag-over', over);
+                                if (over) {
+                                    ghostEls.forEach(g => { g.style.opacity = '0'; });
+                                    barEl.parentNode.querySelectorAll(`.task-bar[data-task-id="${bar.task.id}"]`).forEach(el => {
+                                        el.style.opacity = '0.45'; el.style.transform = `translateX(${pixelOffset}px)`;
+                                    });
+                                    tip.style.opacity = '0';
+                                    return;
+                                }
+                            }
+
+                            // Visueel verplaatsen — geen setProjects
+                            if (isMove) {
+                                if (Math.abs(pixelOffset) > 4) {
+                                    // Alle originele segmenten dim op hun plek
+                                    const allSegs = Array.from(barEl.parentNode.querySelectorAll(`.task-bar[data-task-id="${bar.task.id}"]`));
+                                    allSegs.forEach(el => { el.style.opacity = '0.28'; el.style.transform = ''; el.style.zIndex = '8'; });
+                                    // Maak ghosts aan als nog niet gedaan
+                                    if (ghostEls.length === 0) {
+                                        allSegs.forEach(el => {
+                                            const g = el.cloneNode(true);
+                                            g.style.position = 'absolute';
+                                            g.style.pointerEvents = 'none';
+                                            g.style.zIndex = '9';
+                                            g.style.transition = 'none';
+                                            g.style.boxShadow = '0 4px 18px rgba(0,0,0,0.28)';
+                                            g.style.opacity = '0.75';
+                                            el.parentNode.appendChild(g);
+                                            ghostEls.push(g);
+                                        });
+                                    }
+                                    // Verschuif ghosts met rawDays * zoomLevel
+                                    ghostEls.forEach((g, i) => {
+                                        const srcEl = allSegs[i];
+                                        if (!srcEl) return;
+                                        const srcLeft = parseFloat(srcEl.style.left) || 0;
+                                        g.style.left = (srcLeft + rawDays * zoomLevel) + 'px';
+                                        g.style.width = srcEl.style.width;
+                                        g.style.opacity = '0.75';
+                                        g.style.transform = '';
+                                    });
+                                } else {
+                                    ghostEls.forEach(g => { if (g.parentNode) g.parentNode.removeChild(g); });
+                                    ghostEls = [];
+                                    barEl.parentNode.querySelectorAll(`.task-bar[data-task-id="${bar.task.id}"]`).forEach(el => {
+                                        el.style.opacity = ''; el.style.transform = '';
+                                    });
+                                    barEl.style.transform = `translateX(${pixelOffset}px)`;
+                                    barEl.style.opacity = '0.82';
+                                }
+                            } else if (isLeft) {
+                                const newLeft  = Math.max(0, origLeftPx + pixelOffset);
+                                const newWidth = Math.max(zoomLevel * 0.5, origWidthPx - pixelOffset);
+                                barEl.style.left  = newLeft  + 'px';
+                                barEl.style.width = newWidth + 'px';
+                                barEl.style.opacity = '0.82';
+                            } else {
+                                const newWidth = Math.max(zoomLevel * 0.5, origWidthPx + pixelOffset);
+                                barEl.style.width = newWidth + 'px';
+                                barEl.style.opacity = '0.82';
+                            }
+
+                            // Tooltip met doeldatum
+                            tip.style.opacity = '1';
+                            if (isLeft) {
+                                const ns = snapToWorkday(addDays(parseDate(origStart), rawDays));
+                                tip.textContent = `↔ ${fmt(formatDate(ns))} → ${fmt(origEnd)}`;
+                            } else if (isRight) {
+                                const ne = snapToWorkdayBack(addDays(parseDate(origEnd), rawDays));
+                                tip.textContent = `↔ ${fmt(origStart)} → ${fmt(formatDate(ne))}`;
+                            } else {
+                                const ns = snapToWorkday(addDays(parseDate(origStart), rawDays));
+                                tip.textContent = `⟷ ${fmt(formatDate(ns))} → ${fmt(formatDate(addWorkdays(ns, origSpan)))}`;
+                            }
+                        });
+                    };
+
+                    const onUp = (uv) => {
+                        if (rafId) cancelAnimationFrame(rafId);
+                        overlay.removeEventListener('mousemove', onMove);
+                        overlay.removeEventListener('mouseup', onUp);
+                        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                        if (tip.parentNode) tip.parentNode.removeChild(tip);
+                        if (wachtrijEl) wachtrijEl.classList.remove('drag-over');
+                        document.body.style.userSelect = '';
+                        resetBarStyle();
+
+                        if (isMove && justDraggedRef.current && isOverWachtrij(uv.clientX, uv.clientY)) {
+                            // Terugslepen naar wachtrij
+                            setProjects(prev => prev.map(pr => pr.id !== bar.proj.id ? pr : { ...pr,
+                                tasks: pr.tasks.map(t => t.id !== bar.task.id ? t : {
+                                    ...t,
+                                    ...(hasIndividual ? {} : { startDate: origStart, endDate: origEnd }),
+                                    workerDates: Object.fromEntries(Object.entries(t.workerDates||{}).filter(([k])=>String(k)!==String(workerId))),
+                                    assignedTo: (t.assignedTo||[]).filter(id => id !== workerId)
+                                })
+                            }));
+                        } else if (!justDraggedRef.current) {
+                            openPersoneelTask(bar.proj, bar.task);
+                        } else {
+                            // Eenmalige state update op loslaten
+                            applyFinal(rawDaysMoved);
+                            // Validatie
+                            let finalStart = origStart, finalEnd = origEnd;
+                            if (isLeft) {
+                                finalStart = formatDate(snapToWorkday(addDays(parseDate(origStart), rawDaysMoved)));
+                            } else if (isRight) {
+                                finalEnd = formatDate(snapToWorkdayBack(addDays(parseDate(origEnd), rawDaysMoved)));
+                            } else {
+                                const ns2 = snapToWorkday(addDays(parseDate(origStart), rawDaysMoved));
+                                finalStart = formatDate(ns2);
+                                finalEnd = formatDate(addWorkdays(ns2, origSpan));
+                            }
+                            const absC = getAbsenceConflicts(workerId, finalStart, finalEnd);
+                            const ovlp = getTaskOverlaps(workerId, finalStart, finalEnd, bar.task.id);
+                            const msgs = [];
+                            if (absC.length) msgs.push(`Afwezigheid: ${absC.map(a=>ABS_TYPES[a.type]?.label||a.type).join(', ')}`);
+                            if (ovlp.length) msgs.push(`Overlap met: ${[...new Set(ovlp.map(o=>o.task.name))].join(', ')}`);
+                            if (msgs.length) showToast('⚠️ ' + msgs.join('\n'), ovlp.length ? 'error' : 'warn');
+                        }
+                        setTimeout(() => { justDraggedRef.current = false; }, 150);
+                    };
+                    overlay.addEventListener('mousemove', onMove, { passive: true });
+                    overlay.addEventListener('mouseup', onUp);
+                };
+
 
                 const handleTimelineClick = (e, workerId) => {
                     if (e.target.closest('.abs-bar') || e.target.closest('.task-bar')) return;
@@ -3700,20 +4156,31 @@ export default function ProjectenPage() {
                     setAbsPopup(null);
                 };
 
-                // Taak bewerken: klik op project-balk
-                const openTaskEdit = (e, proj, task) => {
-                    e.stopPropagation();
-                    setTaskEditForm({ name: task.name, startDate: task.startDate, endDate: task.endDate });
-                    setTaskEditPopup({ projId: proj.id, taskId: task.id, projColor: proj.color, projName: proj.name, x: e.clientX, y: e.clientY });
+                // Taak bewerken: klik op project-balk of wachtrij-item
+                const openPersoneelTask = (proj, task) => {
+                    setPersoneelTask({ projId: proj.id, taskId: task.id });
+                    setPersoneelTaskForm({
+                        name: task.name || '',
+                        startDate: task.startDate || '',
+                        endDate: task.endDate || '',
+                        progress: task.progress ?? 0,
+                    });
+                    setPersoneelPanelTab('notitie');
+                    setPersoneelNoteInput('');
                 };
 
-                const saveTaskEdit = () => {
-                    if (!taskEditPopup) return;
-                    setProjects(prev => prev.map(pr => {
-                        if (pr.id !== taskEditPopup.projId) return pr;
-                        return { ...pr, tasks: (pr.tasks || []).map(t => t.id === taskEditPopup.taskId ? { ...t, name: taskEditForm.name, startDate: taskEditForm.startDate, endDate: taskEditForm.endDate } : t) };
+                const savePersoneelTask = () => {
+                    if (!personeelTask) return;
+                    setProjects(prev => prev.map(pr => pr.id !== personeelTask.projId ? pr : { ...pr,
+                        tasks: pr.tasks.map(t => t.id !== personeelTask.taskId ? t : {
+                            ...t,
+                            name: personeelTaskForm.name,
+                            startDate: personeelTaskForm.startDate,
+                            endDate: personeelTaskForm.endDate,
+                            progress: Number(personeelTaskForm.progress),
+                        })
                     }));
-                    setTaskEditPopup(null);
+                    setPersoneelTask(null);
                 };
 
                 // Afwezigheid bewerken: klik op abs-balk
@@ -3819,36 +4286,6 @@ export default function ProjectenPage() {
                             </>
                         )}
 
-                        {/* === Popup: taak bewerken === */}
-                        {taskEditPopup && (
-                            <>
-                                <div onClick={() => setTaskEditPopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
-                                <div style={{ position: 'fixed', left: Math.min(taskEditPopup.x, window.innerWidth-320), top: Math.min(taskEditPopup.y+12, window.innerHeight-290), zIndex: 9999, background: '#fff', borderRadius: '14px', boxShadow: '0 12px 40px rgba(0,0,0,0.18)', padding: '18px', width: '300px', border: `2px solid ${taskEditPopup.projColor}` }}>
-                                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: taskEditPopup.projColor, flexShrink: 0 }}></div>
-                                        Taak bewerken
-                                    </div>
-                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginBottom: '14px' }}>{taskEditPopup.projName}</div>
-                                    <div style={{ marginBottom: '10px' }}>
-                                        <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Taaknaam</div>
-                                        <input type="text" value={taskEditForm.name} onChange={e => setTaskEditForm(f => ({ ...f, name: e.target.value }))}
-                                            style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', fontWeight: 600 }} />
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
-                                        <div><div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Startdatum</div>
-                                            <input type="date" value={taskEditForm.startDate} onChange={e => setTaskEditForm(f => ({ ...f, startDate: e.target.value }))} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }} /></div>
-                                        <div><div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Einddatum</div>
-                                            <input type="date" value={taskEditForm.endDate} onChange={e => setTaskEditForm(f => ({ ...f, endDate: e.target.value }))} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '6px 8px', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }} /></div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button onClick={() => setTaskEditPopup(null)} style={{ flex: 1, padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '0.75rem', cursor: 'pointer' }}>Annuleren</button>
-                                        <button onClick={saveTaskEdit} style={{ flex: 2, padding: '8px', border: 'none', borderRadius: '8px', background: taskEditPopup.projColor, color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>
-                                            <i className="fa-solid fa-check" style={{ marginRight: '5px' }}></i>Opslaan
-                                        </button>
-                                    </div>
-                                </div>
-                            </>
-                        )}
 
                         {/* === Popup: afwezigheid bewerken === */}
                         {absEditPopup && (
@@ -3894,6 +4331,11 @@ export default function ProjectenPage() {
                                             const end = new Date(currentDate); end.setDate(end.getDate() + 56);
                                             return `${MONTHS_FULL[currentDate.getMonth()]} - ${MONTHS_FULL[end.getMonth()]} ${currentDate.getFullYear()}`;
                                         }
+                                        if (viewMode === '6m') {
+                                            const end = new Date(currentDate.getFullYear(), currentDate.getMonth() + 6, 0);
+                                            return `${MONTHS_FULL[currentDate.getMonth()]} - ${MONTHS_FULL[end.getMonth()]} ${currentDate.getFullYear()}`;
+                                        }
+                                        if (viewMode === '1y') return `${currentDate.getFullYear()}`;
                                         return `Week ${getWeekNumber(currentDate)} ${viewMode === '2w' ? '- ' + getWeekNumber(addDays(currentDate, 7)) : ''}`;
                                     })()}
                                 </span>
@@ -3902,10 +4344,12 @@ export default function ProjectenPage() {
                             </div>
                             <div className="view-btns" style={{ display: 'flex', background: '#f1f5f9', borderRadius: '7px', padding: '2px', gap: '2px' }}>
                                 {[
-                                    ['1w', '1 Week'],
-                                    ['2w', '2 Weken'],
-                                    ['1m', 'Maand'],
-                                    ['8w', '8 Weken']
+                                    ['1w', '1W'],
+                                    ['2w', '2W'],
+                                    ['1m', '1M'],
+                                    ['8w', '8W'],
+                                    ['6m', '6M'],
+                                    ['1y', '1J'],
                                 ].map(([v, lbl]) => (
                                     <button key={v} onClick={() => setViewMode(v)}
                                         style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', background: (viewMode === v || (viewMode === 'month' && v === '8w') || (viewMode === 'week' && v === '2w')) ? '#fff' : 'transparent', color: (viewMode === v || (viewMode === 'month' && v === '8w') || (viewMode === 'week' && v === '2w')) ? '#F5850A' : '#64748b', fontWeight: (viewMode === v || (viewMode === 'month' && v === '8w') || (viewMode === 'week' && v === '2w')) ? 700 : 600, fontSize: '0.72rem', cursor: 'pointer', boxShadow: (viewMode === v || (viewMode === 'month' && v === '8w') || (viewMode === 'week' && v === '2w')) ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
@@ -3915,24 +4359,199 @@ export default function ProjectenPage() {
                             </div>
                         </div>
 
-                        <div style={{ display:'flex',alignItems:'center',gap:'16px',padding:'8px 14px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:'10px',marginBottom:'12px',flexWrap:'wrap' }}>
-                            <span style={{ fontSize:'0.68rem',fontWeight:700,color:'#64748b' }}>
-                                <i className="fa-solid fa-circle-info" style={{ color:'#F5850A',marginRight:'4px' }}></i>
-                                Klik op tijdlijn → afwezigheid invoeren &nbsp;·&nbsp; Klik op badge → project toewijzen
-                            </span>
-                            <div style={{ display:'flex',gap:'10px',marginLeft:'auto',flexWrap:'wrap' }}>
-                                {Object.entries(ABS_TYPES).map(([key,cfg]) => (
-                                    <div key={key} style={{ display:'flex',alignItems:'center',gap:'4px',fontSize:'0.65rem',color:'#64748b' }}>
-                                        <div style={{ width:'12px',height:'12px',borderRadius:'3px',background:cfg.color }}></div>{cfg.label}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
 
-                        <div className="gantt-wrapper" style={{ borderRadius:'12px',overflow:'hidden',border:'1px solid #e2e8f0' }}>
-                            <div style={{ display:'flex',borderBottom:'1px solid #e2e8f0',background:'#f8fafc' }}>
-                                <div className="gantt-header-label" style={{ fontWeight:700,fontSize:'0.72rem',color:'#64748b',background:'#f8fafc' }}>Medewerker</div>
-                                <div style={{ flex:1,display:'flex',flexDirection:'column' }}>
+                        {/* ===== LAYOUT: wachtrij links + gantt rechts ===== */}
+                        <div style={{ display:'flex', gap:'12px', alignItems:'flex-start' }}>
+
+                        {/* Wachtrij zijkolom */}
+                        {unassignedTasks.length > 0 && (
+                            <div className="wachtrij-panel wachtrij-panel--sidebar">
+                                <div className="wachtrij-header">
+                                    <i className="fa-solid fa-list-check" style={{ color:'#F5850A' }}></i>
+                                    <span>In te plannen taken</span>
+                                    <span className="wachtrij-badge">{unassignedTasks.length}</span>
+                                    <button onClick={() => { setBatchMode(m => !m); setBatchSelected(new Set()); }}
+                                        title={batchMode ? 'Selectie annuleren' : 'Meerdere taken selecteren'}
+                                        style={{ marginLeft:'auto', border:'none', borderRadius:'6px', padding:'3px 7px', fontSize:'0.62rem', fontWeight:700, background: batchMode ? '#F5850A' : '#f1f5f9', color: batchMode ? '#fff' : '#64748b', cursor:'pointer', flexShrink:0 }}>
+                                        <i className="fa-solid fa-list-check" style={{ marginRight:'4px' }}/>
+                                        {batchMode ? 'Annuleren' : 'Meerdere'}
+                                    </button>
+                                </div>
+                                <div className="wachtrij-list wachtrij-list--vertical">
+                                    {unassignedTasks.map(({ proj, task }) => {
+                                        const pickerOpen = wachtrijOpen === task.id;
+                                        const picked = wachtrijPick[task.id];
+                                        const hasDates = !!(task.startDate && task.endDate);
+                                        const fmtD = s => s.split('-').reverse().join('-');
+                                        return (
+                                        <div key={task.id} className="wachtrij-item"
+                                            draggable
+                                            onDragStart={e => {
+                                                e.dataTransfer.setData('application/json', JSON.stringify({ taskId: task.id, projId: proj.id }));
+                                                e.dataTransfer.effectAllowed = 'move';
+                                            }}
+                                            onClick={e=>{ if(!e.target.closest('.wachtrij-inplan-zone')) openPersoneelTask(proj, task); }}
+                                            style={{ borderLeft: `4px solid ${proj.color}`, cursor: 'grab', padding:'6px 8px 6px 10px', position:'relative' }}>
+
+                                            {/* Hoofdregel */}
+                                            <div style={{ display:'flex',alignItems:'center',gap:'6px',minWidth:0 }}>
+                                                {batchMode && (
+                                                    <input type="checkbox"
+                                                        checked={batchSelected.has(task.id)}
+                                                        onChange={() => setBatchSelected(prev => { const n = new Set(prev); n.has(task.id) ? n.delete(task.id) : n.add(task.id); return n; })}
+                                                        onClick={e => e.stopPropagation()}
+                                                        style={{ accentColor:'#F5850A', width:'14px', height:'14px', flexShrink:0, cursor:'pointer' }}
+                                                    />
+                                                )}
+                                                <div style={{ flex:1,minWidth:0 }}>
+                                                    <div style={{ fontSize:'0.58rem',color:'#94a3b8',fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{proj.name}</div>
+                                                    <div style={{ display:'flex',alignItems:'center',gap:'4px' }}>
+                                                        <span style={{ fontSize:'0.72rem',fontWeight:700,color:'#1e293b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{task.name}</span>
+                                                        {(task.notes||[]).length>0&&<span style={{ display:'inline-flex',alignItems:'center',gap:'2px',background:'#fef3c7',border:'1px solid #fde68a',borderRadius:'10px',padding:'1px 5px',fontSize:'0.58rem',fontWeight:700,color:'#92400e',flexShrink:0 }}><i className="fa-solid fa-note-sticky" style={{ fontSize:'0.52rem' }}/>{(task.notes||[]).length}</span>}
+                                                    </div>
+                                                    <div style={{ fontSize:'0.61rem',color:hasDates?'#F5850A':'#94a3b8',fontWeight:hasDates?600:400,display:'flex',alignItems:'center',gap:'5px' }}>
+                                                        {hasDates ? `${fmtD(task.startDate)} – ${fmtD(task.endDate)}` : (
+                                                            <button onClick={e=>{e.stopPropagation();openPersoneelTask(proj,task);}}
+                                                                style={{ background:'none',border:'1px dashed #cbd5e1',borderRadius:'5px',padding:'1px 7px',fontSize:'0.6rem',color:'#94a3b8',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px',fontWeight:600 }}>
+                                                                <i className="fa-solid fa-calendar-plus" style={{ fontSize:'0.58rem' }}/> Periode instellen
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Inplannen knop */}
+                                                {hasDates && (
+                                                    <button className="wachtrij-inplan-zone"
+                                                        onClick={e => { e.stopPropagation(); if (pickerOpen) { setWachtrijOpen(null); } else { const r = e.currentTarget.getBoundingClientRect(); setWachtrijDropPos({ x: r.right, y: r.bottom + 4 }); setWachtrijOpen(task.id); } }}
+                                                        style={{ flexShrink:0,display:'flex',alignItems:'center',gap:'5px',padding:'4px 9px',borderRadius:'7px',border:'none',cursor:'pointer',fontWeight:700,fontSize:'0.68rem',transition:'all 0.15s',
+                                                            background: pickerOpen ? '#F5850A' : '#fff7ed',
+                                                            color: pickerOpen ? '#fff' : '#F5850A' }}>
+                                                        <i className="fa-solid fa-user-plus" style={{ fontSize:'0.65rem' }}/>
+                                                        {picked?.size ? `(${picked.size})` : ''}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        );
+                                    })}
+                                </div>
+                                {batchMode && batchSelected.size > 0 && (
+                                    <div style={{ position:'sticky', bottom:0, background:'#fff', borderTop:'2px solid #F5850A', padding:'10px', display:'flex', flexDirection:'column', gap:'6px' }}>
+                                        <div style={{ fontSize:'0.65rem', color:'#64748b', fontWeight:600 }}>
+                                            {batchSelected.size} taak{batchSelected.size!==1?'en':''} geselecteerd
+                                        </div>
+                                        <button
+                                            onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setBatchWorkerPos({ x: r.right, y: r.bottom + 4 }); setBatchWorkerOpen(true); }}
+                                            style={{ padding:'7px 12px', borderRadius:'8px', border:'none', background:'#F5850A', color:'#fff', fontWeight:700, fontSize:'0.72rem', cursor:'pointer', display:'flex', alignItems:'center', gap:'6px' }}>
+                                            <i className="fa-solid fa-user-plus"/>
+                                            Toewijzen aan...
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Fixed inplannen dropdown — buiten overflow container */}
+                        {(() => {
+                            if (!wachtrijOpen) return null;
+                            const entry = unassignedTasks.find(({task}) => task.id === wachtrijOpen);
+                            if (!entry) return null;
+                            const { proj, task } = entry;
+                            const picked = wachtrijPick[task.id];
+                            const fmtD = s => s.split('-').reverse().join('-');
+                            const doConfirm = () => {
+                                const selected = [...(picked || [])];
+                                if (!selected.length) return;
+                                setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                                    ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : {
+                                        ...t, assignedTo: [...new Set([...(t.assignedTo||[]), ...selected])]
+                                    })
+                                }));
+                                setWachtrijPick(prev => { const n={...prev}; delete n[task.id]; return n; });
+                                setWachtrijOpen(null);
+                            };
+                            return (<>
+                                {/* Klik-buiten overlay */}
+                                <div onClick={() => setWachtrijOpen(null)} style={{ position:'fixed',inset:0,zIndex:9998 }}/>
+                                {/* Dropdown */}
+                                <div onClick={e=>e.stopPropagation()} style={{ position:'fixed',right: Math.max(8, window.innerWidth - wachtrijDropPos.x),top: wachtrijDropPos.y,zIndex:9999,background:'#fff',borderRadius:'10px',boxShadow:'0 8px 28px rgba(0,0,0,0.16)',border:'1px solid #e2e8f0',padding:'12px',minWidth:'180px' }}>
+                                    <div style={{ fontSize:'0.58rem',fontWeight:700,color:'#94a3b8',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'0.05em' }}>Kies collega's</div>
+                                    <div style={{ display:'flex',flexDirection:'column',gap:'5px',marginBottom:'10px' }}>
+                                        {workers.map(w => {
+                                            const sel = !!(picked?.has(w.id));
+                                            return (
+                                                <label key={w.id} style={{ display:'flex',alignItems:'center',gap:'8px',fontSize:'0.74rem',cursor:'pointer',userSelect:'none',color:sel?'#F5850A':'#334155',fontWeight:sel?700:400 }}>
+                                                    <input type="checkbox" checked={sel}
+                                                        onChange={() => setWachtrijPick(prev => {
+                                                            const cur = new Set(prev[task.id] || []);
+                                                            sel ? cur.delete(w.id) : cur.add(w.id);
+                                                            return { ...prev, [task.id]: cur };
+                                                        })}
+                                                        style={{ accentColor:'#F5850A',width:'14px',height:'14px',cursor:'pointer',flexShrink:0 }} />
+                                                    {w.name}
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                    <button disabled={!picked?.size} onClick={doConfirm}
+                                        style={{ width:'100%',padding:'6px 8px',borderRadius:'7px',border:'none',display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',fontWeight:700,fontSize:'0.72rem',transition:'all 0.15s',
+                                            background:picked?.size?'#F5850A':'#e2e8f0',color:picked?.size?'#fff':'#94a3b8',cursor:picked?.size?'pointer':'default' }}>
+                                        <i className="fa-solid fa-calendar-check"/>
+                                        Planning {task.startDate && `${fmtD(task.startDate)}–${fmtD(task.endDate)}`}
+                                        <i className="fa-solid fa-arrow-right"/>
+                                    </button>
+                                </div>
+                            </>);
+                        })()}
+
+                        {/* Batch worker-picker dropdown */}
+                        {batchWorkerOpen && (
+                            <>
+                                <div onClick={() => setBatchWorkerOpen(false)} style={{ position:'fixed', inset:0, zIndex:9998 }}/>
+                                <div onClick={e => e.stopPropagation()}
+                                    style={{ position:'fixed', right: Math.max(8, window.innerWidth - batchWorkerPos.x), top: batchWorkerPos.y, zIndex:9999, background:'#fff', borderRadius:'10px', boxShadow:'0 8px 28px rgba(0,0,0,0.16)', border:'1px solid #e2e8f0', padding:'12px', minWidth:'180px' }}>
+                                    <div style={{ fontSize:'0.58rem', fontWeight:700, color:'#94a3b8', marginBottom:'8px', textTransform:'uppercase', letterSpacing:'0.05em' }}>Kies medewerker</div>
+                                    {workers.map(w => (
+                                        <button key={w.id}
+                                            onClick={() => {
+                                                setProjects(prev => prev.map(pr => ({
+                                                    ...pr,
+                                                    tasks: (pr.tasks||[]).map(t =>
+                                                        !batchSelected.has(t.id) ? t : {
+                                                            ...t,
+                                                            assignedTo: [...new Set([...(t.assignedTo||[]), w.id])]
+                                                        }
+                                                    )
+                                                })));
+                                                setBatchWorkerOpen(false);
+                                                setBatchMode(false);
+                                                setBatchSelected(new Set());
+                                            }}
+                                            style={{ display:'flex', alignItems:'center', gap:'8px', width:'100%', padding:'6px 8px', borderRadius:'7px', border:'none', background:'transparent', cursor:'pointer', fontSize:'0.74rem', color:'#334155', fontWeight:500, textAlign:'left' }}
+                                            onMouseEnter={e => e.currentTarget.style.background='#f8fafc'}
+                                            onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                                            <div style={{ width:'22px', height:'22px', borderRadius:'50%', background:'linear-gradient(135deg,#F5850A,#E07000)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.55rem', fontWeight:700, flexShrink:0 }}>
+                                                {w.initials||w.name?.slice(0,2).toUpperCase()}
+                                            </div>
+                                            {w.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+
+                        <div className="gantt-wrapper" style={{ flex:1, minWidth:0, borderRadius:'12px',overflowX:'auto',border:'1px solid #e2e8f0', '--cell-w':`${zoomLevel}px` }}>
+                            <div style={{ display:'flex',borderBottom:'1px solid #e2e8f0',background:'#f8fafc',minWidth:'max-content',position:'sticky',top:0,zIndex:5 }}>
+                                <div className="gantt-header-label" style={{ fontWeight:700,fontSize:'0.72rem',color:'#64748b',background:'#f8fafc',minWidth:'180px',maxWidth:'180px',position:'sticky',left:0,zIndex:6,flexDirection:'column',gap:'4px',padding:'6px 10px' }}>
+                                    <span style={{ display:'flex',alignItems:'center',gap:'5px' }}><i className="fa-solid fa-users" style={{ color:'#F5850A',fontSize:'0.65rem' }}/>Medewerker</span>
+                                    <div style={{ display:'flex',alignItems:'center',gap:'4px',background:'#fff',border:'1px solid #e2e8f0',borderRadius:'6px',padding:'2px 7px' }}>
+                                        <i className="fa-solid fa-magnifying-glass" style={{ fontSize:'0.58rem',color:'#94a3b8' }}/>
+                                        <input value={workerSearch} onChange={e=>setWorkerSearch(e.target.value)} placeholder="Zoeken…"
+                                            style={{ border:'none',outline:'none',fontSize:'0.68rem',color:'#334155',background:'transparent',width:'100%' }}/>
+                                        {workerSearch && <button onClick={()=>setWorkerSearch('')} style={{ border:'none',background:'none',cursor:'pointer',color:'#94a3b8',padding:0,lineHeight:1,fontSize:'0.7rem' }}>✕</button>}
+                                    </div>
+                                </div>
+                                <div style={{ display:'flex',flexDirection:'column',flex:'0 0 auto' }}>
                                     <div style={{ display:'flex',borderBottom:'1px solid #e2e8f0' }}>
                                         {(() => {
                                             const groups=[]; let i=0;
@@ -3941,12 +4560,12 @@ export default function ProjectenPage() {
                                         })()}
                                     </div>
                                     <div style={{ display:'flex' }}>
-                                        {timelineDates.map((d,i)=>(<div key={i} className={`gantt-header-cell ${isWeekend(d)?'weekend':''} ${formatDate(today)===formatDate(d)?'today':''}`} style={{ flex:1,minWidth:`${zoomLevel}px`,textAlign:'center',padding:'2px 0',fontSize:'0.58rem' }}><div style={{ color:'#94a3b8' }}>{DAYS_NL[d.getDay()]}</div><div style={{ fontWeight:700,fontSize:'0.7rem',color:formatDate(today)===formatDate(d)?'var(--accent)':'#334155' }}>{d.getDate()}</div></div>))}
+                                        {timelineDates.map((d,i)=>(<div key={i} className={`gantt-header-cell ${isWeekend(d)?'weekend':''} ${formatDate(today)===formatDate(d)?'today':''}`} style={{ flex:`0 0 ${zoomLevel}px`,minWidth:`${zoomLevel}px`,textAlign:'center',padding:'2px 0',fontSize:'0.58rem' }}><div style={{ color:'#94a3b8' }}>{DAYS_NL[d.getDay()]}</div><div style={{ fontWeight:700,fontSize:'0.7rem',color:formatDate(today)===formatDate(d)?'var(--accent)':'#334155' }}>{d.getDate()}</div></div>))}
                                     </div>
                                 </div>
                             </div>
 
-                            {workers.map(worker => {
+                            {workers.filter(w => !workerSearch || w.name.toLowerCase().includes(workerSearch.toLowerCase())).map(worker => {
                                 const bars = getWorkerBars(worker.id);
                                 const absBars = getAbsBars(worker.id);
                                 const workerAbs = (workerAbsences||[]).filter(a => {
@@ -3954,57 +4573,136 @@ export default function ProjectenPage() {
                                     try { const s=parseDate(a.startDate),e=parseDate(a.endDate); return !(s>tEnd||e<tStart); } catch { return false; }
                                 });
                                 return (
-                                    <div key={worker.id} className="gantt-row" style={{ minHeight:'64px',borderBottom:'1px solid #f1f5f9',alignItems:'stretch' }}>
-                                        <div className="gantt-row-label" style={{ flexDirection:'column',alignItems:'flex-start',padding:'6px 10px',gap:'4px' }}>
-                                            <div style={{ display:'flex',alignItems:'center',gap:'8px',width:'100%' }}>
-                                                <div style={{ width:'30px',height:'30px',borderRadius:'50%',background:'linear-gradient(135deg,#F5850A,#E07000)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.62rem',fontWeight:700,flexShrink:0,boxShadow:'0 2px 4px rgba(245,133,10,0.35)' }}>{worker.initials||worker.name?.slice(0,2).toUpperCase()}</div>
-                                                <div style={{ flex:1,minWidth:0 }}>
-                                                    <div style={{ fontWeight:700,fontSize:'0.78rem',color:'#1e293b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{worker.name}</div>
-                                                    <div style={{ fontSize:'0.6rem',color:'#94a3b8' }}>{worker.role}</div>
+                                    <div key={worker.id} className="gantt-row" style={{ borderBottom:'1px solid #f1f5f9',alignItems:'stretch' }}>
+                                        <div className="gantt-row-label" style={{ flexDirection:'row',alignItems:'center',padding:'4px 8px',gap:'6px',minWidth:'180px',maxWidth:'180px',flexWrap:'nowrap' }}>
+                                            {/* Avatar */}
+                                            <div style={{ width:'26px',height:'26px',borderRadius:'50%',background:'linear-gradient(135deg,#F5850A,#E07000)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.58rem',fontWeight:700,flexShrink:0,boxShadow:'0 1px 3px rgba(245,133,10,0.3)' }}>{worker.initials||worker.name?.slice(0,2).toUpperCase()}</div>
+                                            {/* Naam + rol */}
+                                            <div style={{ flex:1,minWidth:0 }}>
+                                                <div style={{ fontWeight:700,fontSize:'0.72rem',color:'#1e293b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:1.2 }}>{worker.name}</div>
+                                                <div style={{ display:'flex',gap:'2px',flexWrap:'nowrap',marginTop:'2px',alignItems:'center',overflow:'hidden' }}>
+                                                    {projects.map(proj => {
+                                                        const active=(proj.tasks||[]).some(t=>(t.assignedTo||[]).includes(worker.id));
+                                                        return active ? (
+                                                            <div key={proj.id} title={proj.name} style={{ width:'8px',height:'8px',borderRadius:'50%',background:proj.color,flexShrink:0 }}/>
+                                                        ) : null;
+                                                    })}
+                                                    {workerAbs.map(a => (
+                                                        <span key={a.id} onClick={e=>openAbsEdit(e,a)} title={`${ABS_TYPES[a.type]?.label}: ${a.startDate} → ${a.endDate}`}
+                                                            style={{ width:'8px',height:'8px',borderRadius:'50%',background:ABS_TYPES[a.type]?.color||'#94a3b8',flexShrink:0,cursor:'pointer' }}/>
+                                                    ))}
                                                 </div>
-                                            </div>
-                                            <div style={{ display:'flex',gap:'3px',flexWrap:'wrap',paddingLeft:'38px' }}>
-                                                {projects.map(proj => {
-                                                    const active=(proj.tasks||[]).some(t=>(t.assignedTo||[]).includes(worker.id));
-                                                    return (<button key={proj.id} onClick={()=>toggleWorkerOnProject(worker.id,proj.id)} title={active?`Verwijder van ${proj.name}`:`Voeg toe aan ${proj.name}`} style={{ padding:'1px 6px 1px 4px',borderRadius:'8px',fontSize:'0.58rem',fontWeight:700,cursor:'pointer',border:`2px solid ${proj.color}`,background:active?proj.color:'transparent',color:active?'#fff':proj.color,display:'flex',alignItems:'center',gap:'2px',transition:'all 0.12s' }}><i className={`fa-solid ${active?'fa-check':'fa-plus'}`} style={{ fontSize:'0.42rem' }}></i><span style={{ maxWidth:'72px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{proj.name.split(' ').slice(0,2).join(' ')}</span></button>);
-                                                })}
-                                                {workerAbs.map(a => (
-                                                    <span key={a.id} onClick={e => openAbsEdit(e, a)} title={`${ABS_TYPES[a.type]?.label}: ${a.startDate} → ${a.endDate} · klik om te bewerken`} style={{ padding:'1px 5px',borderRadius:'8px',fontSize:'0.58rem',fontWeight:700,cursor:'pointer',background:ABS_TYPES[a.type]?.color||'#94a3b8',color:'#fff',display:'flex',alignItems:'center',gap:'3px' }}>
-                                                        <i className={`fa-solid ${ABS_TYPES[a.type]?.icon}`} style={{ fontSize:'0.4rem' }}></i>{ABS_TYPES[a.type]?.label}<i className="fa-solid fa-pen" style={{ fontSize:'0.4rem',opacity:0.7 }}></i>
-                                                    </span>
-                                                ))}
                                             </div>
                                         </div>
                                         {/* Timeline with lane-based bar positioning */}
                                         {(() => {
                                             // Assign lanes to tasks to avoid overlap
                                             const taskEntries = projects.flatMap(proj =>
-                                                (proj.tasks||[]).filter(t => (t.assignedTo||[]).includes(worker.id)).map(t => ({ proj, task: t }))
+                                                (proj.tasks||[]).filter(t =>
+                                                    (t.assignedTo||[]).includes(worker.id) ||
+                                                    (!( t.assignedTo||[]).includes(worker.id) && Object.values(t.assignedByDay||{}).some(ids => ids.includes(worker.id)))
+                                                ).map(t => ({ proj, task: t }))
                                             );
                                             const lanes = [];
                                             const taskLane = new Map();
+                                            // Helper: effectieve datum voor deze medewerker (workerDates overschrijft task-datum)
+                                            const effStart = t => ((t.workerDates||{})[worker.id]?.startDate) || t.startDate;
+                                            const effEnd   = t => ((t.workerDates||{})[worker.id]?.endDate)   || t.endDate;
                                             taskEntries.forEach(({ task }) => {
-                                                let lane = lanes.findIndex(l => !l.some(t => t.startDate < task.endDate && t.endDate > task.startDate));
+                                                const ts = effStart(task), te = effEnd(task);
+                                                let lane = lanes.findIndex(l => !l.some(t => effStart(t) < te && effEnd(t) > ts));
                                                 if (lane === -1) { lane = lanes.length; lanes.push([]); }
                                                 lanes[lane].push(task);
                                                 taskLane.set(task.id, lane);
                                             });
-                                            const laneH = 28, laneGap = 4, topBase = 4;
+                                            const laneH = 28, laneGap = 8, topBase = 6;
                                             const numLanes = Math.max(1, lanes.length);
                                             const rowH = Math.max(48, topBase + numLanes * (laneH + laneGap));
                                             return (
-                                                <div className="gantt-row-timeline" style={{ position:'relative', cursor:'crosshair', minHeight:`${rowH}px` }} onClick={e=>handleTimelineClick(e,worker.id)}>
+                                                <div className="gantt-row-timeline" style={{ position:'relative', cursor:'default', minHeight:`${rowH}px` }}
+                                                    onDragOver={e=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; }}
+                                                    onDragEnter={e=>e.currentTarget.classList.add('drag-over')}
+                                                    onDragLeave={e=>e.currentTarget.classList.remove('drag-over')}
+                                                    onDrop={e=>handleWachtrijDrop(e,worker.id)}>
                                                     {timelineDates.map((d,i)=><div key={i} className={`gantt-cell ${isWeekend(d)?'weekend':''} ${formatDate(d)===formatDate(today)?'today':''} ${isHoliday(d)?'holiday':''}`} />)}
+                                                    {timelineDates.map((d,i) => {
+                                                        const dow = d.getDay();
+                                                        if (dow===0||dow===6) return null;
+                                                        const hName = isHoliday(d);
+                                                        if (!hName) return null;
+                                                        return (
+                                                            <div key={`hol-${i}`} title={hName} style={{ position:'absolute',left:`${i*zoomLevel}px`,width:`${zoomLevel}px`,top:0,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',zIndex:2 }}>
+                                                                <i className="fa-solid fa-star" style={{ fontSize:'0.7rem',color:'#F5850A',opacity:0.9 }}/>
+                                                            </div>
+                                                        );
+                                                    })}
                                                     {absBars.map((a) => {
                                                         const cfg=ABS_TYPES[a.type]||ABS_TYPES.vrije_dag;
                                                         const borderR = a.si===0 && a.total===1 ? '6px' : a.si===0 ? '6px 0 0 6px' : a.si===a.total-1 ? '0 6px 6px 0' : '0';
-                                                        return (<div key={`${a.id}-${a.si}`} className="abs-bar" title={`${cfg.label}: ${a.startDate} → ${a.endDate} · klik om te bewerken`} onClick={e=>openAbsEdit(e,a)} style={{ position:'absolute',left:`${a.left * zoomLevel / 100 * timelineDates.length}px`,width:`${Math.max(a.width * zoomLevel / 100 * timelineDates.length, zoomLevel * 0.9)}px`,top:0,bottom:0,background:cfg.bg,borderTop:`3px solid ${cfg.color}`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',zIndex:1,overflow:'hidden',borderRadius:borderR }}>{a.si===0&&<span style={{ fontSize:'0.6rem',fontWeight:700,color:cfg.color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',padding:'0 6px',pointerEvents:'none' }}><i className={`fa-solid ${cfg.icon}`} style={{ marginRight:'3px' }}></i>{cfg.label}</span>}</div>);
+                                                        const barW = Math.max(a.width * zoomLevel / 100 * timelineDates.length, zoomLevel * 0.9);
+                                                        // Per dag een paraplyicoon — bereken hoeveel cellen breed de balk is
+                                                        const numCells = Math.round(barW / zoomLevel);
+                                                        return (
+                                                            <div key={`${a.id}-${a.si}`} className="abs-bar"
+                                                                title={`${cfg.label}: ${a.startDate}${a.endDate!==a.startDate?' → '+a.endDate:''}${a.fromVerlof?'':' · klik om te bewerken'}`}
+                                                                onClick={e=>{ if(!a.fromVerlof) openAbsEdit(e,a); }}
+                                                                style={{ position:'absolute',left:`${a.left * zoomLevel / 100 * timelineDates.length}px`,width:`${barW}px`,top:0,bottom:0,background:cfg.bg,borderTop:`3px solid ${cfg.color}`,display:'flex',alignItems:'center',justifyContent:'flex-start',cursor:a.fromVerlof?'default':'pointer',zIndex:1,overflow:'hidden',borderRadius:borderR,gap:0 }}>
+                                                                {Array.from({ length: Math.max(1, numCells) }).map((_,ci) => (
+                                                                    <div key={ci} style={{ flex:`0 0 ${zoomLevel}px`,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none' }}>
+                                                                        <i className={`fa-solid ${cfg.icon}`} style={{ fontSize:'0.62rem',color:cfg.color,opacity:0.85 }}/>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        );
                                                     })}
                                                     {bars.map((b, bi) => {
                                                         const lane = taskLane.get(b.task.id) ?? 0;
                                                         const top = topBase + lane * (laneH + laneGap);
                                                         const borderR = b.si===0 && b.total===1 ? '6px' : b.si===0 ? '6px 0 0 6px' : b.si===b.total-1 ? '0 6px 6px 0' : '0';
-                                                        return (<div key={bi} className="task-bar" title={`${b.task.name} · ${b.proj.name} · klik om te bewerken`} onClick={e=>openTaskEdit(e,b.proj,b.task)} style={{ position:'absolute',left:`${b.left * zoomLevel / 100 * timelineDates.length}px`,width:`${Math.max(b.width * zoomLevel / 100 * timelineDates.length, zoomLevel * 0.9)}px`,top:`${top}px`,height:`${laneH}px`,background:b.proj.color,borderRadius:borderR,display:'flex',alignItems:'center',paddingLeft:b.si===0?'8px':'2px',overflow:'hidden',cursor:'pointer',boxShadow:'0 2px 5px rgba(0,0,0,0.15)',opacity:b.task.completed?0.4:1,zIndex:3 }}>{b.si===0&&<span style={{ fontSize:'0.65rem',fontWeight:700,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',pointerEvents:'none' }}>{b.task.name}</span>}</div>);
+                                                        const barW = Math.max(b.width * zoomLevel / 100 * timelineDates.length, zoomLevel * 0.9);
+                                                        const isNarrow = barW < 80;
+                                                        return (
+                                                            <div key={bi} className="task-bar"
+                                                                data-task-id={b.task.id}
+                                                                onMouseDown={e=>handleBarMouseDown(e,b,worker.id)}
+                                                                onMouseEnter={e=>{
+                                                                    const tt=document.createElement('div');
+                                                                    tt.id=`tt-${b.task.id}-${bi}`;
+                                                                    tt.style.cssText='position:fixed;background:#1e293b;color:#fff;padding:6px 12px;border-radius:8px;font-size:0.72rem;font-weight:700;z-index:100002;pointer-events:none;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,0.22);';
+                                                                    const prog = b.task.completed ? '✓ Afgerond' : b.task.progress > 0 ? `${b.task.progress}%` : '';
+                                                                    tt.innerHTML=`<div>${b.task.name}</div><div style="font-size:0.62rem;opacity:0.7;font-weight:400;margin-top:2px">${b.proj.name}</div>${prog ? `<div style="font-size:0.62rem;font-weight:700;margin-top:3px;color:${b.task.completed?'#10b981':'#F5850A'}">${prog}</div>` : ''}`;
+                                                                    document.body.appendChild(tt);
+                                                                    const r=e.currentTarget.getBoundingClientRect();
+                                                                    tt.style.left=Math.min(r.left,window.innerWidth-tt.offsetWidth-8)+'px';
+                                                                    tt.style.top=(r.top-tt.offsetHeight-6)+'px';
+                                                                }}
+                                                                onMouseLeave={()=>{ const tt=document.getElementById(`tt-${b.task.id}-${bi}`); if(tt)tt.remove(); }}
+                                                                style={{ position:'absolute',left:`${b.left * zoomLevel / 100 * timelineDates.length}px`,width:`${barW}px`,top:`${top}px`,height:`${laneH}px`,background:b.isOverride?`repeating-linear-gradient(45deg,${b.proj.color},${b.proj.color} 5px,${b.proj.color}88 5px,${b.proj.color}88 10px)`:b.proj.color,borderRadius:borderR,display:'flex',alignItems:'center',paddingLeft:b.si===0&&!isNarrow?'15px':'2px',overflow:'hidden',cursor:'grab',boxShadow:b.isOverride?`0 0 0 2px ${b.proj.color},0 2px 5px rgba(0,0,0,0.15)`:'0 2px 5px rgba(0,0,0,0.15)',opacity:b.task.completed?0.4:1,zIndex:3,userSelect:'none' }}>
+                                                                {/* Voortgangsbalk onderaan */}
+                                                                {(b.task.progress > 0 || b.task.completed) && (
+                                                                    <div style={{ position:'absolute',bottom:0,left:0,height:'3px',width:`${b.task.completed ? 100 : (b.task.progress||0)}%`,background:b.task.completed?'#10b981':'rgba(255,255,255,0.7)',borderRadius:'0 0 0 inherit',pointerEvents:'none',zIndex:4,transition:'width 0.3s' }} />
+                                                                )}
+                                                                <div className="resize-handle resize-handle-left" style={{ position:'absolute',left:0,top:0,bottom:0,width:'7px',cursor:'col-resize',zIndex:4 }} />
+                                                                {b.si===0&&!isNarrow&&(
+                                                                    <div style={{ display:'flex',flexDirection:'column',overflow:'hidden',pointerEvents:'none',flex:1,paddingRight:'8px' }}>
+                                                                        <span style={{ fontSize:'0.65rem',fontWeight:700,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'1.2' }}>{b.task.name}</span>
+                                                                        <span style={{ fontSize:'0.55rem',fontWeight:500,color:'rgba(255,255,255,0.75)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:'1.2' }}>{b.proj.name}</span>
+                                                                    </div>
+                                                                )}
+                                                                {b.si===0&&!isNarrow&&(b.task.progress>0||b.task.completed)&&(
+                                                                    <span style={{ fontSize:'0.5rem',fontWeight:700,color:'rgba(255,255,255,0.9)',pointerEvents:'none',flexShrink:0,marginRight:'4px' }}>
+                                                                        {b.task.completed ? '✓' : `${b.task.progress}%`}
+                                                                    </span>
+                                                                )}
+                                                                {b.si===b.total-1&&(b.task.notes||[]).length>0&&(
+                                                                    <div style={{ position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',pointerEvents:'none',display:'flex',alignItems:'center',gap:'2px',zIndex:3 }}>
+                                                                        <i className="fa-solid fa-note-sticky" style={{ fontSize:'0.58rem',color:'rgba(255,255,255,0.9)',filter:'drop-shadow(0 1px 1px rgba(0,0,0,0.3))' }}/>
+                                                                        <span style={{ fontSize:'0.52rem',fontWeight:700,color:'rgba(255,255,255,0.9)',lineHeight:1 }}>{(b.task.notes||[]).length}</span>
+                                                                    </div>
+                                                                )}
+                                                                {b.si===b.total-1&&<div className="resize-handle resize-handle-right" style={{ position:'absolute',right:0,top:0,bottom:0,width:'7px',cursor:'col-resize',zIndex:4 }} />}
+                                                            </div>
+                                                        );
                                                     })}
                                                     {bars.length===0&&absBars.length===0&&(<div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none' }}><span style={{ fontSize:'0.6rem',color:'#d1d5db',fontStyle:'italic' }}>Klik hier voor afwezigheid</span></div>)}
                                                 </div>
@@ -4014,8 +4712,71 @@ export default function ProjectenPage() {
                                 );
                             })}
 
+                            {/* Niet-toegewezen rij */}
+                            {(() => {
+                                const datedUnassigned = unassignedTasks.filter(({task}) => task.startDate && task.endDate);
+                                if (!datedUnassigned.length) return null;
+                                const uBars = [];
+                                datedUnassigned.forEach(({proj, task}) => {
+                                    try {
+                                        const s = parseDate(task.startDate), e = parseDate(task.endDate);
+                                        if (s > tEnd || e < tStart) return;
+                                        const segs = getWorkdaySegments(s, e, tStart, tEnd, totalDays);
+                                        segs.forEach((seg, si) => uBars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length }));
+                                    } catch {}
+                                });
+                                return (
+                                    <div style={{ display:'flex',borderTop:'2px dashed #e2e8f0',background:'#fffbf5' }}>
+                                        <div className="gantt-row-label" style={{ flexDirection:'column',alignItems:'flex-start',padding:'6px 10px',gap:'2px',minWidth:'180px',maxWidth:'180px',background:'#fffbf5' }}>
+                                            <div style={{ display:'flex',alignItems:'center',gap:'8px',width:'100%' }}>
+                                                <div style={{ width:'30px',height:'30px',borderRadius:'50%',background:'#f1f5f9',border:'2px dashed #cbd5e1',color:'#94a3b8',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.7rem',fontWeight:700,flexShrink:0 }}>?</div>
+                                                <div style={{ flex:1,minWidth:0 }}>
+                                                    <div style={{ fontWeight:700,fontSize:'0.75rem',color:'#64748b' }}>Niet toegewezen</div>
+                                                    <div style={{ fontSize:'0.58rem',color:'#F5850A',fontWeight:600 }}>{datedUnassigned.length} taak{datedUnassigned.length!==1?'en':''}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{ flex:1,position:'relative',minHeight:'48px' }}>
+                                            {timelineDates.map((d,i) => (
+                                                <div key={i} className={`gantt-cell ${isWeekend(d)?'weekend':''} ${formatDate(d)===formatDate(today)?'today':''}`} />
+                                            ))}
+                                            {uBars.map((b, bi) => {
+                                                const barW = Math.max(b.width * zoomLevel / 100 * timelineDates.length, zoomLevel * 0.9);
+                                                const borderR = b.si===0&&b.total===1?'6px':b.si===0?'6px 0 0 6px':b.si===b.total-1?'0 6px 6px 0':'0';
+                                                const isNarrow = barW < 80;
+                                                return (
+                                                    <div key={bi}
+                                                        onClick={() => openPersoneelTask(b.proj, b.task)}
+                                                        onMouseEnter={e=>{
+                                                            const tt=document.createElement('div');
+                                                            tt.id=`tt-ua-${bi}`;
+                                                            tt.style.cssText='position:fixed;background:#1e293b;color:#fff;padding:6px 12px;border-radius:8px;font-size:0.72rem;font-weight:700;z-index:100002;pointer-events:none;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,0.22);';
+                                                            tt.innerHTML=`<div>${b.task.name}</div><div style="font-size:0.62rem;opacity:0.7;font-weight:400;margin-top:2px">${b.proj.name} · Nog niet toegewezen</div>`;
+                                                            document.body.appendChild(tt);
+                                                            const r=e.currentTarget.getBoundingClientRect();
+                                                            tt.style.left=Math.min(r.left,window.innerWidth-tt.offsetWidth-8)+'px';
+                                                            tt.style.top=(r.top-tt.offsetHeight-6)+'px';
+                                                        }}
+                                                        onMouseLeave={()=>{ const tt=document.getElementById(`tt-ua-${bi}`); if(tt)tt.remove(); }}
+                                                        style={{ position:'absolute',left:`${b.left * zoomLevel / 100 * timelineDates.length}px`,width:`${barW}px`,top:'8px',height:'32px',
+                                                            background:`repeating-linear-gradient(45deg,${b.proj.color}22,${b.proj.color}22 4px,${b.proj.color}55 4px,${b.proj.color}55 8px)`,
+                                                            border:`2px dashed ${b.proj.color}`,borderRadius:borderR,display:'flex',alignItems:'center',
+                                                            paddingLeft:b.si===0&&!isNarrow?'10px':'2px',overflow:'hidden',cursor:'pointer',zIndex:2 }}>
+                                                        {b.si===0&&!isNarrow&&(
+                                                            <span style={{ fontSize:'0.62rem',fontWeight:700,color:b.proj.color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',pointerEvents:'none' }}>
+                                                                <i className="fa-solid fa-user-plus" style={{ marginRight:'4px',fontSize:'0.55rem' }}/>{b.task.name}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
                             <div style={{ display:'flex',borderTop:'2px solid #e2e8f0',background:'#f8fafc' }}>
-                                <div className="gantt-header-label" style={{ fontSize:'0.62rem',fontWeight:700,color:'#64748b',display:'flex',alignItems:'center',gap:'5px' }}><i className="fa-solid fa-chart-column" style={{ color:'#F5850A' }}></i> Bezetting</div>
+                                <div className="gantt-header-label" style={{ fontSize:'0.62rem',fontWeight:700,color:'#64748b',display:'flex',alignItems:'center',gap:'5px',minWidth:'180px',maxWidth:'180px' }}><i className="fa-solid fa-chart-column" style={{ color:'#F5850A' }}></i> Bezetting</div>
                                 <div style={{ flex:1,display:'flex',height:'36px',alignItems:'flex-end' }}>
                                     {dailyCounts.map((count,i)=>{
                                         const d = timelineDates[i];
@@ -4032,6 +4793,420 @@ export default function ProjectenPage() {
                                 </div>
                             </div>
                         </div>
+                        {/* einde gantt-wrapper */}
+                        </div>
+                        {/* einde flex layout wachtrij + gantt */}
+
+                        {/* === Vast detailpaneel: taak bewerken === */}
+                        {personeelTask && (() => {
+                            const ptProj = projects.find(p => p.id === personeelTask.projId);
+                            const ptTask = ptProj?.tasks.find(t => t.id === personeelTask.taskId);
+                            if (!ptProj || !ptTask) return null;
+                            return (
+                                <div style={{ position:'fixed',right:0,top:'64px',width:'360px',height:'calc(100vh - 64px)',overflowY:'auto',zIndex:200,background:'#fff',borderLeft:'2px solid #e2e8f0',boxShadow:'-4px 0 18px rgba(0,0,0,0.10)',padding:'20px 16px',boxSizing:'border-box' }}>
+                                    {/* Header */}
+                                    <div style={{ display:'flex',alignItems:'center',gap:'8px',marginBottom:'16px' }}>
+                                        <div style={{ width:'4px',height:'36px',borderRadius:'3px',background:ptProj.color,flexShrink:0 }}></div>
+                                        <div style={{ flex:1,minWidth:0 }}>
+                                            <div style={{ fontSize:'0.72rem',color:'#94a3b8',fontWeight:600 }}>{ptProj.name}</div>
+                                            <div style={{ fontSize:'0.9rem',fontWeight:700,color:'#1e293b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{ptTask.name}</div>
+                                        </div>
+                                        <button onClick={()=>setPersoneelTask(null)} style={{ background:'none',border:'none',cursor:'pointer',color:'#94a3b8',fontSize:'1.1rem',padding:'4px',flexShrink:0 }}>
+                                            <i className="fa-solid fa-xmark"></i>
+                                        </button>
+                                    </div>
+
+                                    {/* Taaknaam */}
+                                    <div style={{ marginBottom:'14px' }}>
+                                        <label style={{ display:'block',fontSize:'0.72rem',fontWeight:700,color:'#64748b',marginBottom:'4px' }}>Taaknaam</label>
+                                        <input type="text" value={personeelTaskForm.name}
+                                            onChange={e=>setPersoneelTaskForm(f=>({...f,name:e.target.value}))}
+                                            style={{ width:'100%',border:'1.5px solid #e2e8f0',borderRadius:'8px',padding:'7px 10px',fontSize:'0.82rem',boxSizing:'border-box',outline:'none',fontWeight:600 }} />
+                                    </div>
+
+                                    <div style={{ borderTop:'2px solid #e2e8f0',marginBottom:'14px',marginLeft:'-16px',marginRight:'-16px' }}/>
+
+                                    {/* Datums + werkdagen */}
+                                    {(() => {
+                                        // Tel werkdagen tussen twee datums
+                                        const countWorkdays = (start, end) => {
+                                            if (!start || !end) return 0;
+                                            try {
+                                                const s = parseDate(start), e = parseDate(end);
+                                                if (s > e) return 0;
+                                                let n = 0; const c = new Date(s);
+                                                while (c <= e) { const d=c.getDay(); if(d!==0&&d!==6&&!isHoliday(c)) n++; c.setDate(c.getDate()+1); }
+                                                return n;
+                                            } catch { return 0; }
+                                        };
+                                        // Bereken einddatum gegeven startdatum + N werkdagen
+                                        const endAfterWorkdays = (start, n) => {
+                                            if (!start || n < 1) return start;
+                                            try {
+                                                const d = parseDate(start); let count = 0;
+                                                // startdag telt mee als werkdag 1
+                                                const sd = d.getDay();
+                                                if (sd !== 0 && sd !== 6 && !isHoliday(d)) count = 1;
+                                                while (count < n) {
+                                                    d.setDate(d.getDate()+1);
+                                                    const dow = d.getDay();
+                                                    if (dow!==0 && dow!==6 && !isHoliday(d)) count++;
+                                                }
+                                                return d.toISOString().split('T')[0];
+                                            } catch { return start; }
+                                        };
+                                        const wdays = countWorkdays(personeelTaskForm.startDate, personeelTaskForm.endDate);
+                                        return (
+                                            <>
+                                                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'4px' }}>
+                                                    <div>
+                                                        <label style={{ display:'block',fontSize:'0.72rem',fontWeight:700,color:'#64748b',marginBottom:'4px' }}>Startdatum</label>
+                                                        <input type="date" value={personeelTaskForm.startDate}
+                                                            onChange={e => {
+                                                                const newStart = e.target.value;
+                                                                const newEnd = wdays > 0 ? endAfterWorkdays(newStart, wdays) : personeelTaskForm.endDate;
+                                                                setPersoneelTaskForm(f=>({...f, startDate:newStart, endDate:newEnd}));
+                                                            }}
+                                                            style={{ width:'100%',border:'1.5px solid #e2e8f0',borderRadius:'8px',padding:'6px 8px',fontSize:'0.75rem',boxSizing:'border-box',outline:'none' }} />
+                                                    </div>
+                                                    <div>
+                                                        <label style={{ display:'block',fontSize:'0.72rem',fontWeight:700,color:'#64748b',marginBottom:'4px' }}>Einddatum</label>
+                                                        <input type="date" value={personeelTaskForm.endDate}
+                                                            onChange={e=>setPersoneelTaskForm(f=>({...f,endDate:e.target.value}))}
+                                                            style={{ width:'100%',border:'1.5px solid #e2e8f0',borderRadius:'8px',padding:'6px 8px',fontSize:'0.75rem',boxSizing:'border-box',outline:'none' }} />
+                                                    </div>
+                                                </div>
+                                                {personeelTaskForm.startDate && personeelTaskForm.endDate && wdays > 0 && (
+                                                    <div style={{ display:'flex',alignItems:'center',gap:'6px',marginBottom:'12px',padding:'5px 8px',background:'#f0f9ff',borderRadius:'7px',border:'1px solid #bae6fd' }}>
+                                                        <i className="fa-solid fa-briefcase" style={{ fontSize:'0.65rem',color:'#0284c7' }}/>
+                                                        <span style={{ fontSize:'0.7rem',color:'#0284c7',fontWeight:600 }}>Werkdagen:</span>
+                                                        <input type="number" min={1} max={500} value={wdays}
+                                                            onChange={e => {
+                                                                const n = Math.max(1, Number(e.target.value));
+                                                                const newEnd = endAfterWorkdays(personeelTaskForm.startDate, n);
+                                                                setPersoneelTaskForm(f=>({...f, endDate:newEnd}));
+                                                            }}
+                                                            style={{ width:'52px',border:'1.5px solid #bae6fd',borderRadius:'6px',padding:'2px 6px',fontSize:'0.75rem',fontWeight:700,color:'#0284c7',background:'transparent',outline:'none',textAlign:'center' }} />
+                                                        <span style={{ fontSize:'0.65rem',color:'#64748b' }}>dagen</span>
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
+
+                                    <div style={{ borderTop:'2px solid #e2e8f0',marginBottom:'14px',marginLeft:'-16px',marginRight:'-16px' }}/>
+
+                                    {/* Voortgang */}
+                                    <div style={{ marginBottom:'14px' }}>
+                                        <label style={{ display:'block',fontSize:'0.72rem',fontWeight:700,color:'#64748b',marginBottom:'4px' }}>Voortgang — {personeelTaskForm.progress}%</label>
+                                        <input type="range" min={0} max={100} value={personeelTaskForm.progress}
+                                            onChange={e=>setPersoneelTaskForm(f=>({...f,progress:Number(e.target.value)}))}
+                                            style={{ width:'100%',accentColor:ptProj.color }} />
+                                        <div style={{ display:'flex',justifyContent:'space-between',fontSize:'0.62rem',color:'#94a3b8' }}><span>0%</span><span>100%</span></div>
+                                    </div>
+
+                                    <div style={{ borderTop:'2px solid #e2e8f0',marginBottom:'14px',marginLeft:'-16px',marginRight:'-16px' }}/>
+
+                                    {/* Medewerkers */}
+                                    <div style={{ marginBottom:'14px' }}>
+                                        <label style={{ display:'block',fontSize:'0.72rem',fontWeight:700,color:'#64748b',marginBottom:'6px' }}>Medewerkers</label>
+                                        <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px' }}>
+                                            {workers.map(w => {
+                                                const assigned = (ptTask.assignedTo||[]).includes(w.id);
+                                                const multiWorker = (ptTask.assignedTo||[]).length > 1;
+                                                const hasWD = assigned && !!((ptTask.workerDates||{})[w.id]);
+                                                return (
+                                                    <div key={w.id} style={{ display:'flex',alignItems:'center',gap:'4px',padding:'3px 6px',borderRadius:'6px',background:assigned?`${ptProj.color}15`:'transparent',border:`1px solid ${assigned?ptProj.color:'#e2e8f0'}`,transition:'all 0.1s' }}>
+                                                        <label style={{ display:'flex',alignItems:'center',gap:'5px',fontSize:'0.72rem',cursor:'pointer',flex:1,minWidth:0 }}>
+                                                            <input type="checkbox" checked={assigned}
+                                                                onChange={()=>{
+                                                                    setProjects(prev => prev.map(pr => pr.id !== ptProj.id ? pr : { ...pr,
+                                                                        tasks: pr.tasks.map(t => t.id !== ptTask.id ? t : {
+                                                                            ...t, assignedTo: assigned
+                                                                                ? (t.assignedTo||[]).filter(id=>id!==w.id)
+                                                                                : [...new Set([...(t.assignedTo||[]),w.id])],
+                                                                            workerDates: assigned
+                                                                                ? Object.fromEntries(Object.entries(t.workerDates||{}).filter(([k])=>String(k)!==String(w.id)))
+                                                                                : t.workerDates
+                                                                        })
+                                                                    }));
+                                                                }}
+                                                                style={{ accentColor:ptProj.color,flexShrink:0 }} />
+                                                            <span style={{ fontWeight:assigned?700:400,color:assigned?ptProj.color:'#334155',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{w.name}</span>
+                                                        </label>
+                                                        {assigned && multiWorker && (
+                                                            <button
+                                                                onClick={()=>{
+                                                                    setProjects(prev => prev.map(pr => pr.id !== ptProj.id ? pr : { ...pr,
+                                                                        tasks: pr.tasks.map(t => t.id !== ptTask.id ? t : {
+                                                                            ...t,
+                                                                            workerDates: hasWD
+                                                                                ? Object.fromEntries(Object.entries(t.workerDates||{}).filter(([k])=>String(k)!==String(w.id)))
+                                                                                : { ...(t.workerDates||{}), [w.id]: { startDate: t.startDate, endDate: t.endDate } }
+                                                                        })
+                                                                    }));
+                                                                }}
+                                                                title={hasWD ? 'Terug naar gedeelde planning' : 'Individueel inplannen (eigen datums)'}
+                                                                style={{ fontSize:'0.58rem',padding:'2px 4px',borderRadius:'4px',border:'none',cursor:'pointer',background:hasWD?'#fff7ed':'#f1f5f9',color:hasWD?'#F5850A':'#94a3b8',fontWeight:700,flexShrink:0,transition:'all 0.15s' }}>
+                                                                <i className={`fa-solid ${hasWD?'fa-scissors':'fa-link'}`}/>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div style={{ borderTop:'2px solid #e2e8f0',marginBottom:'14px',marginLeft:'-16px',marginRight:'-16px' }}/>
+
+                                    {/* Notities / Koppelen / Bijlagen tabs */}
+                                    <div style={{ marginBottom:'16px' }}>
+                                        {/* Tab knoppen */}
+                                        <div style={{ display:'flex',background:'#f1f5f9',borderRadius:'8px',padding:'3px',gap:'3px',marginBottom:'10px' }}>
+                                            {[['notitie','fa-plus','+ Notitie'],['koppelen','fa-link','Koppelen'],['bijlagen','fa-paperclip','Bijlagen']].map(([v,icon,lbl])=>(
+                                                <button key={v} onClick={()=>{
+                                                    setPersoneelPanelTab(v);
+                                                    if(v==='koppelen') setProjectNotesCache(prev=>({...prev,[ptProj.id]:undefined}));
+                                                }} style={{ flex:1,padding:'5px 4px',borderRadius:'6px',border:'none',background:personeelPanelTab===v?'#fff':'transparent',color:personeelPanelTab===v?'#1e293b':'#94a3b8',fontWeight:personeelPanelTab===v?700:500,fontSize:'0.7rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'4px',boxShadow:personeelPanelTab===v?'0 1px 3px rgba(0,0,0,0.08)':'none',transition:'all 0.15s' }}>
+                                                    <i className={`fa-solid ${icon}`} style={{fontSize:'0.58rem'}}/>{lbl}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {/* Chat-stijl notities */}
+                                        {personeelPanelTab==='notitie' && (()=>{
+                                            const taskNotes = (ptTask.notes||[]);
+                                            const NOTE_TYPES = [
+                                                {id:'info',     label:'Info',     color:'#3b82f6', bg:'#eff6ff', icon:'fa-circle-info'},
+                                                {id:'actie',    label:'Actie',    color:'#f59e0b', bg:'#fffbeb', icon:'fa-bolt'},
+                                                {id:'probleem', label:'Probleem', color:'#ef4444', bg:'#fef2f2', icon:'fa-triangle-exclamation'},
+                                                {id:'klant',    label:'Klant',    color:'#10b981', bg:'#f0fdf4', icon:'fa-user'},
+                                                {id:'planning', label:'Planning', color:'#8b5cf6', bg:'#faf5ff', icon:'fa-calendar'},
+                                            ];
+                                            const noteType = personeelNoteType;
+                                            const setNoteType = setPersoneelNoteType;
+                                            const getNoteType = (t) => NOTE_TYPES.find(x=>x.id===t) || NOTE_TYPES[0];
+                                            const isMine = (n) => !n.author || n.author === user?.name;
+                                            const addPanelNote = () => {
+                                                const txt = personeelNoteInput.trim();
+                                                if (!txt) return;
+                                                const newNote = { id:Date.now(), text:txt, type:noteType, author:user?.name||'Onbekend', date:new Date().toLocaleString('nl-NL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) };
+                                                setProjects(prev=>prev.map(pr=>pr.id!==ptProj.id?pr:{...pr,tasks:pr.tasks.map(tk=>tk.id!==ptTask.id?tk:{...tk,notes:[...(tk.notes||[]),newNote]})}));
+                                                setPersoneelNoteInput('');
+                                            };
+                                            const deletePanelNote = (nid) => {
+                                                setProjects(prev=>prev.map(pr=>pr.id!==ptProj.id?pr:{...pr,tasks:pr.tasks.map(tk=>tk.id!==ptTask.id?tk:{...tk,notes:(tk.notes||[]).filter(n=>n.id!==nid)})}));
+                                            };
+                                            const nt = getNoteType(noteType);
+                                            return (
+                                                <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+                                                    {/* Chatberichten container */}
+                                                    <div style={{border:'1.5px solid #e2e8f0',borderRadius:'10px',background:'#f8fafc',overflow:'hidden'}}>
+                                                        <div style={{padding:'6px 10px',borderBottom:'1px solid #e2e8f0',background:'#f1f5f9',display:'flex',alignItems:'center',gap:'6px'}}>
+                                                            <i className="fa-regular fa-comments" style={{fontSize:'0.65rem',color:'#64748b'}}/>
+                                                            <span style={{fontSize:'0.68rem',fontWeight:700,color:'#64748b'}}>Notities</span>
+                                                            {taskNotes.length>0&&<span style={{marginLeft:'auto',fontSize:'0.6rem',background:'#e2e8f0',color:'#64748b',borderRadius:'10px',padding:'1px 7px',fontWeight:700}}>{taskNotes.length}</span>}
+                                                        </div>
+                                                        <div style={{overflowY:'auto',maxHeight:'280px',display:'flex',flexDirection:'column',gap:'6px',padding:'8px'}}>
+                                                            {taskNotes.length===0&&(
+                                                                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'6px',padding:'16px',color:'#94a3b8'}}>
+                                                                    <i className="fa-regular fa-comments" style={{fontSize:'1.6rem',opacity:0.2}}/>
+                                                                    <span style={{fontSize:'0.68rem',fontStyle:'italic'}}>Nog geen notities</span>
+                                                                </div>
+                                                            )}
+                                                            {taskNotes.map(n=>{
+                                                                const isObj = typeof n==='object';
+                                                                const txt = isObj?n.text:n;
+                                                                const auth = isObj?(n.author||''):'';
+                                                                const dt = isObj?(n.date||''):'';
+                                                                const nid = isObj?n.id:txt;
+                                                                const mine = isMine(n);
+                                                                const cfg = getNoteType(isObj?n.type:'info');
+                                                                return (
+                                                                    <div key={nid} style={{display:'flex',flexDirection:'column',alignItems:mine?'flex-end':'flex-start'}}>
+                                                                        {!mine&&<span style={{fontSize:'0.58rem',color:'#94a3b8',marginBottom:'2px',paddingLeft:'4px'}}>{auth}</span>}
+                                                                        <div style={{maxWidth:'85%',background:mine?cfg.color:cfg.bg,borderRadius:mine?'12px 12px 2px 12px':'12px 12px 12px 2px',padding:'7px 10px',boxShadow:'0 1px 3px rgba(0,0,0,0.08)'}}>
+                                                                            <div style={{display:'flex',alignItems:'flex-start',gap:'5px'}}>
+                                                                                <i className={`fa-solid ${cfg.icon}`} style={{fontSize:'0.55rem',color:mine?'rgba(255,255,255,0.8)':cfg.color,marginTop:'3px',flexShrink:0}}/>
+                                                                                <p style={{margin:0,fontSize:'0.76rem',color:mine?'#fff':cfg.color==='#3b82f6'?'#1e40af':cfg.color==='#f59e0b'?'#92400e':cfg.color==='#ef4444'?'#7f1d1d':cfg.color==='#10b981'?'#064e3b':'#4c1d95',lineHeight:1.5,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{txt}</p>
+                                                                            </div>
+                                                                            {dt&&<span style={{fontSize:'0.55rem',color:mine?'rgba(255,255,255,0.65)':'#94a3b8',display:'block',marginTop:'3px',textAlign:'right'}}>{dt}</span>}
+                                                                        </div>
+                                                                        {mine&&<button onClick={()=>deletePanelNote(nid)} style={{background:'none',border:'none',cursor:'pointer',color:'#cbd5e1',fontSize:'0.6rem',padding:'1px 3px',marginTop:'1px',transition:'color 0.15s'}}
+                                                                            onMouseEnter={e=>e.currentTarget.style.color='#ef4444'}
+                                                                            onMouseLeave={e=>e.currentTarget.style.color='#cbd5e1'}>
+                                                                            <i className="fa-solid fa-xmark"/>
+                                                                        </button>}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Nieuw bericht invoer */}
+                                                    <div style={{border:'1.5px solid #e2e8f0',borderRadius:'10px',background:'#fff',overflow:'hidden'}}>
+                                                        <div style={{padding:'6px 10px',borderBottom:'1px solid #e2e8f0',background:'#f8fafc',display:'flex',alignItems:'center',gap:'6px'}}>
+                                                            <span style={{fontSize:'0.65rem',fontWeight:700,color:'#64748b'}}>Type:</span>
+                                                            <div style={{display:'flex',gap:'3px',flexWrap:'wrap'}}>
+                                                                {NOTE_TYPES.map(t=>(
+                                                                    <button key={t.id} onClick={()=>setNoteType(t.id)}
+                                                                        style={{padding:'2px 7px',borderRadius:'10px',border:`1.5px solid ${t.color}`,background:noteType===t.id?t.color:t.bg,color:noteType===t.id?'#fff':t.color,fontWeight:700,fontSize:'0.58rem',cursor:'pointer',display:'flex',alignItems:'center',gap:'3px',transition:'all 0.12s'}}>
+                                                                        <i className={`fa-solid ${t.icon}`} style={{fontSize:'0.5rem'}}/>{t.label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div style={{display:'flex',gap:'0',alignItems:'stretch'}}>
+                                                            <textarea value={personeelNoteInput}
+                                                                onChange={e=>setPersoneelNoteInput(e.target.value)}
+                                                                onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();addPanelNote();} }}
+                                                                placeholder="Typ een notitie… (Enter = toevoegen)"
+                                                                rows={4}
+                                                                style={{flex:1,border:'none',borderRight:'1.5px solid #e2e8f0',padding:'10px 12px',fontSize:'0.8rem',boxSizing:'border-box',outline:'none',resize:'none',fontFamily:'inherit',background:'transparent'}}/>
+                                                            <button onClick={addPanelNote} disabled={!personeelNoteInput.trim()}
+                                                                style={{padding:'0 14px',border:'none',background:personeelNoteInput.trim()?nt.color:'#f1f5f9',color:personeelNoteInput.trim()?'#fff':'#94a3b8',fontWeight:700,fontSize:'0.9rem',cursor:personeelNoteInput.trim()?'pointer':'not-allowed',transition:'all 0.15s',flexShrink:0}}>
+                                                                <i className="fa-solid fa-paper-plane"/>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        {/* Koppelen tab */}
+                                        {personeelPanelTab==='koppelen'&&(()=>{
+                                            const projectNotes = projectNotesCache[ptProj.id]||[];
+                                            const taskNotes = ptTask.notes||[];
+                                            if(personeelPanelTab==='koppelen'&&!projectNotesCache[ptProj.id]&&!projectNotesLoading){
+                                                setProjectNotesLoading(true);
+                                                fetch(`/api/notes?projectId=${ptProj.id}`)
+                                                    .then(r=>r.json())
+                                                    .then(data=>{
+                                                        if(data.success){
+                                                            const mapped=(data.notes||[]).map(n=>({id:n.id,text:n.content||n.text||'',author:n.author||'Onbekend',type:n.type||'info',date:n.date?new Date(n.date).toLocaleDateString('nl-NL',{day:'2-digit',month:'short',year:'numeric'}):n.created_at?new Date(n.created_at).toLocaleDateString('nl-NL',{day:'2-digit',month:'short',year:'numeric'}):''}));
+                                                            setProjectNotesCache(prev=>({...prev,[ptProj.id]:mapped}));
+                                                        } else setProjectNotesCache(prev=>({...prev,[ptProj.id]:[]}));
+                                                    })
+                                                    .catch(()=>setProjectNotesCache(prev=>({...prev,[ptProj.id]:[]})))
+                                                    .finally(()=>setProjectNotesLoading(false));
+                                            }
+                                            const linkPanelNote=(pn)=>{
+                                                if(taskNotes.some(n=>n.linkedId===pn.id)) return;
+                                                const ref={id:Date.now(),linkedId:pn.id,text:pn.text,type:pn.type||'info',author:pn.author,date:pn.date,isLinked:true};
+                                                setProjects(prev=>prev.map(pr=>pr.id!==ptProj.id?pr:{...pr,tasks:pr.tasks.map(tk=>tk.id!==ptTask.id?tk:{...tk,notes:[...(tk.notes||[]),ref]})}));
+                                            };
+                                            return (
+                                                <div style={{display:'flex',flexDirection:'column',gap:'6px',maxHeight:'240px',overflowY:'auto'}}>
+                                                    {projectNotesLoading&&<div style={{display:'flex',alignItems:'center',gap:'8px',padding:'20px',color:'#94a3b8',justifyContent:'center'}}><i className="fa-solid fa-spinner fa-spin"/><span style={{fontSize:'0.72rem'}}>Laden...</span></div>}
+                                                    {!projectNotesLoading&&projectNotes.length===0&&<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'6px',padding:'20px',color:'#94a3b8'}}><i className="fa-solid fa-folder-open" style={{fontSize:'1.5rem',opacity:0.3}}/><span style={{fontSize:'0.72rem',fontStyle:'italic',textAlign:'center'}}>Geen projectnotities gevonden</span></div>}
+                                                    {projectNotes.map(pn=>{
+                                                        const isLinked=taskNotes.some(n=>n.linkedId===pn.id);
+                                                        return (
+                                                            <div key={pn.id} style={{background:isLinked?'#f0fdf4':'#f8fafc',border:`1px solid ${isLinked?'#bbf7d0':'#e2e8f0'}`,borderRadius:'8px',padding:'8px 10px',display:'flex',gap:'8px',alignItems:'flex-start'}}>
+                                                                <div style={{width:'7px',height:'7px',borderRadius:'50%',background:ptProj.color,flexShrink:0,marginTop:'4px'}}/>
+                                                                <div style={{flex:1,minWidth:0,overflow:'hidden'}}>
+                                                                    <p style={{margin:'0 0 3px',fontSize:'0.74rem',color:'#1e293b',lineHeight:1.4,wordBreak:'break-word'}}>{pn.text}</p>
+                                                                    <span style={{fontSize:'0.6rem',color:'#94a3b8'}}>{pn.author} · {pn.date}</span>
+                                                                </div>
+                                                                <button onClick={()=>!isLinked&&linkPanelNote(pn)}
+                                                                    style={{background:isLinked?'#dcfce7':ptProj.color,border:'none',borderRadius:'6px',padding:'3px 8px',cursor:isLinked?'default':'pointer',color:isLinked?'#16a34a':'#fff',fontSize:'0.62rem',fontWeight:700,flexShrink:0,display:'flex',alignItems:'center',gap:'3px'}}>
+                                                                    <i className={`fa-solid ${isLinked?'fa-check':'fa-link'}`}/>{isLinked?'':'Koppel'}
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        })()}
+
+                                        {/* Bijlagen tab */}
+                                        {personeelPanelTab==='bijlagen'&&(()=>{
+                                            const attachments = ptTask.attachments||[];
+                                            const handlePtUpload=(e)=>{
+                                                const files=Array.from(e.target.files||[]);
+                                                files.forEach(file=>{
+                                                    const reader=new FileReader();
+                                                    reader.onload=ev=>{
+                                                        const att={id:'a'+Date.now()+Math.random().toString(36).slice(2),name:file.name,type:file.type,size:file.size,data:ev.target.result};
+                                                        setProjects(prev=>prev.map(pr=>pr.id!==ptProj.id?pr:{...pr,tasks:pr.tasks.map(tk=>tk.id!==ptTask.id?tk:{...tk,attachments:[...(tk.attachments||[]),att]})}));
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                });
+                                                e.target.value='';
+                                            };
+                                            const removeAtt=(aid)=>{
+                                                setProjects(prev=>prev.map(pr=>pr.id!==ptProj.id?pr:{...pr,tasks:pr.tasks.map(tk=>tk.id!==ptTask.id?tk:{...tk,attachments:(tk.attachments||[]).filter(a=>a.id!==aid)})}));
+                                            };
+                                            const fmtSize=(b)=>b>1048576?`${(b/1048576).toFixed(1)} MB`:b>1024?`${(b/1024).toFixed(0)} KB`:`${b} B`;
+                                            return (
+                                                <div>
+                                                    <label style={{display:'flex',alignItems:'center',gap:'7px',padding:'8px 12px',border:'1.5px dashed #e2e8f0',borderRadius:'8px',cursor:'pointer',color:'#64748b',fontSize:'0.78rem',fontWeight:600,marginBottom:'8px',transition:'border-color 0.15s'}}
+                                                        onMouseEnter={e=>e.currentTarget.style.borderColor=ptProj.color}
+                                                        onMouseLeave={e=>e.currentTarget.style.borderColor='#e2e8f0'}>
+                                                        <i className="fa-solid fa-cloud-arrow-up" style={{color:ptProj.color,fontSize:'1rem'}}/>
+                                                        Bestand uploaden
+                                                        <input type="file" multiple style={{display:'none'}} onChange={handlePtUpload}/>
+                                                    </label>
+                                                    {attachments.length===0&&<div style={{textAlign:'center',color:'#94a3b8',fontSize:'0.72rem',padding:'10px',fontStyle:'italic'}}>Geen bijlagen</div>}
+                                                    <div style={{display:'flex',flexDirection:'column',gap:'5px',maxHeight:'220px',overflowY:'auto'}}>
+                                                        {attachments.map(att=>{
+                                                            const isImg=att.type?.startsWith('image/');
+                                                            const src=att.url||att.data;
+                                                            return (
+                                                                <div key={att.id} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 8px',border:'1px solid #e2e8f0',borderRadius:'7px',background:'#f8fafc'}}>
+                                                                    {isImg&&src?<img src={src} alt={att.name} style={{width:'32px',height:'32px',objectFit:'cover',borderRadius:'4px',flexShrink:0}}/>:<div style={{width:'32px',height:'32px',display:'flex',alignItems:'center',justifyContent:'center',background:'#e2e8f0',borderRadius:'4px',flexShrink:0}}><i className="fa-solid fa-file" style={{color:'#64748b',fontSize:'0.9rem'}}/></div>}
+                                                                    <div style={{flex:1,minWidth:0}}>
+                                                                        <div style={{fontSize:'0.74rem',fontWeight:600,color:'#1e293b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{att.name}</div>
+                                                                        <div style={{fontSize:'0.6rem',color:'#94a3b8'}}>{fmtSize(att.size)}</div>
+                                                                    </div>
+                                                                    {src&&<a href={src} download={att.name} style={{color:'#64748b',fontSize:'0.7rem',padding:'2px 4px'}} title="Downloaden"><i className="fa-solid fa-download"/></a>}
+                                                                    <button onClick={()=>removeAtt(att.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#cbd5e1',fontSize:'0.7rem',padding:'2px',transition:'color 0.15s'}}
+                                                                        onMouseEnter={e=>e.currentTarget.style.color='#ef4444'}
+                                                                        onMouseLeave={e=>e.currentTarget.style.color='#cbd5e1'}>
+                                                                        <i className="fa-solid fa-xmark"/>
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+
+                                    {/* Opslaan */}
+                                    <button onClick={savePersoneelTask}
+                                        style={{ width:'100%',padding:'10px',border:'none',borderRadius:'10px',background:ptProj.color,color:'#fff',fontWeight:700,fontSize:'0.85rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'7px' }}>
+                                        <i className="fa-solid fa-check"></i> Opslaan
+                                    </button>
+
+                                    {/* Terug naar wachtrij */}
+                                    <button onClick={() => {
+                                        setProjects(prev => prev.map(pr => pr.id !== personeelTask.projId ? pr : { ...pr,
+                                            tasks: pr.tasks.map(t => t.id !== personeelTask.taskId ? t : {
+                                                ...t, assignedTo: [], workerDates: {}
+                                            })
+                                        }));
+                                        setPersoneelTask(null);
+                                    }}
+                                        style={{ width:'100%',padding:'8px',border:'1.5px solid #e2e8f0',borderRadius:'10px',background:'#f8fafc',color:'#64748b',fontWeight:600,fontSize:'0.78rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'7px' }}>
+                                        <i className="fa-solid fa-rotate-left"></i> Zet terug naar in te plannen
+                                    </button>
+
+                                    {/* Taak verwijderen */}
+                                    <button onClick={() => {
+                                        if (!window.confirm(`Taak "${ptTask.name}" definitief verwijderen?`)) return;
+                                        setProjects(prev => prev.map(pr => pr.id !== personeelTask.projId ? pr : { ...pr,
+                                            tasks: pr.tasks.filter(t => t.id !== personeelTask.taskId)
+                                        }));
+                                        setPersoneelTask(null);
+                                    }}
+                                        style={{ width:'100%',padding:'8px',border:'1.5px solid #fee2e2',borderRadius:'10px',background:'#fff5f5',color:'#ef4444',fontWeight:600,fontSize:'0.78rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'7px' }}>
+                                        <i className="fa-solid fa-trash"></i> Taak verwijderen
+                                    </button>
+                                </div>
+                            );
+                        })()}
 
                         <div style={{ marginTop:'12px',display:'flex',gap:'12px',fontSize:'0.72rem',color:'#64748b',flexWrap:'wrap',alignItems:'center' }}>
                             <span style={{ fontWeight:700,color:'#334155' }}>Projecten:</span>
@@ -4808,6 +5983,174 @@ export default function ProjectenPage() {
             </div>
         )}
 
+            {/* ===== TAB 5: MIJN TAKEN ===== */}
+            {tab === 'mijntaken' && (() => {
+                const myId = user?.id;
+                const todayD = new Date(); todayD.setHours(0,0,0,0);
+
+                // Maandag van de huidige week
+                const getMondayOf = (d) => { const r = new Date(d); const dow = r.getDay(); const diff = dow === 0 ? -6 : 1 - dow; r.setDate(r.getDate() + diff); r.setHours(0,0,0,0); return r; };
+                const weekOffset = mijntakenWeekOffset;
+                const setWeekOffset = setMijntakenWeekOffset;
+                const monday = new Date(getMondayOf(todayD)); monday.setDate(monday.getDate() + weekOffset * 7);
+                const weekDays = [0,1,2,3,4].map(i => { const d = new Date(monday); d.setDate(d.getDate() + i); return d; });
+
+                const fmtDate = d => { const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${dd}`; };
+                const fmtD = s => s ? s.split('-').reverse().join('-') : '—';
+                const DAY_NL = ['zo','ma','di','wo','do','vr','za'];
+                const MONTH_NL_SHORT = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+
+                // Verzamel alle eigen taken
+                const myTasks = [];
+                projects.forEach(proj => {
+                    (proj.tasks || []).forEach(task => {
+                        const inAssigned = (task.assignedTo || []).includes(myId);
+                        const inByDay = !inAssigned && Object.values(task.assignedByDay || {}).some(ids => ids.includes(myId));
+                        if (!inAssigned && !inByDay) return;
+                        myTasks.push({ proj, task });
+                    });
+                });
+
+                // Taken die actief zijn op een bepaalde dag (startDate <= dag <= endDate)
+                const tasksOnDay = (day) => {
+                    const ds = fmtDate(day);
+                    return myTasks.filter(({ task }) => {
+                        if (!task.startDate || !task.endDate) return false;
+                        const workerDates = (task.workerDates || {})[myId];
+                        const s = workerDates?.startDate || task.startDate;
+                        const e = workerDates?.endDate || task.endDate;
+                        return ds >= s && ds <= e;
+                    });
+                };
+
+                // Toggle taak afgerond
+                const toggleDone = (proj, task) => setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, completed: !t.completed })
+                }));
+
+                // Voortgang aanpassen
+                const setProgress = (proj, task, val) => setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
+                    ...pr, tasks: pr.tasks.map(t => t.id !== task.id ? t : { ...t, progress: val })
+                }));
+
+                const isToday = d => fmtDate(d) === fmtDate(todayD);
+
+                const totalTasks = myTasks.length;
+                const doneTasks = myTasks.filter(({task}) => task.completed).length;
+                const overdueTasks = myTasks.filter(({task}) => task.endDate && !task.completed && task.endDate < fmtDate(todayD)).length;
+
+                // Actieve notitiepaneel state (taskId)
+                const openNotes = mijntakenOpenNotes;
+                const setOpenNotes = setMijntakenOpenNotes;
+
+                const NOTE_COLORS = { info:'#3b82f6', aandacht:'#f59e0b', probleem:'#ef4444', klant:'#10b981', planning:'#8b5cf6' };
+                const NOTE_ICONS  = { info:'fa-info-circle', aandacht:'fa-exclamation-triangle', probleem:'fa-triangle-exclamation', klant:'fa-user', planning:'fa-calendar' };
+
+                return (
+                    <div style={{ padding: '0 0 40px' }}>
+                        {/* Stats balk */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
+                            {[
+                                { label: 'Totaal taken', value: totalTasks, color: '#3b82f6', icon: 'fa-list-check' },
+                                { label: 'Afgerond', value: doneTasks, color: '#10b981', icon: 'fa-circle-check' },
+                                { label: 'Te laat', value: overdueTasks, color: '#ef4444', icon: 'fa-triangle-exclamation' },
+                            ].map((s, i) => (
+                                <div key={i} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: s.color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <i className={`fa-solid ${s.icon}`} style={{ color: s.color, fontSize: '1rem' }} />
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e293b', lineHeight: 1 }}>{s.value}</div>
+                                        <div style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 600, marginTop: '2px' }}>{s.label}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Week navigatie */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                            <button onClick={() => setWeekOffset(w => w - 1)} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '5px 12px', background: '#fff', cursor: 'pointer', color: '#64748b', fontWeight: 700 }}>‹</button>
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b', flex: 1, textAlign: 'center' }}>
+                                {weekOffset === 0 ? 'Deze week' : weekOffset === 1 ? 'Volgende week' : weekOffset === -1 ? 'Vorige week' : `Week van ${monday.getDate()} ${MONTH_NL_SHORT[monday.getMonth()]}`}
+                                <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: '0.78rem', marginLeft: '8px' }}>
+                                    {monday.getDate()} {MONTH_NL_SHORT[monday.getMonth()]} – {weekDays[4].getDate()} {MONTH_NL_SHORT[weekDays[4].getMonth()]}
+                                </span>
+                            </div>
+                            <button onClick={() => setWeekOffset(w => w + 1)} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '5px 12px', background: '#fff', cursor: 'pointer', color: '#64748b', fontWeight: 700 }}>›</button>
+                            {weekOffset !== 0 && <button onClick={() => setWeekOffset(0)} style={{ border: '1px solid #F5850A', borderRadius: '8px', padding: '5px 12px', background: '#fff7ed', cursor: 'pointer', color: '#F5850A', fontWeight: 700, fontSize: '0.72rem' }}>Vandaag</button>}
+                        </div>
+
+                        {/* Weekkalender: 5 kolommen ma-vr */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
+                            {weekDays.map((day, di) => {
+                                const dayTasks = tasksOnDay(day);
+                                const today = isToday(day);
+                                const isPast = day < todayD && !today;
+                                return (
+                                    <div key={di} style={{ background: today ? '#fffbf5' : '#fff', border: `1.5px solid ${today ? '#F5850A' : '#e2e8f0'}`, borderRadius: '12px', overflow: 'hidden', minHeight: '120px' }}>
+                                        {/* Dag header */}
+                                        <div style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', background: today ? '#F5850A' : isPast ? '#f8fafc' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <span style={{ fontWeight: 700, fontSize: '0.8rem', color: today ? '#fff' : isPast ? '#94a3b8' : '#1e293b', textTransform: 'capitalize' }}>{DAY_NL[day.getDay()]}</span>
+                                            <span style={{ fontWeight: today ? 800 : 600, fontSize: '0.95rem', color: today ? '#fff' : isPast ? '#94a3b8' : '#334155' }}>{day.getDate()}</span>
+                                        </div>
+                                        {/* Taken op deze dag */}
+                                        <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            {dayTasks.length === 0 && (
+                                                <div style={{ padding: '10px 0', textAlign: 'center', color: '#cbd5e1', fontSize: '0.68rem', fontStyle: 'italic' }}>Vrij</div>
+                                            )}
+                                            {dayTasks.map(({ proj, task }) => {
+                                                const notesOpen = openNotes === task.id;
+                                                const taskNotes = (task.notes || []).filter(n => typeof n === 'object');
+                                                return (
+                                                    <div key={task.id} style={{ borderRadius: '8px', border: `1.5px solid ${proj.color}33`, background: task.completed ? '#f8fafc' : proj.color + '10', overflow: 'hidden' }}>
+                                                        {/* Taak rij */}
+                                                        <div style={{ padding: '6px 8px', display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                                            <input type="checkbox" checked={!!task.completed}
+                                                                onChange={() => toggleDone(proj, task)}
+                                                                style={{ accentColor: proj.color, width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0, marginTop: '2px' }} />
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: task.completed ? '#94a3b8' : '#1e293b', textDecoration: task.completed ? 'line-through' : 'none', lineHeight: 1.3 }}>{task.name}</div>
+                                                                <div style={{ fontSize: '0.6rem', color: proj.color, fontWeight: 600, marginTop: '1px' }}>{proj.name}</div>
+                                                                {/* Voortgang slider */}
+                                                                <div style={{ marginTop: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                    <input type="range" min={0} max={100} value={task.progress || 0}
+                                                                        onChange={e => setProgress(proj, task, Number(e.target.value))}
+                                                                        style={{ flex: 1, accentColor: proj.color, height: '3px', cursor: 'pointer' }} />
+                                                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, color: proj.color, minWidth: '26px', textAlign: 'right' }}>{task.progress || 0}%</span>
+                                                                </div>
+                                                            </div>
+                                                            </div>
+                                                        {/* Notities altijd zichtbaar */}
+                                                        {taskNotes.length > 0 && (
+                                                            <div style={{ borderTop: `1px solid ${proj.color}33`, padding: '6px 8px', background: '#fff', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                                                {taskNotes.map((n, ni) => {
+                                                                    const nColor = NOTE_COLORS[n.type] || '#3b82f6';
+                                                                    const nIcon = NOTE_ICONS[n.type] || 'fa-info-circle';
+                                                                    return (
+                                                                        <div key={ni} style={{ background: nColor + '10', border: `1px solid ${nColor}33`, borderRadius: '6px', padding: '5px 8px' }}>
+                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '2px' }}>
+                                                                                <i className={`fa-solid ${nIcon}`} style={{ fontSize: '0.55rem', color: nColor }} />
+                                                                                <span style={{ fontSize: '0.58rem', fontWeight: 700, color: nColor }}>{n.author}</span>
+                                                                                <span style={{ fontSize: '0.55rem', color: '#94a3b8', marginLeft: 'auto' }}>{n.date}</span>
+                                                                            </div>
+                                                                            <p style={{ margin: 0, fontSize: '0.72rem', color: '#334155', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{n.text}</p>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })()}
+
         {/* ===== TEAM POPUP — inline medewerker toggle voor taken ===== */}
         {teamPopup && (() => {
             const proj = projects.find(pr => pr.id === teamPopup.projectId);
@@ -4827,8 +6170,23 @@ export default function ProjectenPage() {
                     : [...assigned, userId];
                 if (dateStr) {
                     setProjects(prev => prev.map(pr => pr.id !== proj.id ? pr : {
-                        ...pr, tasks: pr.tasks.map(tk => tk.id !== task.id ? tk : {
-                            ...tk, assignedByDay: { ...(tk.assignedByDay || {}), [dateStr]: next }
+                        ...pr, tasks: pr.tasks.map(tk => {
+                            if (tk.id !== task.id) return tk;
+                            const updatedByDay = { ...(tk.assignedByDay || {}), [dateStr]: next };
+                            const adding = next.includes(userId);
+                            let newAssignedTo = tk.assignedTo || [];
+                            if (adding) {
+                                // Worker added to a day → ensure in assignedTo
+                                newAssignedTo = [...new Set([...newAssignedTo, userId])];
+                            } else {
+                                // Worker removed from this day → only remove from assignedTo if not in any other day
+                                const stillInOtherDay = Object.entries(updatedByDay)
+                                    .some(([d, ids]) => d !== dateStr && ids.includes(userId));
+                                if (!stillInOtherDay) {
+                                    newAssignedTo = newAssignedTo.filter(id => id !== userId);
+                                }
+                            }
+                            return { ...tk, assignedByDay: updatedByDay, assignedTo: newAssignedTo };
                         })
                     }));
                 } else {
@@ -5336,6 +6694,26 @@ export default function ProjectenPage() {
                                                                     placeholder="Memo toevoegen..."
                                                                     rows={item.memo ? 2 : 1}
                                                                     style={{ width: '100%', fontSize: '0.72rem', padding: '5px 8px', borderRadius: 6, border: `1px solid ${item.memo ? '#fde68a' : '#e2e8f0'}`, resize: 'vertical', outline: 'none', color: '#334155', boxSizing: 'border-box', background: item.memo ? '#fffbeb' : '#f8fafc', lineHeight: 1.5 }} />
+                                                                {(item.notes || []).length > 0 && (
+                                                                    <div style={{ marginTop: 7, borderTop: '1px solid #f1f5f9', paddingTop: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                                                        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>
+                                                                            <i className="fa-solid fa-note-sticky" style={{ marginRight: 4, color: '#f59e0b' }} />Notities ({item.notes.length})
+                                                                        </div>
+                                                                        {item.notes.map((n, ni) => {
+                                                                            const isObj = typeof n === 'object';
+                                                                            const txt = isObj ? n.text : n;
+                                                                            const auth = isObj ? n.author : '';
+                                                                            const dt = isObj ? n.date : '';
+                                                                            return (
+                                                                                <div key={isObj ? n.id : ni} style={{ background: n.isLinked ? '#f0fdf4' : '#fffbeb', border: `1px solid ${n.isLinked ? '#bbf7d0' : '#fde68a'}`, borderRadius: 6, padding: '5px 8px' }}>
+                                                                                    {auth && <div style={{ fontSize: '0.6rem', fontWeight: 700, color: n.isLinked ? '#16a34a' : '#92400e', marginBottom: 2 }}>{auth}{n.isLinked ? ' · project-notitie' : ''}</div>}
+                                                                                    <p style={{ margin: 0, fontSize: '0.74rem', color: '#1e293b', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{txt}</p>
+                                                                                    {dt && <span style={{ fontSize: '0.56rem', color: '#94a3b8', display: 'block', marginTop: 2 }}>{dt}</span>}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                             <button onClick={() => { setTab('project'); setSelectedTaskId(item.id); }}
                                                                 style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, border: `1px solid ${accentKleur}44`, background: accentKleur + '12', color: accentKleur, cursor: 'pointer', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
@@ -5601,7 +6979,11 @@ export default function ProjectenPage() {
                                                 </div>
                                             </div>
                                             {/* Volledige tekst */}
-                                            <p style={{ margin: 0, fontSize: '0.78rem', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{n.text}</p>
+                                            {n.text && <p style={{ margin: 0, fontSize: '0.78rem', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{n.text}</p>}
+                                            {n.image && (
+                                                <img src={n.image} alt="foto" onClick={() => window.open(n.image, '_blank')}
+                                                    style={{ marginTop: n.text ? '8px' : 0, maxWidth: '100%', borderRadius: '8px', display: 'block', cursor: 'zoom-in', border: '1px solid #e2e8f0' }} />
+                                            )}
                                             <span style={{ fontSize: '0.58rem', color: '#94a3b8', marginTop: '4px', display: 'block' }}>{n.date}</span>
                                             {/* Reacties */}
                                             {(n.replies || []).length > 0 && (

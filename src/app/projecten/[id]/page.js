@@ -515,6 +515,9 @@ export default function ProjectDossierPage() {
     const allUsers = getAllUsers();
     const [project, setProject] = useState(null);
     const [projects, setProjects] = useState([]);
+    const [checklistLocal, setChecklistLocal] = useState(null);
+    const checklistDebounceRef = useRef(null);
+    const checklistEditingRef = useRef(false);
     const [activeTab, setActiveTab] = useState(() => {
         if (typeof window !== 'undefined') {
             const t = new URLSearchParams(window.location.search).get('tab');
@@ -609,6 +612,9 @@ export default function ProjectDossierPage() {
     const [dossierExpanded, setDossierExpanded] = useState(new Set());
     const [dossierShowSjablonen, setDossierShowSjablonen] = useState(false);
     const [dossierSjabloonExpanded, setDossierSjabloonExpanded] = useState(null);
+    const [planningModal, setPlanningModal] = useState(null); // { taskId, taskName, startDate, endDate }
+    const [delenModal, setDelenModal] = useState(null); // { taskId, taskName, mode: 'persoon'|'project'|null, selectedUserId: null }
+    const [plannerStempelBezig, setPlannerStempelBezig] = useState({}); // { [taskId]: true }
     const [voorgesteldeTaken, setVoorgesteldeTaken] = useState({});
     const [newTask, setNewTask] = useState({ name: '', startDate: '', endDate: '' });
     const [ganttCurrentDate, setGanttCurrentDate] = useState(() => new Date());
@@ -713,6 +719,8 @@ export default function ProjectDossierPage() {
     const [catPickerEmailId, setCatPickerEmailId] = useState(null);
     const [catDropdownEmailId, setCatDropdownEmailId] = useState(null);
     const [editingClient, setEditingClient] = useState(false);
+    const [editingWerkomschrijving, setEditingWerkomschrijving] = useState(false);
+    const [werkomschrijvingDraft, setWerkomschrijvingDraft] = useState('');
     const [editForm, setEditForm] = useState({});
     // Offerte state
     const [offertePosten, setOffertePosten] = useState([]);
@@ -968,6 +976,40 @@ export default function ProjectDossierPage() {
         saveProject(updated);
     };
 
+    const handleProjectFileUpload = async (files) => {
+        const fileArr = Array.from(files);
+        const results = [];
+        for (const file of fileArr) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('projectId', id);
+                formData.append('category', 'bestanden');
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const uploadResult = await res.json();
+                if (uploadResult.success) {
+                    results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, url: uploadResult.url, data: uploadResult.url, uploadedAt: new Date().toISOString() });
+                } else {
+                    const dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onload = e => r(e.target.result); fr.readAsDataURL(file); });
+                    results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: dataUrl, uploadedAt: new Date().toISOString() });
+                }
+            } catch {
+                const dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onload = e => r(e.target.result); fr.readAsDataURL(file); });
+                results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: dataUrl, uploadedAt: new Date().toISOString() });
+            }
+        }
+        saveProject({ ...project, bestanden: [...(project.bestanden || []), ...results] });
+    };
+
+    const removeProjectBestand = (idx) => {
+        saveProject({ ...project, bestanden: (project.bestanden || []).filter((_, i) => i !== idx) });
+    };
+
+    const updateBestandLabel = (idx, label) => {
+        const updated = (project.bestanden || []).map((b, i) => i === idx ? { ...b, label } : b);
+        saveProject({ ...project, bestanden: updated });
+    };
+
     const removeAttachment = (taskId, attachIdx) => {
         const updated = {
             ...project,
@@ -978,6 +1020,22 @@ export default function ProjectDossierPage() {
         saveProject(updated);
     };
     const [previewAtt, setPreviewAtt] = useState(null); // { data, name, type }
+    const [poSectOpen, setPoSectOpen] = useState({ kaart: true, werkomschrijving: true, checklist: true, opmerkingen: true, bestanden: true, fotos: true });
+    const [poNoteText, setPoNoteText] = useState('');
+    const [poNoteType, setPoNoteType] = useState('info');
+    const [editingNoteId, setEditingNoteId] = useState(null);
+    const [editingNoteText, setEditingNoteText] = useState('');
+    const [poNoteMedia, setPoNoteMedia] = useState(null);
+    const [poNoteMediaUploading, setPoNoteMediaUploading] = useState(false);
+    const noteMediaInputRef = useRef(null);
+    const [addingMediaToNoteId, setAddingMediaToNoteId] = useState(null);
+    const [addMediaUploading, setAddMediaUploading] = useState(false);
+    const noteAddMediaInputRef = useRef(null);
+    const [replyingToNoteId, setReplyingToNoteId] = useState(null);
+    const [replyText, setReplyText] = useState('');
+    const togglePoSect = (key) => setPoSectOpen(s => ({ ...s, [key]: !s[key] }));
+    const [previewBlobUrl, setPreviewBlobUrl] = useState(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
     const [bijlageDragOver, setBijlageDragOver] = useState(false);
     const [deleteConfirmTask, setDeleteConfirmTask] = useState(null); // task.id
     const [dragOverTask, setDragOverTask] = useState(null); // task.id being dragged over
@@ -1392,6 +1450,28 @@ export default function ProjectDossierPage() {
         document.addEventListener('visibilitychange', handleTabFocus);
         return () => { clearInterval(interval); document.removeEventListener('visibilitychange', handleTabFocus); };
     }, [project?.plannerPlanId, syncVanPlannerNaarApp]);
+
+    // Auto-sync kanaalberichten
+    const laadKanaalBerichten = useCallback(async () => {
+        const proj = projectRef.current;
+        if (!teamsTeamId || !proj?.teamsKanaalId) return;
+        setKanaalBerichtenLaden(true);
+        try {
+            const r = await fetch(`/api/teams/kanaal-berichten?teamId=${teamsTeamId}&kanaalId=${proj.teamsKanaalId}`);
+            const d = r.ok ? await r.json() : null;
+            setKanaalBerichtenData(d);
+        } catch {}
+        finally { setKanaalBerichtenLaden(false); }
+    }, [teamsTeamId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (activeTab !== 'teams' || !teamsTeamId) return;
+        const proj = projectRef.current;
+        if (!proj?.teamsKanaalId) return;
+        laadKanaalBerichten();
+        const interval = setInterval(laadKanaalBerichten, 60000);
+        return () => clearInterval(interval);
+    }, [activeTab, teamsTeamId, laadKanaalBerichten]);
 
     // Auto-refresh meerwerk als de chatbot (of ander tabblad) iets opslaat
     useEffect(() => {
@@ -2107,13 +2187,29 @@ export default function ProjectDossierPage() {
         setProject(found || null);
         if (found) setOfferteBedrag(String(found.estimatedHours * (found.hourlyRate || 55)));
 
+        // Server als bron van waarheid — laad projecten van API
+        fetch('/api/projecten').then(r => r.json()).then(serverProjs => {
+            if (serverProjs.length > 0) {
+                setProjects(serverProjs);
+                const serverFound = serverProjs.find(p => String(p.id) === String(id));
+                if (serverFound) {
+                    setProject(serverFound);
+                    setOfferteBedrag(String(serverFound.estimatedHours * (serverFound.hourlyRate || 55)));
+                }
+                localStorage.setItem('schildersapp_projecten', JSON.stringify(serverProjs));
+            }
+        }).catch(() => {});
+
         // Notities Ophalen vanuit NAS Database (The Cloud)
         const loadNotes = async () => {
             try {
                 const res = await fetch(`/api/notes?projectId=${id}`);
                 const data = await res.json();
                 if (data.success) {
-                    setNotes(data.notes.length > 0 ? data.notes : DEMO_NOTES);
+                    const normalized = data.notes.map(n => ({ ...n, text: n.text || n.content || '' }));
+                    setNotes(normalized);
+                    localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(normalized));
+                    window.dispatchEvent(new StorageEvent('storage', { key: `schildersapp_notes_${id}`, newValue: JSON.stringify(normalized) }));
                 }
             } catch (err) {
                 console.error("Kon notities niet van NAS halen:", err);
@@ -2156,7 +2252,9 @@ export default function ProjectDossierPage() {
             if (e.key === `schildersapp_photos_${id}`) {
                 setPhotos(e.newValue ? JSON.parse(e.newValue) : []);
             }
-            // Sync project data when another tab makes changes
+            if (e.key === `schildersapp_notes_${id}`) {
+                try { if (e.newValue) setNotes(JSON.parse(e.newValue)); } catch {}
+            }
             if (e.key === 'schildersapp_projecten' && e.newValue) {
                 try {
                     const allProjs = JSON.parse(e.newValue);
@@ -2164,6 +2262,12 @@ export default function ProjectDossierPage() {
                     if (found) { setProject(found); setProjects(allProjs); }
                 } catch {}
             }
+        };
+        const handleSchildersSync = () => {
+            try {
+                const stored = localStorage.getItem(`schildersapp_notes_${id}`);
+                if (stored) setNotes(JSON.parse(stored));
+            } catch {}
         };
         const handleVisible = () => {
             if (document.visibilityState === 'visible') {
@@ -2181,11 +2285,13 @@ export default function ProjectDossierPage() {
         window.addEventListener('notes-updated', handleNotesUpdate);
         window.addEventListener('photos-updated', handlePhotosUpdate);
         window.addEventListener('storage', handleStorage);
+        window.addEventListener('schilders-sync', handleSchildersSync);
         document.addEventListener('visibilitychange', handleVisible);
         return () => {
             window.removeEventListener('notes-updated', handleNotesUpdate);
             window.removeEventListener('photos-updated', handlePhotosUpdate);
             window.removeEventListener('storage', handleStorage);
+            window.removeEventListener('schilders-sync', handleSchildersSync);
             document.removeEventListener('visibilitychange', handleVisible);
         };
 
@@ -2204,6 +2310,70 @@ export default function ProjectDossierPage() {
             setToast('⚠️ Opslag vol — verwijder oude emails of bestanden');
             setTimeout(() => setToast(null), 5000);
         }
+        // Server sync
+        fetch('/api/projecten', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: updated }) }).catch(() => {});
+    };
+
+    // Sync checklistLocal bij project-wissel
+    useEffect(() => {
+        if (project?.checklist) setChecklistLocal([...project.checklist]);
+    }, [project?.id]);
+
+    // 30-seconden polling voor cross-device sync
+    useEffect(() => {
+        const interval = setInterval(() => {
+            fetch('/api/projecten').then(r => r.json()).then(serverProjs => {
+                if (serverProjs.length > 0) {
+                    const found = serverProjs.find(p => String(p.id) === String(id));
+                    if (found && !checklistEditingRef.current) { setProject(found); setProjects(serverProjs); localStorage.setItem('schildersapp_projecten', JSON.stringify(serverProjs)); }
+                }
+            }).catch(() => {});
+            fetch(`/api/notes?projectId=${id}`).then(r => r.json()).then(data => {
+                if (data.success) {
+                    const normalized = data.notes.map(n => ({ ...n, text: n.text || n.content || '' }));
+                    setNotes(normalized);
+                    localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(normalized));
+                }
+            }).catch(() => {});
+        }, 30000);
+        return () => clearInterval(interval);
+    }, [id]);
+
+    const handlePlanningBevestigen = (taskId, startDate, endDate) => {
+        if (!startDate || !endDate) { showToast('Vul een start- en einddatum in', 'error'); return; }
+        saveProject({ ...project, tasks: project.tasks.map(t => t.id === taskId ? { ...t, startDate, endDate } : t) });
+        showToast(`Top! "${planningModal.taskName}" staat in de planning.`, 'success');
+        setPlanningModal(null);
+    };
+
+    const handleDelen = (taskId, mode, userId) => {
+        let newAssignedTo;
+        if (mode === 'persoon') {
+            if (!userId) { showToast('Selecteer een medewerker', 'error'); return; }
+            newAssignedTo = [Number(userId)];
+        } else {
+            const ids = [...new Set((project.tasks || []).flatMap(t => (t.assignedTo || []).map(Number)))];
+            newAssignedTo = ids.length > 0 ? ids : allUsers.map(u => u.id);
+        }
+        saveProject({ ...project, tasks: project.tasks.map(t => t.id === taskId ? { ...t, assignedTo: newAssignedTo } : t) });
+        const naam = mode === 'persoon' ? (allUsers.find(u => u.id === Number(userId))?.name || 'medewerker') : 'het projectteam';
+        showToast(`Taak gedeeld met ${naam}`, 'success');
+        setDelenModal(null);
+    };
+
+    const handleNaarPlanning = (task) => {
+        if (!task.startDate || !task.endDate) {
+            setPlanningModal({ taskId: task.id, taskName: task.name, startDate: task.startDate || '', endDate: task.endDate || '' });
+            return;
+        }
+        if (!task.assignedTo || task.assignedTo.length === 0) {
+            showToast('Wijs eerst een medewerker toe via "Delen"', 'error');
+            return;
+        }
+        setPlannerStempelBezig(prev => ({ ...prev, [task.id]: true }));
+        saveProject({ ...project });
+        setTimeout(() => setPlannerStempelBezig(prev => { const n = { ...prev }; delete n[task.id]; return n; }), 1200);
+        showToast(`"${task.name}" staat in de weekplanning!`, 'success');
     };
 
     const updateTaskMemo = (taskId, val) => {
@@ -2405,6 +2575,10 @@ export default function ProjectDossierPage() {
         const updated = [note, ...notes];
         setNotes(updated);
         localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(updated));
+        window.dispatchEvent(new StorageEvent('storage', { key: `schildersapp_notes_${id}`, newValue: JSON.stringify(updated) }));
+        window.dispatchEvent(new Event('schilders-sync'));
+        // Server sync
+        fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, content: newNote, author: note.author, type: noteType, date: note.date }) }).catch(() => {});
         // Stuur WhatsApp melding naar collega
         if (notifyUserId) {
             const colleague = allUsers.find(u => String(u.id) === String(notifyUserId));
@@ -2422,6 +2596,69 @@ export default function ProjectDossierPage() {
         const updated = notes.filter(n => n.id !== noteId);
         setNotes(updated);
         localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(updated));
+        fetch(`/api/notes?id=${noteId}`, { method: 'DELETE' }).catch(() => {});
+    };
+
+    const saveNoteEdit = (noteId) => {
+        if (!editingNoteText.trim()) return;
+        const updated = notes.map(n => n.id === noteId ? { ...n, text: editingNoteText.trim(), content: editingNoteText.trim() } : n);
+        setNotes(updated);
+        localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(updated));
+        fetch('/api/notes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: noteId, content: editingNoteText.trim() }) }).catch(() => {});
+        setEditingNoteId(null);
+        setEditingNoteText('');
+    };
+
+    const handleNoteMedia = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setPoNoteMediaUploading(true);
+        e.target.value = '';
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('projectId', String(id));
+            formData.append('category', 'notitie-media');
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error);
+            setPoNoteMedia({ url: data.url, mediaType: file.type.startsWith('video/') ? 'video' : 'image' });
+        } catch (err) { console.error('Media upload mislukt:', err); }
+        finally { setPoNoteMediaUploading(false); }
+    };
+
+    const addReply = (noteId) => {
+        if (!replyText.trim()) return;
+        const reply = { id: Date.now(), author: user?.name || 'Beheerder', text: replyText.trim(), created_at: new Date().toISOString() };
+        const updated = notes.map(n => n.id === noteId ? { ...n, replies: [...(n.replies || []), reply] } : n);
+        setNotes(updated);
+        localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(updated));
+        fetch('/api/notes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: noteId, addReply: { author: reply.author, text: reply.text } }) }).catch(() => {});
+        setReplyText('');
+        setReplyingToNoteId(null);
+    };
+
+    const handleAddMediaToNote = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file || !addingMediaToNoteId) return;
+        e.target.value = '';
+        const noteId = addingMediaToNoteId;
+        setAddMediaUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('projectId', String(id));
+            formData.append('category', 'notitie-media');
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error);
+            const mediaType = file.type.startsWith('video/') ? 'video' : 'image';
+            const updated = notes.map(n => n.id === noteId ? { ...n, photo: data.url, mediaType } : n);
+            setNotes(updated);
+            localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(updated));
+            fetch('/api/notes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: noteId, content: updated.find(n => n.id === noteId)?.content || updated.find(n => n.id === noteId)?.text || '', photo: data.url, mediaType }) }).catch(() => {});
+        } catch (err) { console.error('Media upload mislukt:', err); }
+        finally { setAddMediaUploading(false); setAddingMediaToNoteId(null); }
     };
 
     const addTask = () => {
@@ -2505,6 +2742,8 @@ export default function ProjectDossierPage() {
     const statusCfg = STATUS_CONFIG[project.status] || STATUS_CONFIG.planning;
     const teamIds = [...new Set(project.tasks.flatMap(t => t.assignedTo || []))];
     const teamUsers = allUsers.filter(u => teamIds.includes(u.id));
+    const projectTeamIds = [...new Set((project?.tasks || []).flatMap(t => (t.assignedTo || []).map(Number)))];
+    const projectTeamUsers = allUsers.filter(u => projectTeamIds.includes(u.id));
     const offerte = parseFloat(offerteBedrag) || (project.estimatedHours * (project.hourlyRate || 55));
     const betaald = termijnen.filter(t => t.betaald).reduce((s, t) => s + t.bedrag, 0);
     const gefactureerd = termijnen.reduce((s, t) => s + t.bedrag, 0);
@@ -2521,11 +2760,11 @@ export default function ProjectDossierPage() {
 
     const TABS = [
         { id: 'overzicht', label: 'Overzicht', icon: 'fa-house' },
+        { id: 'projectoverzicht', label: 'Project Overzicht', icon: 'fa-folder-open' },
         { id: 'planning', label: 'Planning', icon: 'fa-chart-gantt' },
         { id: 'taken', label: `Taken (${totalTasks})`, icon: 'fa-list-check' },
         { id: 'notities', label: `Notities (${notes.length})`, icon: 'fa-note-sticky' },
         { id: 'financien', label: 'Financiën', icon: 'fa-euro-sign' },
-        { id: 'fotos', label: `Foto's (${photos.length})`, icon: 'fa-camera' },
         { id: 'documenten', label: 'Documenten', icon: 'fa-file-lines' },
         { id: 'bewaking', label: 'Bewaking', icon: 'fa-shield-halved' },
         { id: 'dossier', label: 'Dossier', icon: 'fa-briefcase' },
@@ -2638,7 +2877,7 @@ export default function ProjectDossierPage() {
 
 {/* ===== OVERZICHT ===== */}
             {activeTab === 'overzicht' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px', alignItems: 'start' }}>
                     {/* Klantgegevens */}
                     <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
@@ -2669,6 +2908,7 @@ export default function ProjectDossierPage() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
                             {[
                                 { icon: 'fa-hashtag', label: 'Projectnummer', value: project.projectnummer || '—' },
+                                { icon: 'fa-folder', label: 'Projectnaam', value: project.name || '—' },
                                 { icon: 'fa-user', label: 'Opdrachtgever', value: project.client },
                                 { icon: 'fa-building', label: 'Bedrijfsnaam', value: project.bedrijfsnaam || '—' },
                                 { icon: 'fa-address-card', label: 'Contactpersoon', value: project.contactpersoon || '—' },
@@ -2828,6 +3068,511 @@ export default function ProjectDossierPage() {
                 </div>
             )}
 
+            {/* ===== PROJECT OVERZICHT ===== */}
+            {activeTab === 'projectoverzicht' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '860px' }}>
+
+                    {/* Projectkaart */}
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '16px 20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                        <div onClick={() => togglePoSect('kaart')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: poSectOpen.kaart ? '12px' : 0, cursor: 'pointer' }}>
+                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fa-solid fa-id-badge" style={{ color: '#F5850A' }} /> Projectkaart
+                            </h3>
+                            <i className={`fa-solid fa-chevron-${poSectOpen.kaart ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.8rem' }} />
+                        </div>
+                        {poSectOpen.kaart && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            {[
+                                { icon: 'fa-hashtag', label: 'Projectnummer', value: project.projectnummer },
+                                { icon: 'fa-folder', label: 'Projectnaam', value: project.name },
+                                { icon: 'fa-address-card', label: 'Contactpersoon', value: project.contactpersoon },
+                                { icon: 'fa-location-dot', label: 'Werkadres', value: project.werkAdres, clickable: 'route' },
+                                { icon: 'fa-phone', label: 'Telefoon', value: project.phone, clickable: 'bellen' },
+                                { icon: 'fa-envelope', label: 'Email', value: project.email },
+                            ].map((row, i) => (
+                                <div key={i}
+                                    onClick={() => {
+                                        if (row.clickable === 'bellen' && row.value) {
+                                            const naam = project.contactpersoon || project.client || 'de klant';
+                                            if (window.confirm(`Wil je ${naam} bellen?\n${row.value}`)) {
+                                                window.location.href = `tel:${row.value.replace(/\s/g, '')}`;
+                                            }
+                                        } else if (row.clickable === 'route' && row.value) {
+                                            if (window.confirm(`Wil je de route naar dit project starten?\n${row.value}`)) {
+                                                window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(row.value)}&travelmode=driving`, '_blank');
+                                            }
+                                        }
+                                    }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', background: '#f8fafc', borderRadius: '8px', cursor: row.clickable && row.value ? 'pointer' : 'default', transition: 'background 0.15s' }}
+                                    onMouseEnter={e => { if (row.clickable && row.value) e.currentTarget.style.background = '#fff7ed'; }}
+                                    onMouseLeave={e => { if (row.clickable && row.value) e.currentTarget.style.background = '#f8fafc'; }}>
+                                    <i className={`fa-solid ${row.icon}`} style={{ color: row.clickable && row.value ? '#F5850A' : '#F5850A', fontSize: '0.8rem', width: '14px', flexShrink: 0 }} />
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{row.label}</div>
+                                        <div style={{ fontSize: '0.82rem', color: row.value ? '#1e293b' : '#cbd5e1', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: row.clickable && row.value ? 'underline' : 'none' }}>{row.value || '—'}</div>
+                                    </div>
+                                    {row.clickable && row.value && (
+                                        <i className={`fa-solid ${row.clickable === 'bellen' ? 'fa-phone-volume' : 'fa-diamond-turn-right'}`} style={{ color: '#F5850A', fontSize: '0.75rem', marginLeft: 'auto', opacity: 0.6 }} />
+                                    )}
+                                </div>
+                            ))}
+                        </div>}
+                    </div>
+
+                    {/* Werkomschrijving */}
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: poSectOpen.werkomschrijving ? '14px' : 0 }}>
+                            <h3 onClick={() => togglePoSect('werkomschrijving')} style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                                <i className="fa-solid fa-file-lines" style={{ color: '#F5850A' }} /> Werkomschrijving
+                                <i className={`fa-solid fa-chevron-${poSectOpen.werkomschrijving ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.8rem', marginLeft: '4px' }} />
+                            </h3>
+                            {!editingWerkomschrijving ? (
+                                <button onClick={() => { setWerkomschrijvingDraft(project.werkomschrijving || ''); setEditingWerkomschrijving(true); }}
+                                    style={{ padding: '5px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = '#F5850A'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#F5850A'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}>
+                                    <i className="fa-solid fa-pen" /> Bewerken
+                                </button>
+                            ) : (
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button onClick={() => setEditingWerkomschrijving(false)}
+                                        style={{ padding: '5px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                        Annuleren
+                                    </button>
+                                    <button onClick={() => { saveProject({ ...project, werkomschrijving: werkomschrijvingDraft }); setEditingWerkomschrijving(false); }}
+                                        style={{ padding: '5px 12px', borderRadius: '8px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                        Opslaan
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        {poSectOpen.werkomschrijving && (!editingWerkomschrijving ? (
+                            project.werkomschrijving ? (
+                                <p style={{ margin: 0, fontSize: '0.88rem', color: '#334155', lineHeight: '1.65', whiteSpace: 'pre-wrap' }}>{project.werkomschrijving}</p>
+                            ) : (
+                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1', fontStyle: 'italic' }}>Nog geen werkomschrijving — klik op Bewerken.</p>
+                            )
+                        ) : (
+                            <textarea value={werkomschrijvingDraft} onChange={e => setWerkomschrijvingDraft(e.target.value)}
+                                placeholder="Beschrijf hier de werkzaamheden, scope, bijzonderheden..."
+                                rows={5}
+                                style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.88rem', color: '#1e293b', background: '#f8fafc', resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: '1.6', boxSizing: 'border-box' }}
+                                onFocus={e => e.target.style.borderColor = '#F5850A'}
+                                onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                            />
+                        ))}
+                    </div>
+
+                    {/* Checklist */}
+                    {(() => {
+                        const checklist = project.checklist || [];
+                        return (
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '18px 20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: poSectOpen.checklist ? '12px' : 0 }}>
+                                    <h3 onClick={() => togglePoSect('checklist')} style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                                        <i className="fa-solid fa-list-check" style={{ color: '#F5850A' }} /> Checklist
+                                        {checklist.length > 0 && (
+                                            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '1px 8px' }}>
+                                                {checklist.filter(c => c.done).length}/{checklist.length}
+                                            </span>
+                                        )}
+                                        <i className={`fa-solid fa-chevron-${poSectOpen.checklist ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.8rem' }} />
+                                    </h3>
+                                    {poSectOpen.checklist && <button onClick={() => {
+                                        const updated = [...(checklistLocal || checklist), { id: Date.now(), text: '', done: false }];
+                                        setChecklistLocal(updated);
+                                        saveProject({ ...project, checklist: updated });
+                                    }} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px', borderRadius: '8px', border: 'none', background: '#fff7ed', color: '#F5850A', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                                        <i className="fa-solid fa-plus" /> Item
+                                    </button>}
+                                </div>
+                                {poSectOpen.checklist && (checklistLocal ?? checklist).length === 0 && (
+                                    <div style={{ textAlign: 'center', padding: '16px 0', color: '#cbd5e1', fontSize: '0.82rem' }}>Nog geen items — klik op "+ Item"</div>
+                                )}
+                                {poSectOpen.checklist && <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {(checklistLocal ?? checklist).map((item, idx) => (
+                                        <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <input type="checkbox" checked={item.done}
+                                                onChange={() => {
+                                                    const updated = (checklistLocal ?? checklist).map((c, i) => i === idx ? { ...c, done: !c.done } : c);
+                                                    setChecklistLocal(updated);
+                                                    saveProject({ ...project, checklist: updated });
+                                                }}
+                                                style={{ width: '16px', height: '16px', accentColor: '#F5850A', cursor: 'pointer', flexShrink: 0 }} />
+                                            <input value={item.text}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    checklistEditingRef.current = true;
+                                                    const updated = (checklistLocal ?? checklist).map((c, i) => i === idx ? { ...c, text: val } : c);
+                                                    setChecklistLocal(updated);
+                                                    if (checklistDebounceRef.current) clearTimeout(checklistDebounceRef.current);
+                                                    checklistDebounceRef.current = setTimeout(() => {
+                                                        checklistEditingRef.current = false;
+                                                        saveProject({ ...project, checklist: updated });
+                                                    }, 800);
+                                                }}
+                                                onBlur={() => {
+                                                    if (checklistDebounceRef.current) {
+                                                        clearTimeout(checklistDebounceRef.current);
+                                                        checklistDebounceRef.current = null;
+                                                    }
+                                                    checklistEditingRef.current = false;
+                                                    if (checklistLocal) saveProject({ ...project, checklist: checklistLocal });
+                                                }}
+                                                placeholder="Omschrijving…"
+                                                style={{ flex: 1, border: 'none', borderBottom: '1px solid #f1f5f9', outline: 'none', fontSize: '0.85rem', color: item.done ? '#94a3b8' : '#1e293b', background: 'transparent', fontFamily: 'inherit', textDecoration: item.done ? 'line-through' : 'none', padding: '3px 0' }} />
+                                            <button onClick={() => {
+                                                const updated = (checklistLocal ?? checklist).filter((_, i) => i !== idx);
+                                                setChecklistLocal(updated);
+                                                saveProject({ ...project, checklist: updated });
+                                            }}
+                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem', opacity: 0.4, padding: '2px 4px', flexShrink: 0 }}
+                                                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                                onMouseLeave={e => e.currentTarget.style.opacity = '0.4'}>
+                                                <i className="fa-solid fa-xmark" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>}
+                            </div>
+                        );
+                    })()}
+
+                    {/* Notities */}
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '18px 20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: poSectOpen.opmerkingen ? '12px' : 0 }}>
+                            <h3 onClick={() => togglePoSect('opmerkingen')} style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                                <i className="fa-solid fa-note-sticky" style={{ color: '#F5850A' }} /> Notities
+                                {notes.length > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '1px 8px' }}>{notes.length}</span>}
+                                <i className={`fa-solid fa-chevron-${poSectOpen.opmerkingen ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.8rem' }} />
+                            </h3>
+                        </div>
+                        {poSectOpen.opmerkingen && (
+                            <>
+                                {/* Notities lijst */}
+                                {notes.length === 0 && <div style={{ textAlign: 'center', padding: '16px 0', color: '#cbd5e1', fontSize: '0.82rem' }}>Nog geen notities</div>}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: notes.length > 0 ? '14px' : '8px' }}>
+                                    {notes.map(note => {
+                                        const nt = NOTE_TYPES[note.type] || NOTE_TYPES.info;
+                                        const isAuthor = note.author === (user?.name || 'Beheerder');
+                                        return (
+                                            <div key={note.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: nt.bg, borderRadius: '10px', padding: '10px 12px', border: `1px solid ${nt.color}22` }}>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '20px', background: nt.color, color: '#fff', fontSize: '0.65rem', fontWeight: 700 }}>
+                                                            <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.6rem' }} />
+                                                            {nt.label}
+                                                        </span>
+                                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{note.author} · {note.date}</span>
+                                                    </div>
+                                                    {editingNoteId === note.id ? (
+                                                        <textarea autoFocus value={editingNoteText} onChange={e => setEditingNoteText(e.target.value)}
+                                                            onBlur={() => saveNoteEdit(note.id)}
+                                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNoteEdit(note.id); } if (e.key === 'Escape') { setEditingNoteId(null); setEditingNoteText(''); } }}
+                                                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: `1.5px solid ${nt.color}`, fontSize: '0.84rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', background: '#fff', outline: 'none' }} />
+                                                    ) : (
+                                                        <div style={{ fontSize: '0.84rem', color: '#1e293b', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{note.text}</div>
+                                                    )}
+                                                    {note.photo && (
+                                                        <div style={{ marginTop: '8px' }}>
+                                                            {note.mediaType === 'video'
+                                                                ? <video src={note.photo} controls style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', display: 'block' }} />
+                                                                : <img src={note.photo} alt="" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => setPreviewAtt({ data: note.photo, url: note.photo, name: 'notitie-foto', type: 'image/jpeg' })} />}
+                                                        </div>
+                                                    )}
+                                                    {/* Replies */}
+                                                    {(note.replies?.length > 0 || replyingToNoteId === note.id) && (
+                                                        <div style={{ marginTop: '8px', borderLeft: `2px solid ${nt.color}44`, paddingLeft: '10px' }}>
+                                                            {(note.replies || []).map(r => (
+                                                                <div key={r.id} style={{ marginBottom: '5px' }}>
+                                                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{r.author}</span>
+                                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', marginLeft: '5px' }}>{r.created_at ? new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                                                    <div style={{ fontSize: '0.82rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>{r.text}</div>
+                                                                </div>
+                                                            ))}
+                                                            {replyingToNoteId === note.id && (
+                                                                <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
+                                                                    <input autoFocus value={replyText} onChange={e => setReplyText(e.target.value)}
+                                                                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReply(note.id); } if (e.key === 'Escape') { setReplyingToNoteId(null); setReplyText(''); } }}
+                                                                        placeholder="Typ reactie… (Enter)"
+                                                                        style={{ flex: 1, padding: '4px 8px', borderRadius: '6px', border: `1.5px solid ${nt.color}88`, fontSize: '0.8rem', fontFamily: 'inherit', outline: 'none' }} />
+                                                                    <button onClick={() => addReply(note.id)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: nt.color, color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>↵</button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    {/* Onderste knoppenbalk */}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
+                                                        {replyingToNoteId !== note.id && (
+                                                            <button onClick={() => { setReplyingToNoteId(note.id); setReplyText(''); }}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.72rem', padding: 0, display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                                onMouseEnter={e => e.currentTarget.style.color = nt.color}
+                                                                onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
+                                                                <i className="fa-regular fa-comment" /> Reageer {note.replies?.length > 0 && `(${note.replies.length})`}
+                                                            </button>
+                                                        )}
+                                                        {(note.type === 'actie' || note.type === 'planning') && (
+                                                            <button onClick={() => {
+                                                                const taskName = note.text.split('\n')[0].slice(0, 80);
+                                                                const task = { id: 't' + Date.now(), name: taskName, startDate: new Date().toISOString().split('T')[0], endDate: '', assignedTo: [], completed: false, fromNoteId: note.id };
+                                                                saveProject({ ...project, tasks: [...(project.tasks || []), task] });
+                                                                showToast(`Taak "${taskName}" toegevoegd aan planning`, 'success');
+                                                            }}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.72rem', padding: 0, display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                                onMouseEnter={e => e.currentTarget.style.color = '#F5850A'}
+                                                                onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
+                                                                <i className="fa-solid fa-list-check" /> Maak taak
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
+                                                    <button onClick={() => { setAddingMediaToNoteId(note.id); noteAddMediaInputRef.current?.click(); }}
+                                                        disabled={addMediaUploading && addingMediaToNoteId === note.id}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.75rem', opacity: 0.4, padding: '2px 4px' }}
+                                                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                                        onMouseLeave={e => e.currentTarget.style.opacity = '0.4'}>
+                                                        {addMediaUploading && addingMediaToNoteId === note.id
+                                                            ? <i className="fa-solid fa-spinner fa-spin" />
+                                                            : <i className="fa-solid fa-camera" />}
+                                                    </button>
+                                                    {isAuthor && editingNoteId !== note.id && (
+                                                        <button onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.text); }}
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.75rem', opacity: 0.4, padding: '2px 4px' }}
+                                                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                                            onMouseLeave={e => e.currentTarget.style.opacity = '0.4'}>
+                                                            <i className="fa-solid fa-pencil" />
+                                                        </button>
+                                                    )}
+                                                    <button onClick={() => deleteNote(note.id)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem', opacity: 0.4, padding: '2px 4px' }}
+                                                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                                        onMouseLeave={e => e.currentTarget.style.opacity = '0.4'}>
+                                                        <i className="fa-solid fa-xmark" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {/* Nieuwe notitie form */}
+                                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                                    {(() => {
+                                        const doSave = () => {
+                                            if (!poNoteText.trim() && !poNoteMedia) return;
+                                            const localId = Date.now();
+                                            const note = { id: localId, text: poNoteText.trim(), type: poNoteType, author: user?.name || 'Beheerder', date: new Date().toISOString().split('T')[0], photo: poNoteMedia?.url || null, mediaType: poNoteMedia?.mediaType || null, replies: [] };
+                                            setNotes(prev => { const u = [note, ...prev]; localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(u)); return u; });
+                                            window.dispatchEvent(new Event('schilders-sync'));
+                                            fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, content: note.text || ' ', author: note.author, type: note.type, date: note.date, photo: note.photo, mediaType: note.mediaType }) })
+                                                .then(r => r.json())
+                                                .then(data => {
+                                                    if (data.success && data.id) {
+                                                        setNotes(prev => { const u = prev.map(n => n.id === localId ? { ...n, id: data.id } : n); localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(u)); return u; });
+                                                    }
+                                                }).catch(() => {});
+                                            setPoNoteText('');
+                                            setPoNoteMedia(null);
+                                        };
+                                        return (<>
+                                            <textarea value={poNoteText} onChange={e => setPoNoteText(e.target.value)}
+                                                placeholder="Nieuwe notitie schrijven… (Enter om op te slaan)" rows={2}
+                                                onBlur={() => { if (poNoteText.trim()) doSave(); }}
+                                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave(); } }}
+                                                style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1.5px solid #e2e8f0', fontSize: '0.84rem', color: '#1e293b', fontFamily: 'inherit', resize: 'none', boxSizing: 'border-box', outline: 'none', marginBottom: '8px' }} />
+                                            {poNoteMedia && (
+                                                <div style={{ marginBottom: '8px', position: 'relative', display: 'inline-block' }}>
+                                                    {poNoteMedia.mediaType === 'video'
+                                                        ? <video src={poNoteMedia.url} style={{ maxHeight: '80px', borderRadius: '6px', display: 'block' }} />
+                                                        : <img src={poNoteMedia.url} alt="" style={{ maxHeight: '80px', borderRadius: '6px', display: 'block' }} />}
+                                                    <button onClick={() => setPoNoteMedia(null)} style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '18px', height: '18px', color: '#fff', cursor: 'pointer', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fa-solid fa-xmark" /></button>
+                                                </div>
+                                            )}
+                                            <input ref={noteMediaInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleNoteMedia} />
+                                            <input ref={noteAddMediaInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleAddMediaToNote} />
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                {Object.entries(NOTE_TYPES).map(([key, nt]) => (
+                                                    <button key={key} onClick={() => setPoNoteType(key)}
+                                                        style={{ padding: '3px 10px', borderRadius: '20px', border: `1.5px solid ${poNoteType === key ? nt.color : '#e2e8f0'}`, background: poNoteType === key ? nt.bg : 'transparent', color: poNoteType === key ? nt.color : '#94a3b8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
+                                                        {nt.label}
+                                                    </button>
+                                                ))}
+                                                <button type="button" onClick={() => noteMediaInputRef.current?.click()} disabled={poNoteMediaUploading}
+                                                    style={{ padding: '3px 10px', borderRadius: '20px', border: `1.5px solid ${poNoteMedia ? '#10b981' : '#e2e8f0'}`, background: poNoteMedia ? '#f0fdf4' : 'transparent', color: poNoteMedia ? '#10b981' : '#94a3b8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    {poNoteMediaUploading ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-paperclip" />}
+                                                    {poNoteMedia ? 'Bijlage ✓' : 'Bijlage'}
+                                                </button>
+                                                <button onClick={doSave} disabled={!poNoteText.trim() && !poNoteMedia}
+                                                    style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: '8px', border: 'none', background: (poNoteText.trim() || poNoteMedia) ? '#F5850A' : '#e2e8f0', color: (poNoteText.trim() || poNoteMedia) ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.78rem', cursor: (poNoteText.trim() || poNoteMedia) ? 'pointer' : 'default', transition: 'background 0.15s' }}>
+                                                    <i className="fa-solid fa-paper-plane" style={{ marginRight: '5px' }} />Opslaan
+                                                </button>
+                                            </div>
+                                        </>);
+                                    })()}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Bestanden */}
+                    {(() => {
+                        const bestanden = project.bestanden || [];
+                        const getIcon = (type, name) => {
+                            if (type?.includes('image')) return 'fa-file-image';
+                            if (type?.includes('pdf')) return 'fa-file-pdf';
+                            if (type?.includes('word') || name?.endsWith('.docx')) return 'fa-file-word';
+                            if (type?.includes('sheet') || name?.endsWith('.xlsx')) return 'fa-file-excel';
+                            if (type?.includes('zip') || type?.includes('rar')) return 'fa-file-zipper';
+                            return 'fa-file';
+                        };
+                        const getIconColor = (type, name) => {
+                            if (type?.includes('image')) return '#10b981';
+                            if (type?.includes('pdf')) return '#ef4444';
+                            if (type?.includes('word') || name?.endsWith('.docx')) return '#2563eb';
+                            if (type?.includes('sheet') || name?.endsWith('.xlsx')) return '#16a34a';
+                            return '#94a3b8';
+                        };
+                        return (
+                            <div style={{ background: '#fff', borderRadius: '14px', padding: '18px 20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: poSectOpen.bestanden ? '12px' : 0 }}>
+                                    <h3 onClick={() => togglePoSect('bestanden')} style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                                        <i className="fa-solid fa-paperclip" style={{ color: '#F5850A' }} /> Bestanden
+                                        {bestanden.length > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '1px 8px' }}>{bestanden.length}</span>}
+                                        <i className={`fa-solid fa-chevron-${poSectOpen.bestanden ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.8rem' }} />
+                                    </h3>
+                                    {poSectOpen.bestanden && <label style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px', borderRadius: '8px', border: 'none', background: '#fff7ed', color: '#F5850A', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                        <i className="fa-solid fa-arrow-up-from-bracket" /> Uploaden
+                                        <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" style={{ display: 'none' }}
+                                            onChange={e => { handleProjectFileUpload(e.target.files); e.target.value = ''; }} />
+                                    </label>}
+                                </div>
+                                {poSectOpen.bestanden && <div onDragEnter={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#F5850A'; e.currentTarget.style.background = 'rgba(245,133,10,0.04)'; }}
+                                    onDragOver={e => e.preventDefault()}
+                                    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fafafa'; } }}
+                                    onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#fafafa'; if (e.dataTransfer.files?.length) handleProjectFileUpload(e.dataTransfer.files); }}
+                                    style={{ border: '2px dashed #e2e8f0', borderRadius: '10px', padding: bestanden.length === 0 ? '24px' : '10px', background: '#fafafa', transition: 'all 0.15s', marginBottom: bestanden.length > 0 ? '12px' : 0 }}>
+                                    {bestanden.length === 0 && (
+                                        <div style={{ textAlign: 'center', color: '#cbd5e1' }}>
+                                            <i className="fa-solid fa-cloud-arrow-up" style={{ fontSize: '1.8rem', display: 'block', marginBottom: '8px' }} />
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>Sleep bestanden hierheen</div>
+                                            <div style={{ fontSize: '0.72rem', marginTop: '2px' }}>of gebruik de Uploaden knop</div>
+                                        </div>
+                                    )}
+                                </div>}
+                                {poSectOpen.bestanden && bestanden.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {bestanden.map((b, idx) => (
+                                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fff', borderRadius: '8px', border: '1px solid #f1f5f9', padding: '7px 10px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+                                                <i className={`fa-solid ${getIcon(b.type, b.name)}`} style={{ fontSize: '1rem', color: getIconColor(b.type, b.name), width: '18px', flexShrink: 0 }} />
+                                                <input value={b.label || ''} onChange={e => updateBestandLabel(idx, e.target.value)}
+                                                    placeholder="Omschrijving…" onClick={e => e.stopPropagation()}
+                                                    style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.82rem', color: '#1e293b', background: 'transparent', fontFamily: 'inherit' }} />
+                                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px', flexShrink: 0 }}>{b.name}</span>
+                                                <button onClick={async () => {
+                                                    setPreviewAtt(b); setPreviewBlobUrl(null);
+                                                    const src = b.data || b.url;
+                                                    if (src && src.startsWith('/')) {
+                                                        setPreviewLoading(true);
+                                                        try {
+                                                            const res = await fetch(src);
+                                                            const rawBlob = await res.blob();
+                                                            const isPdf = b.type === 'application/pdf' || b.name?.toLowerCase().endsWith('.pdf');
+                                                            const blob = isPdf ? new Blob([rawBlob], { type: 'application/pdf' }) : rawBlob;
+                                                            setPreviewBlobUrl(URL.createObjectURL(blob));
+                                                        } catch (e) { console.error(e); } finally { setPreviewLoading(false); }
+                                                    } else { setPreviewBlobUrl(src); }
+                                                }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.85rem', padding: '2px 4px', flexShrink: 0 }} title="Bekijken">
+                                                    <i className="fa-solid fa-eye" />
+                                                </button>
+                                                <button onClick={() => removeProjectBestand(idx)}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem', padding: '2px 4px', flexShrink: 0, opacity: 0.5 }}
+                                                    onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                                    onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}>
+                                                    <i className="fa-solid fa-trash" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+
+                    {/* ── Foto's ── */}
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '18px 20px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: poSectOpen.fotos ? '14px' : 0 }}>
+                            <h3 onClick={() => togglePoSect('fotos')} style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                                <i className="fa-solid fa-camera" style={{ color: '#F5850A' }} /> Foto's
+                                {photos.length > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '1px 8px' }}>{photos.length}</span>}
+                                <i className={`fa-solid fa-chevron-${poSectOpen.fotos ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.8rem' }} />
+                            </h3>
+                            {poSectOpen.fotos && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px', borderRadius: '8px', background: '#fff7ed', color: '#F5850A', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', flexShrink: 0 }}>
+                                    <i className="fa-solid fa-upload" /> Uploaden
+                                    <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handlePhotoUpload} />
+                                </label>
+                            )}
+                        </div>
+                        {poSectOpen.fotos && (() => {
+                            const mwFotos = (project?.fotos || []).map(f => ({ ...f, src: f.url || f.data, bron: 'medewerker' }));
+                            const adminFotos = photos.map(f => ({ ...f, src: f.url, bron: 'admin' }));
+                            const allFotos = [
+                                ...adminFotos.filter(p => photoFilter === 'alle' || p.category === photoFilter),
+                                ...(photoFilter === 'alle' ? mwFotos : []),
+                            ];
+                            return allFotos.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '32px 20px', border: '2px dashed #e2e8f0', borderRadius: '10px', color: '#cbd5e1' }}>
+                                    <i className="fa-solid fa-camera" style={{ fontSize: '1.8rem', display: 'block', marginBottom: '8px' }} />
+                                    <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>Nog geen foto's</div>
+                                    <div style={{ fontSize: '0.72rem', marginTop: '2px' }}>Gebruik de Uploaden knop om foto's toe te voegen</div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                                        {['alle', 'voor', 'voortgang', 'na'].map(c => (
+                                            <button key={c} onClick={() => setPhotoFilter(c)} style={{ padding: '4px 12px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', background: photoFilter === c ? '#F5850A' : '#f1f5f9', color: photoFilter === c ? '#fff' : '#64748b', transition: 'all 0.15s' }}>
+                                                {c === 'alle' ? 'Alle' : c.charAt(0).toUpperCase() + c.slice(1)}
+                                            </button>
+                                        ))}
+                                        {mwFotos.length > 0 && <span style={{ fontSize: '0.72rem', color: '#94a3b8', alignSelf: 'center', marginLeft: '4px' }}>{mwFotos.length} medewerker-foto{mwFotos.length !== 1 ? "'s" : ''}</span>}
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                                        {allFotos.map((foto, idx) => (
+                                            <div key={foto.id || idx} style={{ borderRadius: '10px', overflow: 'hidden', background: '#f1f5f9', position: 'relative', cursor: 'pointer', aspectRatio: '1' }}
+                                                onClick={() => setPreviewAtt({ data: foto.src, name: foto.name, type: 'image/jpeg' })}>
+                                                <img src={foto.src} alt={foto.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.6))', padding: '12px 6px 4px' }}>
+                                                    {foto.category && <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.6rem', fontWeight: 700, textTransform: 'capitalize' }}>{foto.category}</div>}
+                                                    {foto.bron === 'medewerker' && <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.58rem' }}>{foto.auteur} · {foto.datum}</div>}
+                                                </div>
+                                                {foto.bron === 'medewerker' && <div style={{ position: 'absolute', top: '4px', left: '4px', background: 'rgba(245,133,10,0.85)', borderRadius: '4px', padding: '1px 5px', fontSize: '0.58rem', fontWeight: 700, color: '#fff' }}>📱</div>}
+                                                <button
+                                                    onClick={e => {
+                                                        e.stopPropagation();
+                                                        if (!window.confirm('Foto verwijderen?')) return;
+                                                        if (foto.bron === 'medewerker') {
+                                                            saveProject({ ...project, fotos: (project.fotos || []).filter(f => f.id !== foto.id) });
+                                                        } else {
+                                                            setPhotos(prev => {
+                                                                const upd = prev.filter(f => f.id !== foto.id);
+                                                                localStorage.setItem(`schildersapp_photos_${id}`, JSON.stringify(upd));
+                                                                return upd;
+                                                            });
+                                                        }
+                                                    }}
+                                                    style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(239,68,68,0.85)', border: 'none', borderRadius: '50%', width: '22px', height: '22px', color: '#fff', cursor: 'pointer', fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                                                    <i className="fa-solid fa-xmark" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            );
+                        })()}
+                    </div>
+
+                </div>
+            )}
+
             {/* ===== TAKEN ===== */}
             {activeTab === 'taken' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: '14px', alignItems: 'start' }}>
@@ -2875,6 +3620,7 @@ export default function ProjectDossierPage() {
                                     <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '70px' }}>Team</th>
                                     <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '56px' }}>📝</th>
                                     <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '56px' }}>📎</th>
+                                    <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', width: '190px' }}>Acties</th>
                                     <th style={{ padding: '8px 10px', width: '44px' }}></th>
                                 </tr>
                             </thead>
@@ -2945,6 +3691,42 @@ export default function ProjectDossierPage() {
                                                     {attachments.length > 0 && <span style={{ fontSize: '0.65rem', fontWeight: 700 }}>{attachments.length}</span>}
                                                 </button>
                                             </td>
+                                            {/* Actie knoppen: Inplannen / Delen persoon / Delen project */}
+                                            {(() => {
+                                                const nAssigned = (task.assignedTo || []).length;
+                                                const gedeeldPersoon = nAssigned === 1;
+                                                const gedeeldProject = nAssigned > 1;
+                                                const gepland = !!task.startDate;
+                                                const persoonNaam = gedeeldPersoon ? (allUsers.find(u => u.id === Number(task.assignedTo[0]))?.name || '') : '';
+                                                return (
+                                                <td style={{ padding: '6px 6px', textAlign: 'center', width: '190px' }}>
+                                                    <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                                                        <button onClick={() => setPlanningModal({ taskId: task.id, taskName: task.name, startDate: task.startDate || '', endDate: task.endDate || '' })}
+                                                            title={gepland ? `Ingepland: ${formatDate(task.startDate)} → ${formatDate(task.endDate)}` : 'Opnemen in Planning'}
+                                                            style={{ width: '28px', height: '26px', flexShrink: 0, borderRadius: '7px', border: gepland ? '1.5px solid #16a34a' : '1.5px solid transparent', background: gepland ? '#dcfce7' : '#f1f5f9', color: gepland ? '#16a34a' : '#64748b', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                            onMouseEnter={e => { e.currentTarget.style.background = '#bbf7d0'; e.currentTarget.style.color = '#15803d'; e.currentTarget.style.borderColor = '#16a34a'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.background = gepland ? '#dcfce7' : '#f1f5f9'; e.currentTarget.style.color = gepland ? '#16a34a' : '#64748b'; e.currentTarget.style.borderColor = gepland ? '#16a34a' : 'transparent'; }}>
+                                                            <i className={`fa-solid ${gepland ? 'fa-calendar-check' : 'fa-calendar-plus'}`} />
+                                                        </button>
+                                                        <button onClick={() => setDelenModal({ taskId: task.id, taskName: task.name, mode: 'persoon', selectedUserId: null })}
+                                                            title={gedeeldPersoon ? `Gedeeld met: ${persoonNaam}` : 'Delen met een persoon'}
+                                                            style={{ width: '112px', height: '26px', padding: '0 7px', flexShrink: 0, borderRadius: '7px', border: gedeeldPersoon ? '1.5px solid #2563eb' : '1.5px solid transparent', background: gedeeldPersoon ? '#dbeafe' : '#f1f5f9', color: gedeeldPersoon ? '#2563eb' : '#64748b', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', overflow: 'hidden' }}
+                                                            onMouseEnter={e => { e.currentTarget.style.background = '#bfdbfe'; e.currentTarget.style.color = '#1d4ed8'; e.currentTarget.style.borderColor = '#2563eb'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.background = gedeeldPersoon ? '#dbeafe' : '#f1f5f9'; e.currentTarget.style.color = gedeeldPersoon ? '#2563eb' : '#64748b'; e.currentTarget.style.borderColor = gedeeldPersoon ? '#2563eb' : 'transparent'; }}>
+                                                            <i className="fa-solid fa-user-plus" style={{ flexShrink: 0 }} />
+                                                            <span style={{ fontSize: '0.68rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{gedeeldPersoon ? persoonNaam : ''}</span>
+                                                        </button>
+                                                        <button onClick={() => setDelenModal({ taskId: task.id, taskName: task.name, mode: 'project', selectedUserId: null })}
+                                                            title={gedeeldProject ? `Gedeeld met project (${nAssigned} pers.)` : 'Delen met het project'}
+                                                            style={{ width: '28px', height: '26px', flexShrink: 0, borderRadius: '7px', border: gedeeldProject ? '1.5px solid #7c3aed' : '1.5px solid transparent', background: gedeeldProject ? '#ede9fe' : '#f1f5f9', color: gedeeldProject ? '#7c3aed' : '#64748b', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                            onMouseEnter={e => { e.currentTarget.style.background = '#ddd6fe'; e.currentTarget.style.color = '#6d28d9'; e.currentTarget.style.borderColor = '#7c3aed'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.background = gedeeldProject ? '#ede9fe' : '#f1f5f9'; e.currentTarget.style.color = gedeeldProject ? '#7c3aed' : '#64748b'; e.currentTarget.style.borderColor = gedeeldProject ? '#7c3aed' : 'transparent'; }}>
+                                                            <i className="fa-solid fa-users" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                                );
+                                            })()}
                                             <td style={{ padding: '10px 6px', textAlign: 'center' }}>
                                                 <button onClick={() => setDeleteConfirmTask(isDeleteConfirm ? null : task.id)} title="Verwijderen"
                                                     style={{ background: isDeleteConfirm ? '#fef2f2' : 'none', border: isDeleteConfirm ? '1px solid #fecaca' : 'none', color: isDeleteConfirm ? '#ef4444' : '#cbd5e1', cursor: 'pointer', fontSize: '0.78rem', padding: '4px 5px', borderRadius: '6px' }}
@@ -2957,7 +3739,7 @@ export default function ProjectDossierPage() {
                                         {/* Verwijder bevestiging */}
                                         {isDeleteConfirm && (
                                             <tr key={task.id + '_del'}>
-                                                <td colSpan={7} style={{ padding: '0 10px 12px 10px', background: '#fef2f2', borderBottom: '2px solid #fecaca' }}>
+                                                <td colSpan={8} style={{ padding: '0 10px 12px 10px', background: '#fef2f2', borderBottom: '2px solid #fecaca' }}>
                                                     <div style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #fecaca', background: '#fff5f5', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                                         <div style={{ flex: 1 }}>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: attachments.length > 0 ? '6px' : '0' }}>
@@ -3001,7 +3783,7 @@ export default function ProjectDossierPage() {
                                             const isDragOver = dragOverTask === task.id;
                                             return (
                                             <tr key={task.id + '_attach'}>
-                                                <td colSpan={7} style={{ padding: '0 10px 12px', background: '#fffbf5', borderBottom: '1px solid #fed7aa' }}>
+                                                <td colSpan={8} style={{ padding: '0 10px 12px', background: '#fffbf5', borderBottom: '1px solid #fed7aa' }}>
                                                     <div
                                                         onDragEnter={e => { e.preventDefault(); setDragOverTask(task.id); }}
                                                         onDragOver={e => { e.preventDefault(); setDragOverTask(task.id); }}
@@ -3183,7 +3965,7 @@ export default function ProjectDossierPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
                             <div style={{ display: 'flex', gap: '6px' }}>
                                 {Object.entries(NOTE_TYPES).map(([key, cfg]) => (
-                                    <button key={key} onClick={() => setNoteType(key)} style={{ padding: '5px 12px', borderRadius: '20px', border: `2px solid ${noteType === key ? cfg.color : 'transparent'}`, background: noteType === key ? cfg.bg : '#f8fafc', color: noteType === key ? cfg.color : '#64748b', fontWeight: 600, fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s' }}>
+                                    <button key={key} onClick={() => setNoteType(key)} style={{ padding: '5px 12px', borderRadius: '20px', border: `2px solid ${noteType === key ? cfg.color : cfg.color + '55'}`, background: noteType === key ? cfg.color : cfg.color + '12', color: noteType === key ? '#fff' : cfg.color, fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', opacity: noteType === key ? 1 : 0.65, transition: 'all 0.15s' }}>
                                         <i className={`fa-solid ${cfg.icon}`} /> {cfg.label}
                                     </button>
                                 ))}
@@ -3197,99 +3979,99 @@ export default function ProjectDossierPage() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {notes.map(note => {
                             const cfg = NOTE_TYPES[note.type] || NOTE_TYPES.info;
+                            const isReplying = replyingToNote === note.id;
+                            const sendReply = () => {
+                                const txt = noteReplyInput.trim();
+                                if (!txt) return;
+                                const author = user?.name || 'Beheerder';
+                                const reply = { id: Date.now(), text: txt, author, created_at: new Date().toISOString() };
+                                setNotes(prev => { const u = prev.map(n => n.id !== note.id ? n : { ...n, replies: [...(n.replies || []), reply] }); localStorage.setItem(`schildersapp_notes_${id}`, JSON.stringify(u)); return u; });
+                                setNoteReplyInput('');
+                                setReplyingToNote(null);
+                                fetch('/api/notes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: note.id, addReply: { author, text: txt } }) }).catch(() => {});
+                            };
                             return (
-                                <div key={note.id} style={{ background: '#fff', borderRadius: '12px', padding: '16px', border: `1px solid ${cfg.color}22`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)', display: 'flex', gap: '12px' }}>
-                                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: cfg.bg, color: cfg.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <i className={`fa-solid ${cfg.icon}`} />
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: cfg.color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cfg.label}</span>
-                                            <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{note.author} · {formatDate(note.date)}</span>
+                                <div key={note.id} style={{ background: cfg.bg, borderRadius: '14px', border: `1.5px solid ${cfg.color}30`, overflow: 'hidden' }}>
+                                    {/* Header balk */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderBottom: `1px solid ${cfg.color}18` }}>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', background: cfg.color, color: '#fff', fontSize: '0.68rem', fontWeight: 700 }}>
+                                            <i className={`fa-solid ${cfg.icon}`} style={{ fontSize: '0.62rem' }} />
+                                            {cfg.label}
+                                        </span>
+                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', marginLeft: '2px' }}>{note.author} · {formatDate(note.date)}</span>
+                                        <div style={{ marginLeft: 'auto', display: 'flex', gap: '2px' }}>
+                                            <button onClick={() => deleteNote(note.id)}
+                                                style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '3px 5px', borderRadius: '6px', fontSize: '0.78rem' }}
+                                                onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                                onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
+                                                <i className="fa-solid fa-trash" />
+                                            </button>
                                         </div>
-                                        <p style={{ margin: 0, fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.5 }}>{note.text || note.content}</p>
+                                    </div>
+                                    {/* Body */}
+                                    <div style={{ padding: '12px 14px' }}>
+                                        <p style={{ margin: 0, fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{note.text || note.content}</p>
                                         {note.photo && (
                                             <div style={{ marginTop: '10px' }}>
-                                                <button onClick={() => setPreviewAtt({ data: note.photo, name: 'Notitie bewijs', type: 'image/jpeg' })} 
-                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: `${cfg.color}15`, color: cfg.color, border: `1px solid ${cfg.color}40`, borderRadius: '6px', padding: '4px 8px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
-                                                    <i className="fa-solid fa-image" /> Foto openen
-                                                </button>
+                                                {note.mediaType === 'video'
+                                                    ? <video src={note.photo} controls style={{ maxWidth: '100%', maxHeight: '220px', borderRadius: '8px', display: 'block' }} />
+                                                    : <img src={note.photo} alt="" style={{ maxWidth: '100%', maxHeight: '220px', borderRadius: '8px', cursor: 'pointer', display: 'block', objectFit: 'cover' }}
+                                                        onClick={() => setPreviewAtt({ data: note.photo, url: note.photo, name: 'notitie-foto', type: 'image/jpeg' })} />}
                                             </div>
                                         )}
-                                        {/* Reacties */}
+                                        {/* Replies */}
                                         {(note.replies || []).length > 0 && (
-                                            <div style={{ marginTop: '10px', paddingLeft: '12px', borderLeft: '2px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                 {note.replies.map(r => (
-                                                    <div key={r.id}>
-                                                        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                            <i className="fa-solid fa-reply" style={{ color: '#94a3b8', fontSize: '0.55rem', transform: 'scaleX(-1)' }} />
-                                                            {r.author}
+                                                    <div key={r.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                                        <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: cfg.color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0, marginTop: '1px' }}>
+                                                            {(r.author || '?')[0].toUpperCase()}
                                                         </div>
-                                                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#334155', lineHeight: 1.4 }}>{r.text}</p>
-                                                        <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>{r.date}</span>
+                                                        <div style={{ flex: 1, background: '#fff', borderRadius: '8px', padding: '6px 10px', border: `1px solid ${cfg.color}20` }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#334155' }}>{r.author}</span>
+                                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{r.created_at ? new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : r.date || ''}</span>
+                                                            </div>
+                                                            <p style={{ margin: 0, fontSize: '0.82rem', color: '#1e293b', lineHeight: 1.4 }}>{r.text}</p>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
                                         )}
-                                        {/* Inline reply invoer */}
-                                        {replyingToNote === note.id && (
-                                            <div style={{ marginTop: '10px', paddingLeft: '12px', borderLeft: '2px solid #F5850A' }}>
-                                                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#F5850A', marginBottom: '5px' }}>Reageer als {user?.name || 'Jan Modaal'}</div>
-                                                <textarea
-                                                    autoFocus
-                                                    value={noteReplyInput}
-                                                    onChange={e => setNoteReplyInput(e.target.value)}
-                                                    onKeyDown={async e => {
-                                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                                            const txt = noteReplyInput.trim();
-                                                            if (!txt) return;
-                                                            const author = user?.name || 'Jan Modaal';
-                                                            const reply = { id: Date.now(), text: txt, author, date: new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
-                                                            setNotes(prev => prev.map(n => n.id !== note.id ? n : { ...n, replies: [...(n.replies || []), reply] }));
-                                                            setNoteReplyInput('');
-                                                            setReplyingToNote(null);
-                                                            fetch(`/api/notes/${note.id}/replies`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author, content: txt }) }).catch(console.error);
-                                                        }
-                                                        if (e.key === 'Escape') { setReplyingToNote(null); setNoteReplyInput(''); }
-                                                    }}
-                                                    placeholder="Typ je reactie... (Ctrl+Enter om op te slaan)"
-                                                    rows={2}
-                                                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #fed7aa', fontSize: '0.82rem', color: '#1e293b', outline: 'none', resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff7ed' }}
-                                                />
-                                                <div style={{ display: 'flex', gap: '6px', marginTop: '6px', justifyContent: 'flex-end' }}>
-                                                    <button onClick={() => { setReplyingToNote(null); setNoteReplyInput(''); }}
-                                                        style={{ padding: '4px 12px', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', color: '#94a3b8' }}>Annuleer</button>
-                                                    <button onClick={async () => {
-                                                        const txt = noteReplyInput.trim();
-                                                        if (!txt) return;
-                                                        const author = user?.name || 'Jan Modaal';
-                                                        const reply = { id: Date.now(), text: txt, author, date: new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
-                                                        setNotes(prev => prev.map(n => n.id !== note.id ? n : { ...n, replies: [...(n.replies || []), reply] }));
-                                                        setNoteReplyInput('');
-                                                        setReplyingToNote(null);
-                                                        fetch(`/api/notes/${note.id}/replies`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author, content: txt }) }).catch(console.error);
-                                                    }} disabled={!noteReplyInput.trim()}
-                                                        style={{ padding: '4px 14px', background: noteReplyInput.trim() ? '#F5850A' : '#e2e8f0', border: 'none', borderRadius: '6px', cursor: noteReplyInput.trim() ? 'pointer' : 'not-allowed', fontSize: '0.75rem', fontWeight: 700, color: noteReplyInput.trim() ? '#fff' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                        <i className="fa-solid fa-reply" />Verstuur
-                                                    </button>
+                                        {/* Reply invoer */}
+                                        {isReplying && (
+                                            <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                                <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#F5850A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0, marginTop: '1px' }}>
+                                                    {(user?.name || 'B')[0].toUpperCase()}
                                                 </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <input autoFocus value={noteReplyInput} onChange={e => setNoteReplyInput(e.target.value)}
+                                                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); sendReply(); } if (e.key === 'Escape') { setReplyingToNote(null); setNoteReplyInput(''); } }}
+                                                        placeholder="Typ reactie… (Enter)"
+                                                        style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: `1.5px solid ${cfg.color}`, fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', background: '#fff' }} />
+                                                </div>
+                                                <button onClick={sendReply} style={{ padding: '6px 12px', borderRadius: '8px', border: 'none', background: cfg.color, color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', flexShrink: 0 }}>↵</button>
                                             </div>
                                         )}
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
-                                        <button onClick={() => deleteNote(note.id)} style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '4px', fontSize: '0.85rem', borderRadius: '6px', transition: 'color 0.15s' }}
-                                            onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                                            onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}>
-                                            <i className="fa-solid fa-trash" />
+                                    {/* Footer */}
+                                    <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '8px', borderTop: `1px solid ${cfg.color}15` }}>
+                                        <button onClick={() => { setReplyingToNote(isReplying ? null : note.id); setNoteReplyInput(''); }}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '20px', border: `1.5px solid ${isReplying ? cfg.color : cfg.color + '40'}`, background: isReplying ? cfg.color : 'transparent', color: isReplying ? '#fff' : cfg.color, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
+                                            <i className="fa-regular fa-comment" />
+                                            Reageer {(note.replies || []).length > 0 && <span style={{ background: isReplying ? 'rgba(255,255,255,0.3)' : cfg.color + '22', borderRadius: '10px', padding: '0 5px', fontWeight: 800 }}>{note.replies.length}</span>}
                                         </button>
-                                        <button onClick={() => { setReplyingToNote(replyingToNote === note.id ? null : note.id); setNoteReplyInput(''); }}
-                                            title="Reageer op deze notitie"
-                                            style={{ background: 'none', border: 'none', color: replyingToNote === note.id ? '#F5850A' : '#cbd5e1', cursor: 'pointer', padding: '4px', fontSize: '0.85rem', borderRadius: '6px', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: '3px' }}
-                                            onMouseEnter={e => e.currentTarget.style.color = '#F5850A'}
-                                            onMouseLeave={e => e.currentTarget.style.color = replyingToNote === note.id ? '#F5850A' : '#cbd5e1'}>
-                                            <i className="fa-solid fa-reply" />
-                                            {(note.replies || []).length > 0 && <span style={{ fontSize: '0.65rem', fontWeight: 700 }}>{note.replies.length}</span>}
-                                        </button>
+                                        {(note.type === 'actie' || note.type === 'planning') && (
+                                            <button onClick={() => {
+                                                const taskName = (note.text || note.content || '').split('\n')[0].slice(0, 80);
+                                                const task = { id: 't' + Date.now(), name: taskName, startDate: new Date().toISOString().split('T')[0], endDate: '', assignedTo: [], completed: false };
+                                                saveProject({ ...project, tasks: [...(project.tasks || []), task] });
+                                                showToast(`Taak "${taskName}" toegevoegd`, 'success');
+                                            }}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '20px', border: `1.5px solid #F5850A40`, background: 'transparent', color: '#F5850A', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                <i className="fa-solid fa-list-check" /> Maak taak
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             );
@@ -4476,49 +5258,6 @@ export default function ProjectDossierPage() {
                 );
             })()}
 
-            {/* ===== FOTO'S ===== */}
-            {activeTab === 'fotos' && (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                            {['alle', 'voor', 'voortgang', 'na'].map(c => (
-                                <button key={c} onClick={() => setPhotoFilter(c)} style={{ padding: '6px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.78rem', background: photoFilter === c ? '#F5850A' : '#f1f5f9', color: photoFilter === c ? '#fff' : '#64748b', transition: 'all 0.15s', textTransform: 'capitalize' }}>{c === 'alle' ? 'Alle' : c.charAt(0).toUpperCase() + c.slice(1)}</button>
-                            ))}
-                        </div>
-                        <button onClick={() => fileInputRef.current?.click()} style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                            <i className="fa-solid fa-upload" /> Foto's uploaden
-                        </button>
-                        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} style={{ display: 'none' }} />
-                    </div>
-
-                    {photos.filter(p => photoFilter === 'alle' || p.category === photoFilter).length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', borderRadius: '14px', border: '2px dashed #e2e8f0' }}>
-                            <i className="fa-solid fa-camera" style={{ fontSize: '2.5rem', color: '#cbd5e1', marginBottom: '12px', display: 'block' }} />
-                            <p style={{ color: '#94a3b8', margin: '0 0 16px', fontSize: '0.9rem' }}>Nog geen foto's toegevoegd</p>
-                            <button onClick={() => fileInputRef.current?.click()} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}>
-                                <i className="fa-solid fa-plus" style={{ marginRight: '6px' }} /> Foto toevoegen
-                            </button>
-                        </div>
-                    ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                            {photos.filter(p => photoFilter === 'alle' || p.category === photoFilter).map(photo => (
-                                <div key={photo.id} style={{ borderRadius: '12px', overflow: 'hidden', background: '#fff', boxShadow: '0 1px 6px rgba(0,0,0,0.08)', border: '1px solid #f1f5f9', position: 'relative', cursor: 'pointer' }}
-                                    onMouseEnter={e => e.currentTarget.querySelector('.photo-overlay').style.opacity = '1'}
-                                    onMouseLeave={e => e.currentTarget.querySelector('.photo-overlay').style.opacity = '0'}>
-                                    <img src={photo.url} alt={photo.name} style={{ width: '100%', height: '180px', objectFit: 'cover', display: 'block' }} />
-                                    <div className="photo-overlay" style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', opacity: 0, transition: 'opacity 0.2s', display: 'flex', alignItems: 'flex-end', padding: '12px' }}>
-                                        <div style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 600 }}>{photo.name}</div>
-                                    </div>
-                                    <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.7rem', background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: '10px', fontWeight: 600, textTransform: 'capitalize' }}>{photo.category}</span>
-                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{formatDate(photo.date)}</span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
             {/* ===== DOCUMENTEN ===== */}
             {activeTab === 'documenten' && (() => {
                 const offerteNr = `SUK-${new Date().getFullYear()}-${String(id).padStart(4,'0')}`;
@@ -5393,7 +6132,7 @@ export default function ProjectDossierPage() {
                                                         <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>
                                                             <i className="fa-solid fa-envelope" style={{ color: '#4f46e5', marginRight: 6 }} /> E-mails & Berichten (Live)
                                                         </div>
-                                                        <button disabled={kanaalBerichtenLaden} onClick={async () => { setKanaalBerichtenLaden(true); try { const r = await fetch('/api/teams/kanaal-berichten?teamId='+teamsTeamId+'&kanaalId='+project.teamsKanaalId); const d = await r.json(); setKanaalBerichtenData(d); } catch(e){} finally { setKanaalBerichtenLaden(false); } }}
+                                                        <button disabled={kanaalBerichtenLaden} onClick={laadKanaalBerichten}
                                                                 style={{ padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: 8, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                                                             <i className={`fa-solid ${kanaalBerichtenLaden ? 'fa-spinner fa-spin' : 'fa-rotate-right'}`} /> Vernieuwen
                                                         </button>
@@ -5818,6 +6557,12 @@ export default function ProjectDossierPage() {
                                                 {/* ── Midden: detail of Planner kanban ── */}
                                                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
                                                 {heeftPlanner ? (<>
+                                                {plannerTakenBezig && !plannerTaken && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '48px 24px', color: '#6b7280' }}>
+                                                        <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '1.2rem', color: '#10b981' }} />
+                                                        <span style={{ fontSize: '0.9rem' }}>Planner taken laden…</span>
+                                                    </div>
+                                                )}
                                                 <div style={{ border: '1px solid #c7d2fe', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(99,102,241,0.07)', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                                                 {/* ── Kanban header ── */}
                                                 <div style={{ padding: '10px 12px', background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
@@ -7277,8 +8022,8 @@ export default function ProjectDossierPage() {
 
             {previewAtt && (
                 <div
-                    onClick={() => setPreviewAtt(null)}
-                    onKeyDown={e => e.key === 'Escape' && setPreviewAtt(null)}
+                    onClick={() => { setPreviewAtt(null); setPreviewBlobUrl(null); setPreviewLoading(false); }}
+                    onKeyDown={e => { if (e.key === 'Escape') { setPreviewAtt(null); setPreviewBlobUrl(null); setPreviewLoading(false); } }}
                     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
                     <div onClick={e => e.stopPropagation()}
                         style={{ background: '#fff', borderRadius: '16px', overflow: 'hidden', maxWidth: '90vw', maxHeight: '90vh', width: (previewAtt.type === 'message/rfc822' || previewAtt.type === 'application/vnd.ms-outlook') ? '860px' : undefined, display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.5)', minWidth: '320px' }}>
@@ -7298,14 +8043,14 @@ export default function ProjectDossierPage() {
                                 previewAtt.type.includes('sheet') ? '#16a34a' : '#64748b'
                             }} />
                             <span style={{ flex: 1, fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewAtt.name}</span>
-                            {previewAtt.data ? (
-                                <a href={previewAtt.data} download={previewAtt.name}
+                            {(previewAtt.data || previewAtt.url) ? (
+                                <a href={previewAtt.data || previewAtt.url} download={previewAtt.name}
                                     style={{ padding: '6px 14px', borderRadius: '8px', background: '#F5850A', color: '#fff', textDecoration: 'none', fontWeight: 700, fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
                                     onClick={e => e.stopPropagation()}>
                                     <i className="fa-solid fa-download" /> Downloaden
                                 </a>
                             ) : null}
-                            <button onClick={() => setPreviewAtt(null)}
+                            <button onClick={() => { setPreviewAtt(null); setPreviewBlobUrl(null); setPreviewLoading(false); }}
                                 style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: '#f1f5f9', color: '#64748b', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                 onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; }}
                                 onMouseLeave={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; }}>
@@ -7315,11 +8060,24 @@ export default function ProjectDossierPage() {
                         {/* Preview body */}
                         <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', minHeight: '200px', maxHeight: 'calc(90vh - 70px)' }}>
                             {previewAtt.type.startsWith('image/') ? (
-                                <img src={previewAtt.data} alt={previewAtt.name}
-                                    style={{ maxWidth: '100%', maxHeight: 'calc(90vh - 70px)', objectFit: 'contain', display: 'block' }} />
-                            ) : previewAtt.type === 'application/pdf' ? (
-                                <iframe src={previewAtt.data} title={previewAtt.name}
-                                    style={{ width: '80vw', height: 'calc(90vh - 70px)', border: 'none', display: 'block' }} />
+                                <img src={previewBlobUrl || previewAtt.data || previewAtt.url} alt={previewAtt.name}
+                                    style={{ maxWidth: '100%', maxHeight: 'calc(90vh - 70px)', objectFit: 'contain', display: 'block' }}
+                                    onError={e => { e.target.style.display='none'; e.target.nextSibling && (e.target.nextSibling.style.display='flex'); }} />
+                            ) : previewAtt.type === 'application/pdf' || previewAtt.name?.toLowerCase().endsWith('.pdf') ? (
+                                previewLoading ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '60px 40px', textAlign: 'center' }}>
+                                        <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2.5rem', color: '#ef4444' }} />
+                                        <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>PDF laden…</div>
+                                    </div>
+                                ) : previewBlobUrl ? (
+                                    <embed src={previewBlobUrl} type="application/pdf"
+                                        style={{ width: '80vw', height: 'calc(90vh - 70px)', display: 'block' }} />
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', padding: '60px 40px', textAlign: 'center' }}>
+                                        <i className="fa-solid fa-file-pdf" style={{ fontSize: '4rem', color: '#ef4444' }} />
+                                        <div style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Bestand kan niet worden weergegeven.</div>
+                                    </div>
+                                )
                             ) : (previewAtt.type === 'message/rfc822' || (previewAtt.type === 'application/vnd.ms-outlook' && previewAtt.parsedMsg)) ? (() => {
                                 const isMsg = previewAtt.type === 'application/vnd.ms-outlook';
                                 const emailData = isMsg ? previewAtt.parsedMsg : parseEml(previewAtt.rawText || '');
@@ -7397,19 +8155,161 @@ export default function ProjectDossierPage() {
                                     </div>
                                 );
                             })() : (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '40px 60px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '40px 60px', textAlign: 'center' }}>
                                     <i className={`fa-solid ${
                                         previewAtt.name?.toLowerCase().endsWith('.msg') ? 'fa-envelope' :
                                         previewAtt.type.includes('word') || previewAtt.name.endsWith('.docx') ? 'fa-file-word' :
                                         previewAtt.type.includes('sheet') || previewAtt.name.endsWith('.xlsx') ? 'fa-file-excel' : 'fa-file'
                                     }`} style={{ fontSize: '4rem', color: previewAtt.name?.toLowerCase().endsWith('.msg') ? '#2563eb' : previewAtt.type.includes('word') || previewAtt.name.endsWith('.docx') ? '#2563eb' : previewAtt.type.includes('sheet') ? '#16a34a' : '#94a3b8' }} />
-                                    <div style={{ textAlign: 'center' }}>
+                                    <div>
                                         <div style={{ color: '#fff', fontWeight: 700, fontSize: '1rem', marginBottom: '6px' }}>{previewAtt.name}</div>
-                                        <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{previewAtt.name?.toLowerCase().endsWith('.msg') ? 'Kon e-mail niet inladen — probeer te downloaden.' : 'Voorbeeldweergave niet beschikbaar voor dit bestandstype'}</div>
-                                        <div style={{ color: '#64748b', fontSize: '0.72rem', marginTop: '4px' }}>{previewAtt.size ? (previewAtt.size / 1024).toFixed(1) + ' KB' : ''}</div>
+                                        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: (previewAtt.data || previewAtt.url) ? '16px' : '0' }}>{previewAtt.name?.toLowerCase().endsWith('.msg') ? 'Kon e-mail niet inladen — probeer te downloaden.' : 'Voorbeeldweergave niet beschikbaar voor dit bestandstype'}</div>
+                                        <div style={{ color: '#64748b', fontSize: '0.72rem', marginBottom: '12px' }}>{previewAtt.size ? (previewAtt.size / 1024).toFixed(1) + ' KB' : ''}</div>
+                                        {(previewAtt.data || previewAtt.url) && (
+                                            <a href={previewAtt.data || previewAtt.url} target="_blank" rel="noreferrer"
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: '#F5850A', color: '#fff', borderRadius: '10px', textDecoration: 'none', fontWeight: 700, fontSize: '0.85rem' }}>
+                                                <i className="fa-solid fa-arrow-up-right-from-square" /> Openen in nieuw tabblad
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Planning Modal ── */}
+            {planningModal && (
+                <div onClick={() => setPlanningModal(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    <div onClick={e => e.stopPropagation()}
+                        style={{ background: '#fff', borderRadius: '18px', width: '400px', maxWidth: '95vw', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+                        <div style={{ padding: '18px 22px', background: 'linear-gradient(135deg,#16a34a,#15803d)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-calendar-plus" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>Opnemen in Planning</div>
+                                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)', marginTop: '2px' }}>
+                                    Top! We plannen <strong>{planningModal.taskName}</strong> in.
+                                </div>
+                            </div>
+                            <button onClick={() => setPlanningModal(null)}
+                                style={{ width: '30px', height: '30px', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+                        <div style={{ padding: '20px 22px' }}>
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                                <label style={{ flex: 1 }}>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Startdatum</div>
+                                    <input type="date" value={planningModal.startDate}
+                                        onChange={e => setPlanningModal(p => ({ ...p, startDate: e.target.value }))}
+                                        style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1.5px solid #e2e8f0', fontSize: '0.88rem', boxSizing: 'border-box', outline: 'none' }} />
+                                </label>
+                                <label style={{ flex: 1 }}>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Einddatum</div>
+                                    <input type="date" value={planningModal.endDate}
+                                        onChange={e => setPlanningModal(p => ({ ...p, endDate: e.target.value }))}
+                                        style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1.5px solid #e2e8f0', fontSize: '0.88rem', boxSizing: 'border-box', outline: 'none' }} />
+                                </label>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                <button onClick={() => setPlanningModal(null)}
+                                    style={{ padding: '8px 18px', borderRadius: '9px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                    Annuleren
+                                </button>
+                                <button onClick={() => handlePlanningBevestigen(planningModal.taskId, planningModal.startDate, planningModal.endDate)}
+                                    style={{ padding: '8px 20px', borderRadius: '9px', border: 'none', background: '#16a34a', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fa-solid fa-calendar-check" /> Inplannen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Delen Modal ── */}
+            {delenModal && (
+                <div onClick={() => setDelenModal(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    <div onClick={e => e.stopPropagation()}
+                        style={{ background: '#fff', borderRadius: '18px', width: '380px', maxWidth: '95vw', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+                        <div style={{ padding: '18px 22px', background: 'linear-gradient(135deg,#2563eb,#1d4ed8)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-share-nodes" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>Taak delen</div>
+                                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {delenModal.taskName}
+                                </div>
+                            </div>
+                            <button onClick={() => setDelenModal(null)}
+                                style={{ width: '30px', height: '30px', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+                        <div style={{ padding: '20px 22px' }}>
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '18px' }}>
+                                <button onClick={() => setDelenModal(p => ({ ...p, mode: 'persoon', selectedUserId: null }))}
+                                    style={{ flex: 1, padding: '14px 10px', borderRadius: '12px', cursor: 'pointer', textAlign: 'center', border: `2px solid ${delenModal.mode === 'persoon' ? '#2563eb' : '#e2e8f0'}`, background: delenModal.mode === 'persoon' ? '#eff6ff' : '#f8fafc', color: delenModal.mode === 'persoon' ? '#1d4ed8' : '#475569' }}>
+                                    <i className="fa-solid fa-user" style={{ fontSize: '1.2rem', display: 'block', marginBottom: '6px' }} />
+                                    <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>Met een persoon</div>
+                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>Alleen zij zien de taak</div>
+                                </button>
+                                <button onClick={() => setDelenModal(p => ({ ...p, mode: 'project', selectedUserId: null }))}
+                                    style={{ flex: 1, padding: '14px 10px', borderRadius: '12px', cursor: 'pointer', textAlign: 'center', border: `2px solid ${delenModal.mode === 'project' ? '#2563eb' : '#e2e8f0'}`, background: delenModal.mode === 'project' ? '#eff6ff' : '#f8fafc', color: delenModal.mode === 'project' ? '#1d4ed8' : '#475569' }}>
+                                    <i className="fa-solid fa-users" style={{ fontSize: '1.2rem', display: 'block', marginBottom: '6px' }} />
+                                    <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>Met het project</div>
+                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>Heel projectteam ziet het</div>
+                                </button>
+                            </div>
+                            {delenModal.mode === 'persoon' && (
+                                <div style={{ marginBottom: '16px' }}>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Kies medewerker</div>
+                                    {allUsers.map(u => (
+                                        <button key={u.id} onClick={() => setDelenModal(p => ({ ...p, selectedUserId: u.id }))}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', cursor: 'pointer', border: `2px solid ${delenModal.selectedUserId === u.id ? '#2563eb' : '#e2e8f0'}`, background: delenModal.selectedUserId === u.id ? '#eff6ff' : '#fff', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', textAlign: 'left' }}>
+                                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,#F5850A,#E07000)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0 }}>{u.initials}</div>
+                                            <div>
+                                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>{u.name}</div>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{u.role}</div>
+                                            </div>
+                                            {delenModal.selectedUserId === u.id && <i className="fa-solid fa-circle-check" style={{ marginLeft: 'auto', color: '#2563eb', fontSize: '1rem' }} />}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {delenModal.mode === 'project' && (
+                                <div style={{ marginBottom: '16px', padding: '12px', background: '#f0f9ff', borderRadius: '10px', border: '1px solid #bae6fd' }}>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#0284c7', marginBottom: '8px' }}>
+                                        <i className="fa-solid fa-users" style={{ marginRight: '5px' }} />
+                                        Projectteam ({projectTeamUsers.length > 0 ? projectTeamUsers.length : allUsers.length} personen)
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {(projectTeamUsers.length > 0 ? projectTeamUsers : allUsers).map(u => (
+                                            <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 8px', borderRadius: '20px', background: '#fff', border: '1px solid #bae6fd', fontSize: '0.73rem', color: '#0369a1', fontWeight: 600 }}>
+                                                <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'linear-gradient(135deg,#F5850A,#E07000)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.5rem', fontWeight: 700 }}>{u.initials}</div>
+                                                {u.name}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                <button onClick={() => setDelenModal(null)}
+                                    style={{ padding: '8px 18px', borderRadius: '9px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                    Annuleren
+                                </button>
+                                <button
+                                    disabled={!delenModal.mode || (delenModal.mode === 'persoon' && !delenModal.selectedUserId)}
+                                    onClick={() => handleDelen(delenModal.taskId, delenModal.mode, delenModal.selectedUserId)}
+                                    style={{ padding: '8px 20px', borderRadius: '9px', border: 'none', background: (!delenModal.mode || (delenModal.mode === 'persoon' && !delenModal.selectedUserId)) ? '#e2e8f0' : '#2563eb', color: (!delenModal.mode || (delenModal.mode === 'persoon' && !delenModal.selectedUserId)) ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: (!delenModal.mode || (delenModal.mode === 'persoon' && !delenModal.selectedUserId)) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fa-solid fa-share" /> Delen
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

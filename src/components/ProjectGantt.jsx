@@ -105,9 +105,14 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             const all = stored ? JSON.parse(stored) : [];
             const merged = all.map(x => String(x.id) === String(p.id) ? p : x);
             localStorage.setItem('schildersapp_projecten', JSON.stringify(merged));
-            try { window.dispatchEvent(new CustomEvent('schilders-sync', { detail: { projecten: merged } })); } catch {}
-        } catch {}
-        onSave(p);
+            // Defer event + parent setState buiten de React render-cyclus
+            setTimeout(() => {
+                try { window.dispatchEvent(new CustomEvent('schilders-sync', { detail: { projecten: merged } })); } catch {}
+                onSave(p);
+            }, 0);
+        } catch {
+            setTimeout(() => onSave(p), 0);
+        }
         setSavedFeedback(true);
         setTimeout(() => setSavedFeedback(false), 2500);
     }, [proj, onSave]);
@@ -151,6 +156,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     const [noteTooltip, setNoteTooltip] = useState(null); // { notes[], x, y, taskName }
     const [noteUploading, setNoteUploading] = useState(false);
     const [noteDragOver, setNoteDragOver] = useState(false);
+    const [attPreview, setAttPreview] = useState(null); // { url, name, type }
 
     // Taak toevoegen
     const [showAddTask, setShowAddTask] = useState(false);
@@ -233,7 +239,18 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
     projRef.current = proj;
     const forceSaveRef = useRef(forceSave);
     forceSaveRef.current = forceSave;
+    const sortTasksByDateRef = useRef(null);
     const dblClickRef = useRef({ t: 0, id: null }); // timing voor dubbelklik detectie
+
+    // Auto-save: debounced opslaan bij elke wijziging van proj
+    const autoSaveTimer = useRef(null);
+    const isFirstRender = useRef(true);
+    useEffect(() => {
+        if (isFirstRender.current) { isFirstRender.current = false; return; }
+        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+        autoSaveTimer.current = setTimeout(() => forceSaveRef.current(), 800);
+        return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+    }, [proj]);
 
 
     // --- Timeline dates ---
@@ -543,6 +560,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 }
                 setTimeout(() => {
                     justDraggedRef.current = false;
+                    sortTasksByDateRef.current?.();
                     forceSaveRef.current();
                 }, 200);
             };
@@ -570,6 +588,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
             const days = (e.shiftKey ? 7 : 1) * (e.key === 'ArrowRight' ? 1 : -1);
             e.preventDefault();
             moveBar(selectedTaskIdRef.current, days);
+            setTimeout(() => sortTasksByDateRef.current?.(), 50);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -599,6 +618,18 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
         [tasks[idx], tasks[idx + 1]] = [tasks[idx + 1], tasks[idx]];
         return { ...prev, tasks };
     });
+    const sortTasksByDate = useCallback(() => {
+        setProj(prev => {
+            const sorted = [...prev.tasks].sort((a, b) => {
+                if (!a.startDate) return 1;
+                if (!b.startDate) return -1;
+                return a.startDate.localeCompare(b.startDate);
+            });
+            if (sorted.every((t, i) => t.id === prev.tasks[i]?.id)) return prev;
+            return { ...prev, tasks: sorted };
+        });
+    }, []);
+    sortTasksByDateRef.current = sortTasksByDate;
     const duplicateTask = (tid) => updateProj(prev => {
         const idx = prev.tasks.findIndex(t => t.id === tid);
         if (idx < 0) return prev;
@@ -685,7 +716,7 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 updateProj(prev => {
                     const newTasks = (prev.tasks || []).map(tx => tx.id === taskId ? { ...tx, startDate: dc2.startDate, endDate: dc2.endDate } : tx);
                     const np = { ...prev, tasks: newTasks };
-                    forceSave(np);
+                    setTimeout(() => forceSaveRef.current(np), 0);
                     return np;
                 });
             } else {
@@ -791,12 +822,11 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         style={{ padding: '7px 14px', borderRadius: '8px', border: 'none', background: showAddTask ? '#f1f5f9' : '#F5850A', color: showAddTask ? '#64748b' : '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <i className={`fa-solid ${showAddTask ? 'fa-xmark' : 'fa-plus'}`} />{showAddTask ? 'Sluiten' : 'Taak toevoegen'}
                     </button>
-                    {/* Opslaan */}
-                    <button onClick={() => forceSave()}
-                        style={{ padding: '7px 14px', borderRadius: '8px', border: 'none', background: savedFeedback ? '#10b981' : '#1e293b', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'background 0.3s' }}>
-                        <i className={`fa-solid ${savedFeedback ? 'fa-circle-check' : 'fa-floppy-disk'}`} />
-                        {savedFeedback ? 'Opgeslagen!' : 'Opslaan'}
-                    </button>
+                    {/* Auto-save indicator */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 12px', borderRadius: '8px', background: savedFeedback ? '#f0fdf4' : '#f8fafc', border: `1px solid ${savedFeedback ? '#bbf7d0' : '#e2e8f0'}`, fontSize: '0.78rem', fontWeight: 600, color: savedFeedback ? '#16a34a' : '#94a3b8', transition: 'all 0.3s' }}>
+                        <i className={`fa-solid ${savedFeedback ? 'fa-circle-check' : 'fa-cloud'}`} />
+                        {savedFeedback ? 'Opgeslagen' : 'Auto-save aan'}
+                    </div>
                 </div>
             </div>
 
@@ -832,8 +862,38 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 </>
             )}
 
+            {/* Layout: wachtrij links + gantt rechts */}
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+
+            {/* Wachtrij zijkolom */}
+            {(() => {
+                const unassigned = (proj.tasks || []).filter(t => !(t.assignedTo || []).length);
+                if (!unassigned.length) return null;
+                return (
+                    <div className="wachtrij-panel wachtrij-panel--sidebar">
+                        <div className="wachtrij-header">
+                            <i className="fa-solid fa-list-check" style={{ color: '#F5850A' }}></i>
+                            <span>In te plannen</span>
+                            <span className="wachtrij-badge">{unassigned.length}</span>
+                        </div>
+                        <div className="wachtrij-list wachtrij-list--vertical">
+                            {unassigned.map(task => (
+                                <div key={task.id} className="wachtrij-item" style={{ borderLeft: `4px solid ${proj.color || '#F5850A'}` }}>
+                                    <span className="wachtrij-task">{task.name}</span>
+                                    <span className="wachtrij-dates">
+                                        {task.startDate && task.endDate
+                                            ? `${task.startDate.split('-').reverse().join('-')} – ${task.endDate.split('-').reverse().join('-')}`
+                                            : 'Geen datum'}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Gantt wrapper — identiek aan globale planning */}
-            <div className="gantt-wrapper" ref={ganttWrapperRef} style={{ '--cell-w': `${cellW}px` }}>
+            <div className="gantt-wrapper" ref={ganttWrapperRef} style={{ '--cell-w': `${cellW}px`, flex: 1, minWidth: 0 }}>
                 {/* 3-laags header: Jaar / Maand / Week / Dag */}
                 {/* Jaar */}
                 <div className="gantt-header-row year-row">
@@ -1598,6 +1658,9 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                     })()}
                 </div>
             </div>
+            {/* einde gantt-wrapper */}
+            </div>
+            {/* einde flex layout wachtrij + gantt */}
 
         {/* ===== WORKER TOOLTIP + TEAM POPUP ===== */}
         {workerTooltip && (
@@ -1771,7 +1834,9 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 const txt = noteInput.trim();
                 if (!txt) return;
                 const newNote = { id: Date.now(), text: txt, type: 'nieuw', date: new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
-                updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: [...(tk.notes || []), newNote] }) }));
+                const updated = { ...proj, tasks: proj.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: [...(tk.notes || []), newNote] }) };
+                updateProj(updated);
+                forceSaveRef.current(updated);
                 setNoteInput('');
             };
             const linkNote = (pn) => {
@@ -1780,11 +1845,15 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                 updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: [...(tk.notes || []), ref] }) }));
             };
             const deleteNote = (nid) => {
-                updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: (tk.notes || []).filter(n => n.id !== nid) }) }));
+                const updated = { ...proj, tasks: proj.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, notes: (tk.notes || []).filter(n => n.id !== nid) }) };
+                updateProj(updated);
+                forceSaveRef.current(updated);
             };
             const removeAttachment = (idx) => {
                 if (window.confirm('Bijlage verwijderen?')) {
-                    updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, attachments: (tk.attachments || []).filter((_, i) => i !== idx) }) }));
+                    const updated = { ...proj, tasks: proj.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, attachments: (tk.attachments || []).filter((_, i) => i !== idx) }) };
+                    updateProj(updated);
+                    forceSaveRef.current(updated);
                 }
             };
             const handleTaskUpload = async (files) => {
@@ -1810,7 +1879,9 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         results.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: dataUrl });
                     }
                 }
-                updateProj(prev => ({ ...prev, tasks: prev.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, attachments: [...(tk.attachments || []), ...results] }) }));
+                const updated = { ...proj, tasks: proj.tasks.map(tk => tk.id !== task.id ? tk : { ...tk, attachments: [...(tk.attachments || []), ...results] }) };
+                updateProj(updated);
+                forceSaveRef.current(updated);
                 setNoteUploading(false);
             };
             const NOTE_TYPE_COLORS = { info: '#3b82f6', actie: '#f59e0b', probleem: '#ef4444', klant: '#10b981', planning: '#8b5cf6' };
@@ -1972,7 +2043,12 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                                                                 <div style={{ fontSize: '0.55rem', color: '#94a3b8' }}>{Math.round(att.size / 1024)} KB</div>
                                                             </div>
                                                             {url && (
-                                                                <button onClick={() => window.open(url, '_blank')} style={{ background: '#f1f5f9', border: 'none', borderRadius: '5px', padding: '3px 8px', fontSize: '0.65rem', color: '#3b82f6', fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>Open</button>
+                                                                <button onClick={() => setAttPreview({ url, name: att.name, type: att.type })} style={{ background: '#f1f5f9', border: 'none', borderRadius: '5px', padding: '3px 8px', fontSize: '0.65rem', color: '#3b82f6', fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}><i className="fa-solid fa-eye" /></button>
+                                                            )}
+                                                            {url && (
+                                                                <a href={url} download={att.name} style={{ background: '#f0fdf4', border: 'none', borderRadius: '5px', padding: '3px 8px', fontSize: '0.65rem', color: '#10b981', fontWeight: 600, cursor: 'pointer', flexShrink: 0, textDecoration: 'none' }}>
+                                                                    <i className="fa-solid fa-download" />
+                                                                </a>
                                                             )}
                                                             <button onClick={() => removeAttachment(i)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.75rem', padding: '2px 4px' }}
                                                                 onMouseEnter={e => e.currentTarget.style.color = '#ef4444'} onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
@@ -2087,6 +2163,33 @@ export default function ProjectGantt({ project, onSave, allUsers = [] }) {
                         </div>
                     </div>
                 </>
+            );
+        })()}
+        {attPreview && (() => {
+            const isImg = attPreview.type?.startsWith('image/') || ['.jpg','.jpeg','.png','.gif','.webp'].some(e => attPreview.name?.toLowerCase().endsWith(e));
+            const isPdf = attPreview.type?.includes('pdf') || attPreview.name?.toLowerCase().endsWith('.pdf');
+            return (
+                <div onClick={() => setAttPreview(null)} style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.75)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', minWidth: 320 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #f1f5f9', gap: 10 }}>
+                            <i className={`fa-solid ${isImg ? 'fa-image' : isPdf ? 'fa-file-pdf' : 'fa-file'}`} style={{ color: isImg ? '#10b981' : '#ef4444' }} />
+                            <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attPreview.name}</span>
+                            <a href={attPreview.url} download={attPreview.name} onClick={e => e.stopPropagation()} style={{ background: '#f0fdf4', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: '0.72rem', color: '#10b981', fontWeight: 600, cursor: 'pointer', textDecoration: 'none', marginRight: 4 }}><i className="fa-solid fa-download" /> Opslaan</a>
+                            <button onClick={() => setAttPreview(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}><i className="fa-solid fa-xmark" /></button>
+                        </div>
+                        <div style={{ overflow: 'auto', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', minHeight: 200 }}>
+                            {isImg && <img src={attPreview.url} alt={attPreview.name} style={{ maxWidth: '85vw', maxHeight: '75vh', objectFit: 'contain', display: 'block' }} />}
+                            {isPdf && <iframe src={attPreview.url} style={{ width: '80vw', height: '75vh', border: 'none' }} title={attPreview.name} />}
+                            {!isImg && !isPdf && (
+                                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+                                    <i className="fa-solid fa-file" style={{ fontSize: '3rem', marginBottom: 16, display: 'block', opacity: 0.4 }} />
+                                    <div style={{ fontSize: '0.85rem', marginBottom: 16 }}>Voorbeeldweergave niet beschikbaar</div>
+                                    <a href={attPreview.url} download={attPreview.name} style={{ padding: '8px 18px', background: '#3b82f6', color: '#fff', borderRadius: 8, fontWeight: 600, fontSize: '0.82rem', textDecoration: 'none' }}><i className="fa-solid fa-download" style={{ marginRight: 6 }} />Downloaden</a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
             );
         })()}
         </>

@@ -1,0 +1,559 @@
+[
+  {
+    "id": 2,
+    "name": "Onderhoud Rijtjeshuizen Leiden",
+    "client": "Woonstichting Leiden",
+    "phone": "0715678901",
+    "email": "beheer@woonstichting-leiden.nl",
+    "address": "Rapenburg 100, Leiden",
+    "startDate": "2026-03-09",
+    "endDate": "2026-07-10",
+    "estimatedHours": 480,
+    "hourlyRate": 55,
+    "color": "#10b981",
+    "status": "active",
+    "kanbanStatus": "uitvoering",
+    "tasks": [
+      {
+        "id": "t5",
+        "name": "Houtrot reparatie blok 1-3",
+        "startDate": "2026-03-09",
+        "endDate": "2026-03-27",
+        "assignedTo": [
+          4
+        ],
+        "completed": true,
+        "kanbanStatus": "klaar",
+        "attachments": [
+          {
+            "name": "WhatsApp Image 2026-04-01 at 10.50.55.jpeg",
+            "type": "image/jpeg",
+            "size": 10277,
+            "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Ftaken%2F1775240784536_WhatsApp_Image_2026-04-01_at_10.50.55.jpeg",
+            "data": null
+          }
+        ]
+      },
+      {
+        "id": "t6",
+        "name": "Grondverf aanbrengen",
+        "startDate": "2026-03-30",
+        "endDate": "2026-04-10",
+        "assignedTo": [
+          1
+        ],
+        "completed": false,
+        "kanbanStatus": "bezig"
+      },
+      {
+        "id": "t7",
+        "name": "Aflakken buitenwerk",
+        "startDate": "2026-04-13",
+        "endDate": "2026-05-01",
+        "assignedTo": [
+          2,
+          3,
+          4
+        ],
+        "completed": false,
+        "kanbanStatus": "todo"
+      },
+      {
+        "id": "t8",
+        "name": "Eindcontrole",
+        "startDate": "2026-05-04",
+        "endDate": "2026-05-08",
+        "assignedTo": [
+          4
+        ],
+        "completed": false
+      },
+      {
+        "id": "t17743891531730.05620105291367994",
+        "name": "Overleg met schilder over kitnaden trap begane grond -1",
+        "startDate": "2026-03-09",
+        "endDate": "2026-03-06",
+        "assignedTo": [],
+        "completed": false,
+        "notes": []
+      },
+      {
+        "id": "t17743891567870.4540825443608044",
+        "name": "Overleg met schilder over kitnaden trap begane grond -1",
+        "startDate": "2026-03-09",
+        "endDate": "2026-03-06",
+        "assignedTo": [],
+        "completed": false,
+        "notes": []
+      },
+      {
+        "id": "t1775066165380",
+        "name": "verdeggaan",
+        "startDate": "2026-04-01",
+        "endDate": "2026-04-09",
+        "assignedTo": [],
+        "completed": false
+      }
+    ],
+    "emails": [
+      {
+        "id": "1774386567001.2358",
+        "direction": "in",
+        "van": "Andre Hazenoot <andrehazenoot@gmail.com>",
+        "subject": "Fwd: Jaaropgave Leonie",
+        "date": "2026-03-23",
+        "categorie": "Overig",
+        "notitie": "",
+        "body": "\r\n\r\n---------- Forwarded message ---------\r\nVan: Leonie Bakkenes <leonie_bakkenes@hotmail.com <mailto:leonie_bakkenes@hotmail.com> >\r\nDate: di 17 mrt 2026 om 22:20\r\nSubject: Jaaropgave Leonie\r\nTo: Andre Hazenoot <andrehazenoot@gmail.com <mailto:andrehazenoot@gmail.com> >\r\n\r\n\r\n\r\n\r\n\r\nVerzonden vanuit Outlook voor iOS <https://aka.ms/o0ukef> \r\n",
+        "status": "open",
+        "aangemaakt": "2026-03-24T21:09:27.001Z",
+        "from": "Andre Hazenoot <andrehazenoot@gmail.com>",
+        "to": "",
+        "originalFile": {
+          "name": "Fwd_ Jaaropgave Leonie.msg",
+          "size": 1090048,
+          "fileId": 1774386559631.9001
+        },
+        "outlookId": null,
+        "attachments": []
+      },
+      {
+        "id": "1774386697636.3071",
+        "direction": "in",
+        "van": "Andre Hazenoot <andrehazenoot@gmail.com>",
+        "subject": "Fwd: Jaaropgave Leonie",
+        "date": "2026-03-23",
+        "categorie": "Overig",
+        "notitie": "",
+        "body": "\r\n\r\n---------- Forwarded message ---------\r\nVan: Leonie Bakkenes <leonie_bakkenes@hotmail.com <mailto:leonie_bakkenes@hotmail.com> >\r\nDate: di 17 mrt 2026 om 22:20\r\nSubject: Jaaropgave Leonie\r\nTo: Andre Hazenoot <andrehazenoot@gmail.com <mailto:andrehazenoot@gmail.com> >\r\n\r\n\r\n\r\n\r\n\r\nVerzonden vanuit Outlook voor iOS <https://aka.ms/o0ukef> \r\n",
+        "status": "open",
+        "aangemaakt": "2026-03-24T21:11:37.636Z",
+        "from": "Andre Hazenoot <andrehazenoot@gmail.com>",
+        "to": "",
+        "originalFile": {
+          "name": "Fwd_ Jaaropgave Leonie.msg",
+          "size": 1090048,
+          "fileId": 1774386696007.234
+        },
+        "outlookId": null,
+        "attachments": []
+      },
+      {
+        "id": "1774386729430.9348",
+        "direction": "in",
+        "van": "Andre Hazenoot <andrehazenoot@gmail.com>",
+        "subject": "Fwd: SPOED : Offerte de Schilders > fam Suess",
+        "date": "2026-03-23",
+        "categorie": "Overig",
+        "notitie": "",
+        "body": "\r\n\r\n---------- Forwarded message ---------\r\nVan: Jos van Hoekelen <Jos@hbbouw.nl <mailto:Jos@hbbouw.nl> >\r\nDate: wo 25 feb 2026 om 17:19\r\nSubject: SPOED : Offerte de Schilders > fam Suess\r\nTo: Andre Hazenoot <andrehazenoot@gmail.com <mailto:andrehazenoot@gmail.com> >\r\nCc: Martin.Suess@esa.int <mailto:Martin.Suess@esa.int>  <Martin.Suess@esa.int <mailto:Martin.Suess@esa.int> >\r\n\r\n\r\n\r\n\r\nBeste Andre , zie mail hieronder van Suess.\r\n\r\nWil je vandaag of uiterlijk morgen contact leggen of een mail sturen.\r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nJos van Hoekelen\r\n\r\n \r\n\r\n \r\n\r\n\r\n\r\nBEWEZEN VAKMANSCHAP\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nT 0252 211 382\r\n\r\nTeylingerlaan 4 \r\n\r\n2215 RR Voorhout \r\n\r\n\r\n\r\n  \r\n\r\njos@hbbouw.nl <mailto:jos@hbbouw.nl>  \r\n\r\nwww.hbbouw.nl <http://www.hbbouw.nl/> \r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\n \r\n\r\n\t\t\t\t\t\r\n\r\n \r\n\r\n \r\n\r\nVan: Martin Suess <Martin.Suess@esa.int <mailto:Martin.Suess@esa.int> > \r\nVerzonden: woensdag 25 februari 2026 16:10\r\nAan: info@deschildersuitkatwijk.nl <mailto:info@deschildersuitkatwijk.nl> \r\nCC: miasuess@linuxmail.org <mailto:miasuess@linuxmail.org> ; Jos van Hoekelen <Jos@hbbouw.nl <mailto:Jos@hbbouw.nl> >\r\nOnderwerp: RE: Offerte de Schilders > fam Suess\r\n\r\n \r\n\r\nBeste Andre,\r\n\r\n \r\n\r\nWe hebben nog geen reactie van u ontvangen op onze opdracht voor de schilderwerkzaamheden.\r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\nMartin\r\n\r\n \r\n\r\n \r\n\r\nMartin Suess\r\n\r\nVoorhouterweg 65\r\n\r\n2231 ND Rijnsburg, The Netherlands\r\n\r\nmartin@suess.nl <mailto:martin@suess.nl> \r\nM +31 628 740 681 \r\n\r\n \r\n\r\n \r\n\r\nFrom: Martin Suess \r\nSent: Sunday, 8 February 2026 15:49\r\nTo: info@deschildersuitkatwijk.nl <mailto:info@deschildersuitkatwijk.nl> \r\nCc: miasuess@linuxmail.org <mailto:miasuess@linuxmail.org> ; Jos van Hoekelen (jos@hbbouw.nl <mailto:jos@hbbouw.nl> ) <jos@hbbouw.nl <mailto:jos@hbbouw.nl> >\r\nSubject: RE: Offerte de Schilders > fam Suess\r\n\r\n \r\n\r\nHallo Andre,\r\n\r\nWij willen graag de schilderwerkzaamheden laten uitvoeren volgens uw offerte. O.25-081.\r\n\r\nIk wil nog enkele punten in de offerte verduidelijken.\r\n\r\n*\tWij gaan ervan uit dat de werkzaamheden voor het vervangen van de afdichtingskit van de raamkozijnen zowel de buiten- als de binnenkant en de raamkruisen omvatten.\r\n*\tEen boeiboord naast de keukendeur is verkleurd en de oorzaak is mogelijk een lekkage of een lekkende regengoot. Voordat er opnieuw wordt geschilderd, wordt de oorzaak van de verkleuring onderzocht.\r\n*\tAlle scheuren in kaders om de kozijnen worden ook gerepareerd en de kaders worden in de hoeken gekit.\r\n*\tBij de renovatie van de buitengevel worden ook de twee kolommen naast onze oprit meegenomen en worden de scheuren gerepareerd.\r\n\r\nHet vervangen van de raamkit bij de twee ramen in de keuken lijkt tot nu toe succesvol te zijn geweest. Terwijl er op andere plaatsen weer lekkages waren, lijken die twee ramen nu dicht te zijn. Voordat we alle ramen opnieuw schilderen, lijkt het verstandig om de kit bij alle ramen te vervangen en te kijken of alles dicht blijft. \r\n\r\nIk stel daarom voor om het werk in twee stappen uit te voeren. \r\n\r\nWanneer kunt u beginnen met de reparatie van de raamkit?\r\n\r\nOm de screens voor de ramen te vervangen, zijn de screenkasten aan de binnenkant door H&B geopend. Als ze weer gesloten zijn, moeten de scheuren worden gerepareerd en moeten deze delen opnieuw worden geverfd. Ook op andere plaatsen rondom het huis hebben we enkele scheuren in het metselwerk. We zouden graag met u bespreken hoe deze schade het beste kan worden gerepareerd en vragen u om een offerte voor deze werkzaamheden op te stellen.\r\n\r\nMet vriendelijke groet,\r\n\r\nMartin\r\n\r\n \r\n\r\nMartin Suess\r\n\r\nVoorhouterweg 65\r\n\r\n2231 ND Rijnsburg, The Netherlands\r\n\r\nmartin@suess.nl <mailto:martin@suess.nl> \r\nM +31 628 740 681 \r\n\r\n\r\n\r\nOn 15/12/2025 at 13:56, Jos van Hoekelen wrote: \r\n\r\nFrom: \"Jos van Hoekelen\" <Jos@hbbouw.nl <mailto:Jos@hbbouw.nl> >\r\nDate: 15 December 2025\r\nTo: \"miasuess@linuxmail.org <mailto:miasuess@linuxmail.org> \" <miasuess@linuxmail.org <mailto:miasuess@linuxmail.org> >\r\nCc: \"De Schilders uit Katwijk\" <info@deschildersuitkatwijk.nl <mailto:info@deschildersuitkatwijk.nl> >\r\nSubject: Offerte de Schilders > fam Suess \r\n\r\nBeste Mia , \r\n\r\n \r\n\r\nHierbij de offerte van de Schilders. \r\n\r\nVolgens mij duidelijk omschreven wat je ervoor krijgt.\r\n\r\nU gaat de overeenkomst met de Schilders aan en dus niet via H&B bouw.\r\n\r\nDit is een netto offerte en daar hoeven wij ( H&B bouw ) niet tussen te zitten maar we zullen er ook niets voor regelen.\r\n\r\nTelefoon : Andre van de schilders die ook het kitwerk heeft opgezet is 06-10298766.\r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nJos van Hoekelen\r\n\r\n \r\n\r\n \r\n\r\n <http://Attachment/Y2lkOmltYWdlMDAxLnBuZ0AwMURDNkRDOS4wODI2NjNFMA> \r\n\r\nBEWEZEN VAKMANSCHAP\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nT 0252 211 382\r\n\r\nTeylingerlaan 4 \r\n\r\n2215 RR Voorhout \r\n\r\n <http://Attachment/Y2lkOmltYWdlMDAyLnBuZ0AwMURDNkRDOS4wODI2NjNFMA> \r\n\r\n   <http://Attachment/Y2lkOmltYWdlMDAzLnBuZ0AwMURDNkRDOS4wODI2NjNFMA> \r\n\r\njos@hbbouw.nl <mailto:jos@hbbouw.nl>  \r\n\r\nwww.hbbouw.nl <http://www.hbbouw.nl/> \r\n\r\n \r\n\r\n <http://Attachment/Y2lkOmltYWdlMDA0LnBuZ0AwMURDNkRDOS4wODI2NjNFMA> \r\n\r\n \r\n\r\n \r\n\r\n\t\t\t\t\t\r\n\r\n \r\n\r\n \r\n\r\nVan: De Schilders uit Katwijk <info@deschildersuitkatwijk.nl <mailto:info@deschildersuitkatwijk.nl> > \r\nVerzonden: vrijdag 12 december 2025 12:22\r\nAan: Jos van Hoekelen <Jos@hbbouw.nl <mailto:Jos@hbbouw.nl> >\r\nOnderwerp: Re: Offerte Schilders\r\n\r\n \r\n\r\nBeste Jos,\r\n\r\n \r\n\r\nMet dank voor jouw aanvraag bieden wij hier het schilderwerk aan van de Fam Sues in Rijnsburg.\r\n\r\n \r\n\r\nAls er vragen zijn horen wij ze graag.\r\n\r\n \r\n\r\n \r\n\r\nMet vriendelijk groet,\r\n\r\n \r\n\r\nDe Schilders uit Katwijk\r\n\r\nAndre Hazenoot\r\n\r\n \r\n\r\n \r\n\r\n <http://Attachment/Y2lkOmYxNDdkNWZmLWMxYzktNDQyMS1iMjYzLWRjNjg2OTQxMzQ0OA> \r\n\r\n \r\n\r\n________________________________\r\n\r\nVan: Jos van Hoekelen <Jos@hbbouw.nl <mailto:Jos@hbbouw.nl> >\r\nVerzonden: maandag 8 december 2025 08:38\r\nAan: De Schilders uit Katwijk <info@deschildersuitkatwijk.nl <mailto:info@deschildersuitkatwijk.nl> >\r\nOnderwerp: FW: Offerte Schilders \r\n\r\n \r\n\r\nAndre , zie hieronder .\r\nKan je deze week de offerte aanleveren.\r\n\r\nMet vriendelijke groet,\r\n\r\nJos van Hoekelen\r\n\r\n\r\nBEWEZEN VAKMANSCHAP\r\n\r\n\r\n\r\nT 0252 211 382\r\nTeylingerlaan 4 \r\n2215 RR Voorhout \r\n\r\n  \r\njos@hbbouw.nl <mailto:jos@hbbouw.nl>  \r\nwww.hbbouw.nl <http://www.hbbouw.nl/> \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n-----Oorspronkelijk bericht-----\r\nVan: miasuess@linuxmail.org <mailto:miasuess@linuxmail.org>  <miasuess@linuxmail.org <mailto:miasuess@linuxmail.org> > \r\nVerzonden: maandag 8 december 2025 08:11\r\nAan: Jos van Hoekelen <Jos@hbbouw.nl <mailto:Jos@hbbouw.nl> >\r\nCC: Martin Suess <martin@suess.nl <mailto:martin@suess.nl> >\r\nOnderwerp: Re: Offerte Schilders\r\n\r\nBeste Jos,\r\nHet lijkt te werken met opnieuw kitten. Bij die ramen hadden we sindsdien geen lekkage, bij andere ramen wel. \r\n\r\nZou je bij de Schilders willen vragen wanneer zij met een offerte komen? We zouden het heel erg op prijs stellen als dat dit jaar lukt. \r\n\r\nGroet, Mia & Martin\r\n\r\nSent using the mobile mail app\r\n\r\nOn 16/11/2025 at 17:22, miasuess@linuxmail.org <mailto:miasuess@linuxmail.org>  wrote:\r\n\r\n> Hoi Jos,\r\n> Dan wachten wij de offerte van de Schilders af. En we houden in de gaten of het weer lekt. \r\n> \r\n> We hebben contact gehad met Jatibee. Zij zullen de screens waarschijnlijk in januari vervangen. Eea ivm levertijd van het doek. \r\n> \r\n> Groet, Mia en Martin\r\n> \r\n> ———————\r\n> Hoi Martin en Mia ,\r\n>  \r\n> We hebben afgelopen dinsdag . Roluiken vrij gemaakt en 1 ruit eruit gehaald om te bekijken of het op de juiste manier is aangebracht en of het raam dusdanig is gemaakt zoals het hoort met een goede afwatering naar buiten.\r\n> Raam detail klopt . Glas is ook geplaats zoals het hoort.\r\n> Alleen het kit wat gebruikt is verhard niet. Probleem kan van alles geweest zijn. \r\n> Kit hecht niet overal aan het glas of hout en daardoor ontstaat er overdadig water in de sponning van het glas.\r\n> We hebben niet echt vast kunnen stellen dat het water via deze weg naar binnen is gekomen , dus stel ik voor om een zware regen met storm te bekijken of het Raam nog steeds lekt.   jammer dat we niet het hele raam hebben kunnen afkitten doordat de zonwering er voor zit.\r\n> Tevens hebben we van het raam ernaast alleen het kit aan de buitenzijde eruit gesneden en daaroverheen een nieuwe kist gezet waarbij we hopen dat dit raam daardoor ook Lekvrij is.\r\n> Buitengevel ( spack ) behoort onderhoud inspectie te krijgen om lekkage achter het tempex te voorkomen . Deze inspectie is in de 9 jaar nog nooit geweest vermoed ik. Er is denk ook geen onderhouds contract afgesloten ?\r\n>  \r\n> Om alle problemen bij 1 bedrijf neer te leggen ;  Schilderwerk Gevel . Kit vervangen van de ramen en daarna de buitenkozijnen opnieuw te schilderen.\r\n> Dit gaat De Schilders uit Katwijk jullie aanbieden.\r\n>  \r\n> Ik heb hun om een offerte gevraagd en hoop deze met een paar weken te ontvangen.\r\n>  \r\n>  \r\n>  \r\n> Met vriendelijke groet,\r\n>  \r\n> Jos van Hoekelen\r\n> \r\n> Sent using the mobile mail app\r\n\r\nThis message is intended only for the recipient(s) named above. It may contain proprietary information and/or protected content. Any unauthorised disclosure, use, retention or dissemination is prohibited. If you have received this e-mail in error, please notify the sender immediately. ESA applies appropriate organisational measures to protect personal data, in case of data privacy queries, please contact the ESA Data Protection Officer (dpo@esa.int <mailto:dpo@esa.int> ). \r\n\r\n",
+        "status": "open",
+        "aangemaakt": "2026-03-24T21:12:09.430Z",
+        "from": "Andre Hazenoot <andrehazenoot@gmail.com>",
+        "to": "",
+        "originalFile": {
+          "name": "Fwd_ SPOED _ Offerte de Schilders _ fam Suess.msg",
+          "size": 180224,
+          "fileId": 1774386727374.187
+        },
+        "outlookId": null,
+        "attachments": []
+      },
+      {
+        "id": "1774387079478.6152",
+        "direction": "in",
+        "van": "Norton <no-reply@mails.norton.com>",
+        "subject": "Nog langer gemoedsrust – de verlengingsgegevens van je Norton-product",
+        "date": "2026-03-12",
+        "categorie": "Overig",
+        "notitie": "",
+        "body": " \t\r\nBEANTWOORD DIT BERICHT NIET. Als je hulp nodig hebt van de klantenservice of technische ondersteuning, ga je naar www.norton.com/cs <https://click.emails.norton.com/?qs=eyJkZWtJZCI6ImZhNTY1Yjk4LTBhNWYtNGQyNy1hNTU1LThiZDIzNjk4NDhkNSIsImRla1ZlcnNpb24iOjEsIml2IjoiNnlLazFtYnh3MVhGVDcvZ1VYWmJKZz09IiwiY2lwaGVyVGV4dCI6Ikprd1MvL3MvR2xaRGN1QnRtcGw3ZUdFVmljY1l1YUNBNUFGOXNaa2xpOTBLVUthTDRIUnoyVHhyRnV3VkdrYXQ2QUplMHFjeXljS3pIaU1JWkVoYy9GMm9DbVNYRG5VNWNqSVRBWjlZNnlLazFtYnh3MVhGVDcvZ1VYWmJKZz09IiwiYXV0aFRhZyI6IlhQeGRxQXBrbHc1MU9YSXlFd0dmV0E9PSJ9>  | Online weergeven <https://click.emails.norton.com/?qs=eyJkZWtJZCI6ImMyOThjMjNjLTRhNDUtNGI5ZS04ZTdiLTc3ZTNmNGE3MzA4ZCIsImRla1ZlcnNpb24iOjEsIml2IjoiWTB6SFNpeEV4Q0IzbW4rWFJ6NjBXQT09IiwiY2lwaGVyVGV4dCI6Ik81TExPZFR0bzE2SDVka0cwblMrT3FpRHNoTUZUUm9GNUJEK3kvWUNRRVJtMVU4SUY5b3p6emJYbEdMRHdpcHFXdFc4Ymo4b2pNRWdkWkpiWDkwcDYwQ0FzbXR3MlZ2Z1p1bGpUTWRLTEVURUlIZWFmNWRIUHJSWSIsImF1dGhUYWciOiJrbHRmM1NuclFJQ3lhM0RaVytCbTZRPT0ifQ%3D%3D>  \t\r\n \t\r\n ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏  ­͏   \t\r\n \t \r\n <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjNmNTRlYWQ4LTg0YTAtNDA0OS04NWU1LWNiYjAwYTcwYTU1NyIsImRla1ZlcnNpb24iOjEsIml2IjoiR29YUWM1YXVCNzEvdzB6Z3lUWHBsdz09IiwiY2lwaGVyVGV4dCI6Ii9lVm9HZXY0Q0R3cjVVd09UNy81a0duVUdBZTRSOXFOUjFhVk1YNjdKeWo2UGptZ1RhOHpaeGEvR2Yydk5JUGNqTEpaT0F2MzlNTUZqTVEvekg0MEVybXJoN3l1eEw1YkNxVlVmWjVMR29YUWM1YXVCNzEvdzB6Z3lUWHBsdz09IiwiYXV0aFRhZyI6Ik5CSzVxNGU4cnNTK1d3cWxWSDJlU3c9PSJ9> \t\r\n <https://click.emails.norton.com/?qs=eyJkZWtJZCI6ImU5OGUwZTY3LTg4YTEtNGVhYS1iMjM5LTRkODU0OThmMmNjYiIsImRla1ZlcnNpb24iOjEsIml2IjoicUxhNzRhWGVoTmltd3dsL21rK242UT09IiwiY2lwaGVyVGV4dCI6IkhWZ1BJVmhGY3psb0h6NjN3ZklaRHpFSWx3M3RNMFZqdjBUL0N6Nkszd1hDZXdVdnFieS9FMlhJb2RydnRZdWlTZjUvb1NFYzZGZTNpZ3Y3OVhnNFFidi9nU0xGQ2pZZy9qQlVmV25kcUxhNzRhWGVoTmltd3dsL21rK242UT09IiwiYXV0aFRhZyI6Ik9FRzcvNEVpeFFvMklQNHdWSDFwM1E9PSJ9> \t\r\n \t \r\n\t\r\n \t\r\n \t Hartelijk dank dat je voor ons hebt gekozen \t \t \r\n\r\n\t \t\r\n \t  <https://image.emails.norton.com/lib/fe2e11717d64047b721674/m/1/fbf59e19-bc18-49fc-a89e-a76b7ca928de.png> \t \t INBEGREPEN BIJ JE ABONNEMENT\t \r\n \t \r\n \t\r\n \t  <https://image.emails.norton.com/lib/fe2e11717d64047b721674/m/1/72387b3a-685e-4a30-9b2a-11069d2f58a3.png> \t \t Virus Protection Promise, met live ondersteuning van Norton-experts\t \r\n \t \r\n \t\r\n \t \r\n*\tEr staat een Norton-expert klaar om je te helpen je apparaten virusvrij te houden. Als dat niet lukt, krijg jij je geld terug1.\r\n\r\n \t \r\n \t\r\n \t  \t \r\n \t\r\n \t  \t \r\n \t\r\n\t \t \t\r\n \t\r\n \t \r\n \t Jouw status voor automatisch verlengen \t\r\n \t\r\n \t \t\r\n \t\r\n \t \r\n \t Jouw producten \t\r\n \t\r\n \t Norton™ Utilities Ultimate \t\r\n \t\r\n \t Je abonnement op Norton™ Utilities Ultimate is verlengd op 12-03-2026 \t\r\n \t\r\n \t \t\r\n \t \r\n \t\r\n \t Het bedrag van EUR 26.19 is automatisch van je hieronder vermelde creditcard afgeschreven voor de resterende 290 dagen bescherming. \t\r\n \t\r\n \t MIJN FACTURERINGSGEGEVENS VOOR NORTON \t\r\n \t\r\n \t Bestelnummer: \tAP1677863470\t \r\n \t\r\n \t Naam: \tA Hazenoot De schilders uit katwijk\t \r\n \t\r\n \t Laatste vier cijfers creditcard: \t9503\t \r\n \t\r\n \t Bedrag van het abonnement: \tEUR 26.19\t \r\n \t\r\n \t Belastingbedrag: \tEUR 0.00\t \r\n \t\r\n \t Totaalbedrag: \tEUR 26.19\t \r\n \t\r\n \t Serienummer product: \tW2WB9VPPH3J4\t \r\n \t\r\n\t\r\n\t\r\n \t\r\n \t We hebben onze Verkoopvoorwaarden <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjcxMzA3YWVmLWVmZjQtNDU2OC04YWU3LWEwNDc4NDZhZDhmZCIsImRla1ZlcnNpb24iOjEsIml2IjoiQVdlbUxKNU8wR0lwRGxBM2ZITXJZUT09IiwiY2lwaGVyVGV4dCI6IkxLZ2tLY3ZDWm1oR1hQK3lZNk1rSFZCOG9QYnNVVFFkcmpGTTJ5RWR0eDg3VWxrYVhybWZBdUtkTHk3UlZzaVlVRU41T3dDMUYrWEVHUld1SFFXdmZVVk4rQlhSbU1kcUlmQXUrWnNuQVdlbUxKNU8wR0lwRGxBM2ZITXJZUT09IiwiYXV0aFRhZyI6InIzMUZUZmdWMFpqSGFpSHdMdm1iSnc9PSJ9>  bijgewerkt met betrekking tot betaling, creditcardtransacties, gebruiksrechten voor producten en services, contactgegevens, enz. De bijgewerkte Voorwaarden zijn van kracht vanaf de daarin vermelde datum. \t \t \r\n \t\r\n \t Om je abonnement te annuleren, ga je in je account <https://click.emails.norton.com/?qs=eyJkZWtJZCI6ImViOWViZjVmLTdhMTAtNGIyYi1hZDZhLWJjODNiMjU2NzY1OCIsImRla1ZlcnNpb24iOjEsIml2IjoicUhRTjB3ckFtL0RvQkY5TWhLcGpmQT09IiwiY2lwaGVyVGV4dCI6IkJNN0NqV2MzUmpsU0tQUHA3Nkk2OXNId1NjcXdzSjZDcyt5d2V3YUtvUFZPa3UwM0QwL2lTTHBkNVlmYVAzZTBjb0tvNFB6enJoRXY4U0EyTFo0WnFmblo1TWpncXBETTNuRDJMM29QcUhRTjB3ckFtL0RvQkY5TWhLcGpmQT09IiwiYXV0aFRhZyI6IkdhbjUyZVRJNEtxUXpONXc5aTk2RHc9PSJ9>  naar het tabblad Mijn abonnementen. We kijken ernaar uit om met je te chatten <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjM0YzQwNGYzLWI4NTUtNDA4OS05NTkwLTgwN2E5NWQ2NDEzYyIsImRla1ZlcnNpb24iOjEsIml2IjoiR3pnQmwyTGRrZVBCMFhJb014d3FaZz09IiwiY2lwaGVyVGV4dCI6Ik9CemV5Wm5rR1RKZXBUSjExWmxOdHo1ZUNlU3c2NEdKRDZCcFdJZ29FRHprWm9HUFpiLzIwbUlMZk83OUNLTE9nWVFjWm9kRmUxVkdVWldCbjExUEZVN1h4dlVOUjVzSVc0YmNjbVp4R3pnQmwyTGRrZVBCMFhJb014d3FaZz09IiwiYXV0aFRhZyI6IlR4Vk8xOGIxRFVlYkNGdUczSEptY1E9PSJ9>  over je abonnement. Neem contact op met Klantenservice en ondersteuning <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjQyNmEyNTdjLWMwOTItNDk3ZS1hODU5LTVjZWUwNWE5MmI0NyIsImRla1ZlcnNpb24iOjEsIml2IjoidjNPMVpkcUlOTHdFeGgwaVdnMWczQT09IiwiY2lwaGVyVGV4dCI6IlZLRUplMTVZNFA3TWlUR29nK2N2ZkRUQU10TnFxajFLTWdMU3o2eVgxZktwa2Y1cG8zQUFvWGE0SXQyU0ZYcTA3UmpkeFkrOFhlUVBkeXg0Uk13eEhHQ0dQMllwYXNFK0FodktadEN3djNPMVpkcUlOTHdFeGgwaVdnMWczQT09IiwiYXV0aFRhZyI6Ik1SeGdoajltS1dyQlBnSWJ5bWJRc0E9PSJ9> . Je hebt mogelijk recht op terugbetaling van je jaarlijkse verlengingskosten, als je de aanvraag hebt ingediend binnen 60 dagen nadat het bedrag is afgeschreven. Zie ons Terugbetalingsbeleid <https://click.emails.norton.com/?qs=eyJkZWtJZCI6ImFhNjJjMTgyLTFlMWMtNDBkNi1hNGU1LTA0MjFjM2EwOTQ1MCIsImRla1ZlcnNpb24iOjEsIml2IjoiUkZOUStGRzFXcVJ4dDlUYnlhSzd4QT09IiwiY2lwaGVyVGV4dCI6IlR1Q1FaVXFTMXdGYWkvTnF5Q1FNRllvV1JkUExnam5ObmQ2amFCVXpaTmFpUkhyZzlvWENxeThQR1lNM0hFZkVzOWF1OHU3VEV2eTR0SHlpR3plakhyMWRoaVB4TVNnSGdBbTF2T1N3UkZOUStGRzFXcVJ4dDlUYnlhSzd4QT09IiwiYXV0aFRhZyI6Im94NjlYWVlqOFRFb0I0QUp0Ynprc0E9PSJ9>  voor de algemene voorwaarden. \t \t \r\n \t \r\n\t\r\nNORTON-ACCOUNT <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjdmMWEzNTVkLTRkOTgtNDg0YS05ZjdjLWMwNmU3YjNjOWQ0ZCIsImRla1ZlcnNpb24iOjEsIml2IjoiWlN1YmlvYWFzRnJiK3lsL21FNFNSQT09IiwiY2lwaGVyVGV4dCI6ImVTUU5SM0J6dVNwL0xFNlcySjIwQ3ZMQ3lwMUIveHQ5bjFRU0N0R3lYcWd1NEhFNWJ2dElpNGVINlJ6c1JXaEJZNVZlMzN6ZE5MWEh4Tit5bDhXWkx0QWNMS1VsRDc3WEJQeXJhaStBWlN1YmlvYWFzRnJiK3lsL21FNFNSQT09IiwiYXV0aFRhZyI6Im1TN1FIQ3lsSlErKzF3VDhxMm92Z0E9PSJ9> \t\tONDERSTEUNING <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjkyNGU5YThiLWRiMWItNDAxNy04YTYwLTA1N2U4MmUxMmY5YiIsImRla1ZlcnNpb24iOjEsIml2Ijoiang5ZWM5dTA2NTliM09WWDhQbkl4dz09IiwiY2lwaGVyVGV4dCI6IkduNXlCVFRpdzhnbzZzcDcxaDB2bkpuN3FnRkhGYVNQbUVtdHFhNEdmNXNwdkxpeUdVeUJaRWQwcDR1VnU2T0VIZFJRbmdtRE5Ed1h5bjhTNGVNZEFEa3F4cGl3RU85TUR5WHR2YWlyang5ZWM5dTA2NTliM09WWDhQbkl4dz09IiwiYXV0aFRhZyI6IkhRQTVLc2FZc0JEdlRBOGw3YjJvcXc9PSJ9> \t\tJURIDISCHE INFORMATIE <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjZhYjI0MzQyLTI5ZjMtNGM4Ny1iNWI4LWU4Zjk0OGJkNzg1YyIsImRla1ZlcnNpb24iOjEsIml2IjoiMDRaekx1QmNNUXBVelNiNk5lZUE5Zz09IiwiY2lwaGVyVGV4dCI6IjhWV01tTWFsNkVITEtpbE82aHFXQlQ4b0I4S2dkb2c4alpzWldXcUhXendsQVFrdkcyK3JSbUNlK3laVEwwUE5kVmJJa1ZJY0FoaGpMMXUvckxUZzFvNnJSbU9rSjg0UGhZYXM2MUQwMDRaekx1QmNNUXBVelNiNk5lZUE5Zz09IiwiYXV0aFRhZyI6IjROYU9xMFpqcENmT0Q0V0dyT3RROUE9PSJ9> \t\tPRIVACY <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjJlYmRjZjY4LTE0MWMtNDY4Yy1iMzE3LTExYzJkNzJjZWRiNSIsImRla1ZlcnNpb24iOjEsIml2IjoiVEdHSHBwV1c5UksvT1ZLYUJGMEZ1dz09IiwiY2lwaGVyVGV4dCI6ImcvOUpMTlFFRE96TWFrVm0rVkNMcVpMZnlSQjRpZHRvZ296dTZNaTIyOStQTjFJdVp2b2g1UkR1RkxyeTc4THM5bURRRm02alRZV3gxRVVUOGpuVGh5MTRWdVhCSlE0UHNkMGtKaVBnVEdHSHBwV1c5UksvT1ZLYUJGMEZ1dz09IiwiYXV0aFRhZyI6IjA0Y3RlRmJsd1NVT0Q3SGRKQ1lqNEE9PSJ9> \t\tJE FACTURERINGSPROFIEL AANPASSEN <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjBjYTc1MDkzLTZlZDgtNDMzNS05M2FlLTk0ZmQ3YzY3ZTMxNSIsImRla1ZlcnNpb24iOjEsIml2IjoiRjdjWldPUy9Sd2xHMG9WQWR6WTNEZz09IiwiY2lwaGVyVGV4dCI6IjBJeVUxOHRoYVBFbWE0VjhBKzlJcDVSYW5CWVVBSXdOczRDVm9pdkhERy9UbVBlTThqZ29nY0FCOEFHVmNJWmExeFpLQ2JHb0FUeHJLRkdwZ0J2bjhGN3hQeWgycE9BOEk1MWF1VXljRjdjWldPUy9Sd2xHMG9WQWR6WTNEZz09IiwiYXV0aFRhZyI6IjUvQmU4VDhvZHFUZ1BDT2RXcmxNbkE9PSJ9> \t\r\nNORTON-ACCOUNT <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjY5ZjA3YTZjLWFjMjktNDU3NC05OWQxLTkzMjcxOGFhZmFhOCIsImRla1ZlcnNpb24iOjEsIml2IjoiSnFacTFkTVBwZXI5SmZwZkxabmNGZz09IiwiY2lwaGVyVGV4dCI6IlRtK09KQ09CaUR5WlJicjRralVnT0JLaFBUL3VBdjRtMDJtenliWEJTN2dqdEZ2UkQrbXM5ek9PZ3lianh4QmhnaWhEU3p0amlQSFUzNUdLclFTN0t6MGJqOWQ0U1g1eUlXdzZ3Yyt3SnFacTFkTVBwZXI5SmZwZkxabmNGZz09IiwiYXV0aFRhZyI6InV5czlHNC9YZUVsK2NpRnNPc0hQc0E9PSJ9> \t\r\nONDERSTEUNING <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjU1ZTBjNGRjLWZkMTUtNDhlYy05OWUwLTUxYjliMGQ5MTY3OCIsImRla1ZlcnNpb24iOjEsIml2IjoiY0l0Q1hjSzVPeGNpNnBjVUJqa2REUT09IiwiY2lwaGVyVGV4dCI6Ikg4T2NsOEZqdFpIVEl3WHVtdVdxblpnQ2FBRytlYlJieElZUFlRdTFkeGIwL2ZBOTBmOWVZZzN0RVJtb0RrSnA2cnBiaFgwVWQ3SDJua3BQemJFdENaUlAvY1FuUExaMTd2NHltdmxuY0l0Q1hjSzVPeGNpNnBjVUJqa2REUT09IiwiYXV0aFRhZyI6IkxRbVVULzNFSnp5MmRlNytNcHI1Wnc9PSJ9> \t\r\nJURIDISCHE INFORMATIE <https://click.emails.norton.com/?qs=eyJkZWtJZCI6ImRlNDEzYmM0LTMzYWEtNGRmZi1iMzA4LTc4NzBjMjVjNjEzYiIsImRla1ZlcnNpb24iOjEsIml2IjoiUzFpbjFHTEN6N3pQT1l6RzNCd29GQT09IiwiY2lwaGVyVGV4dCI6Ii9nSEUzTGRzK003UUhyb1FrQlhESDgyZy9IdGE2VnRDaW5yWWwwMmdyWWhVbEFLbEJSdklaWUhndFcvNDMrdGVCL0VoVjJFQ0M4NWZWVENFR1VRcmVHcUl0eTRxNC9FS1BuRDFkcGptUzFpbjFHTEN6N3pQT1l6RzNCd29GQT09IiwiYXV0aFRhZyI6IkszaHFpTGN1S3VQeENqNXc5WGFZNWc9PSJ9> \t\r\nPRIVACY <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjIzNDUxYjI3LTIzMDQtNDBiZi04ZmIwLWY1ODhjNzE0MTU4YSIsImRla1ZlcnNpb24iOjEsIml2IjoiTzBVNzZzNWNFOElzMW02aFQrTzc5QT09IiwiY2lwaGVyVGV4dCI6IlVBNWpNNjRTMGFNZGtXOUxjQURmUndjajF6VDJMMGxmcnJHUm5TbGc1ZzRYVTRGanhDc05xTEtQS0JsR0IvbjBxelI0M3hrZUptM3NZYlFOT2x2UG5MQk96WWFEL3NmTENOb000eXNWTzBVNzZzNWNFOElzMW02aFQrTzc5QT09IiwiYXV0aFRhZyI6Ino1eXdUczJHZy83SHl3amFET01yRlE9PSJ9> \t\r\nJE FACTURERINGSPROFIEL AANPASSEN <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjI1Yjg2NDE4LTQ2ZDctNGU4OC1iYTVhLTc3MjY4ODMxYjk5OCIsImRla1ZlcnNpb24iOjEsIml2IjoiUmxLMDVZVWRRT1FuczNDTy9EakRiQT09IiwiY2lwaGVyVGV4dCI6Ik1GM2ZnV0wzaVA3NGhvaHJPRjcvUGhyaTNhRStkUWMxdVlISWRPMURPemh1L3lsc2xING1Zb2ZkNDhoS1ppc09ScmNNRzZIRVJnRUNTQlB2S1BDc2t4VXo2SmNGa3FqeWcxYVJBQktpUmxLMDVZVWRRT1FuczNDTy9EakRiQT09IiwiYXV0aFRhZyI6InJKTVZNK2lYQlpLbzhvTldrUUFTb2c9PSJ9> \t\r\n1Vereist abonnement met automatisch verlengen. Ga naar norton.com/virus-protection-promise <https://click.emails.norton.com/?qs=eyJkZWtJZCI6ImUzMjZiOTM1LTJlOTAtNDIxZi05ZTg4LWQwMGQ5YjE1MTViMCIsImRla1ZlcnNpb24iOjEsIml2IjoidENUOVJaVkFoMmZMWE4reTM0dWFkZz09IiwiY2lwaGVyVGV4dCI6IjFlN2hSR1FFMERQTnlZNXY4alJuT3M0S2Y5Sk13RE5raGNBTDJhbFhaUDJmeDUxWUR4dGJlbVlmODRoTUI5STJqa2dSaFJUUk0wZUxOT3NuamFjelBNc0ZZNUU2VUEwN0pjQTZpWmNzdENUOVJaVkFoMmZMWE4reTM0dWFkZz09IiwiYXV0aFRhZyI6Ik16ekxCV09ST2xBTk95WEFPb21YTEE9PSJ9>  voor verdere algemene voorwaarden. \t\r\nAls je factuuradres is gewijzigd nadat je een verlengingsbericht hebt ontvangen en vóór de definitieve facturering, kan dat gevolgen hebben voor de prijs, belasting en valuta, afhankelijk van je bijgewerkte factureringsprofiel. \t\r\nBEANTWOORD DIT BERICHT NIET. Als je hulp nodig hebt van de klantenservice of technische ondersteuning, ga je naar www.norton.com/cs <https://click.emails.norton.com/?qs=eyJkZWtJZCI6IjRlZjIwNzY4LTRhOWEtNGE3Zi04YjgyLTM1MzE2NzVlZDNjOCIsImRla1ZlcnNpb24iOjEsIml2IjoiTVlMaC9yVk9zYnIybHM5TFN0NkY3QT09IiwiY2lwaGVyVGV4dCI6ImJQRDNmWk9KOE1HSk5Ud0M2LzZVU2hXQk9iNmVkbHk3bHdyOWl0Mm9SZFZCS3ZHOGo1aUhIYWtvcXY2dTBqeXhVQ0JDSktScjVZZE80bUhmREI2anV2dkpPNU9YdXZyRUVaTngzRU85TVlMaC9yVk9zYnIybHM5TFN0NkY3QT09IiwiYXV0aFRhZyI6Im83cjd5VHVUbDdyNnhCR1RjZHhEdlE9PSJ9>  of bel je: 1-877-888-7505 \t\r\nCopyright © 2026 Gen Digital Inc. Alle rechten voorbehouden. Alle handelsmerken, servicemerken en handelsnamen (gezamenlijk de 'Merken') zijn handelsmerken of gedeponeerde handelsmerken van Gen Digital Inc. of haar dochterondernemingen ('Gen') of andere respectieve eigenaren die Gen het recht hebben verleend dergelijke Merken te gebruiken. Zie GenDigital.com/trademarks <https://gendigital.com/trademarks>  voor een lijst met Gen-merken. \t\r\n \t \r\nNorton is onderdeel van Gen™, een wereldwijd bedrijf met een reeks consumentenmerken, waaronder Norton, Avast, LifeLock, Avira, AVG, Reputation Defender en CCleaner. \t\r\n \t \r\nNortonLifeLock Ireland Limited | Ballycoolin Business Park, Blanchardstown, Dublin 15, Ierland \t\r\n \t \r\nEmail ID: 112281784400929208789598689211 \t\r\n \t \r\n <https://click.emails.norton.com/open.aspx?B3VHITKJUHOU3MAB6YZRHD2PYY.70251&d=70251&bmt=0> \r\n",
+        "status": "open",
+        "aangemaakt": "2026-03-24T21:17:59.478Z",
+        "from": "Norton <no-reply@mails.norton.com>",
+        "to": "",
+        "originalFile": {
+          "name": "Nog langer gemoedsrust – de verlengingsgegevens van je Norton-product.msg",
+          "size": 196096,
+          "fileId": 1774387078243.8574
+        },
+        "outlookId": null,
+        "attachments": []
+      },
+      {
+        "id": "1774387751536.806",
+        "direction": "in",
+        "van": "Harry Bakker <Harry@hbbouw.nl>",
+        "subject": "FW: Dorpsweide 5-3-26",
+        "date": "2026-03-05",
+        "categorie": "Overig",
+        "notitie": "",
+        "body": "Andre\r\n\r\nWil je alles goed nalopen aub zie foto’s en tekst \r\n\r\n \r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nHarry Bakker\r\n\r\n \r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\nT 0252 211 382\r\n\r\nTeylingerlaan 4\r\n\r\n2215 RR  Voorhout\r\n\r\n\r\n\r\n  \r\n\r\nharry@hbbouw.nl <mailto:harry@hbbouw.nl>  \r\n\r\nwww.hbbouw.nl <http://www.hbbouw.nl/> \r\n\r\n \r\n\r\n\t\t\t\r\n________________________________\r\n\r\n\r\nVan: Emile de Jong <emile@onderwaater.nu <mailto:emile@onderwaater.nu> >\r\nVerzonden: Thursday, March 5, 2026 10:25:59 AM\r\nAan: Fred Duinkerken <fred@hbbouw.nl <mailto:fred@hbbouw.nl> >\r\nCC: Jelle Noordsij <jelle@onderwaater.nu <mailto:jelle@onderwaater.nu> >\r\nOnderwerp: Dorpsweide 5-3-26 \r\n\r\n \r\n\r\nGoedemorgen Fred,\r\n\r\n \r\n\r\nZoals zojuist telefonisch besproken.\r\n\r\n \r\n\r\nIk zie je reactie op mijn mail d.d. 3-3-26, graag z.s.m. tegemoet. (Planning pergola + vlonderdelen en maatvoering lichtstraat boothuis)\r\n\r\n \r\n\r\nNalopen PVO.\r\n\r\n \r\n\r\nTot mijn verbazing was er vandaag niemand aanwezig van H&B voor nalopen PVO punten.\r\n\r\nGebeld met Johan en die gaf aan dat de meeste punten voor H&B waren afgehandeld.\r\n\r\n \r\n\r\nKees de Jong is er vandaag ergens tussen 10-12 u werd me medegedeeld. “Coördinatie” ervan wordt nu bij Saton neergelegd. Tactisch niet handig en niet de bedoeling. Zorg dat er iemand van H&B is om de werkzaamheden te begeleiden.\r\n\r\n \r\n\r\nKleine ronde gemaakt, maar ik krijg er nog geen goed gevoel bij.\r\n\r\n \r\n\r\n                       \r\n\r\n \r\n\r\nBijv. kopse kanten loopdeuren boothuis. De ene deur is nu wel behandeld, de andere niet. De deuren klapperen nog in de dagschoot.\r\n\r\nLoop de punten na en maakt het nu af.\r\n\r\n \r\n\r\nMorgen om 12.00 u maak ik een ronde met Kees Saton om de punten na te lopen. Ik wil je vragen om hierbij aan te sluiten en niet Johan. \r\n\r\n \r\n\r\nStucwerkherstel\r\n\r\nZoals deze week besproken, het maakt me niet uit hoe de reparaties worden uitgevoerd, maar ik wil er niks van zien.\r\n\r\nDat lijkt tot dusver niet te lukken.\r\n\r\n                        \r\n\r\n \r\n\r\nOp maaiveld niveau de gevel nalopen op andere beschadigingen tot op heden nog niet uitgevoerd?\r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nSchilderwerk\r\n\r\n \r\n\r\nKees Saton blijft erbij dat de kitnaden bij de trap b.g.g.-1 vd nog niet voldoende zijn bijgewerkt. Graag overleg met de schilder wat er nog mogelijk is voor morgen 12.00 u.\r\n\r\n                      \r\n\r\n \r\n\r\n \r\n\r\nIk zie je reactie graag tegemoet.\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nEmile de Jong\r\n\r\n06 27 47 11 92\r\n\r\n \r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\nA. van Leeuwenhoekweg 38 C18  ■  2408 AN  ■  Alphen aan den Rijn  \r\n0172 50 10 40  ■  info@onderwaater.nu <mailto:info@onderwaater.nu>   ■  onderwaater.nu <http://www.onderwaater.nu/> \r\n\r\n \r\n\r\nWerkdagen: maandag, dinsdag, donderdag, vrijdag\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n",
+        "status": "open",
+        "aangemaakt": "2026-03-24T21:29:11.536Z",
+        "from": "Harry Bakker <Harry@hbbouw.nl>",
+        "to": "",
+        "originalFile": {
+          "name": "FW_ Dorpsweide 5-3-26.msg",
+          "size": 13291520,
+          "fileId": 1774387749379.0732
+        },
+        "outlookId": null,
+        "attachments": [
+          {
+            "id": "1774387749379.0732_att_0",
+            "name": "image001.png",
+            "mimeType": "application/octet-stream",
+            "size": 14163
+          },
+          {
+            "id": "1774387749379.0732_att_1",
+            "name": "image002.png",
+            "mimeType": "application/octet-stream",
+            "size": 1695545
+          },
+          {
+            "id": "1774387749379.0732_att_2",
+            "name": "image003.png",
+            "mimeType": "application/octet-stream",
+            "size": 516
+          },
+          {
+            "id": "1774387749379.0732_att_3",
+            "name": "image004.png",
+            "mimeType": "application/octet-stream",
+            "size": 841642
+          },
+          {
+            "id": "1774387749379.0732_att_4",
+            "name": "image005.png",
+            "mimeType": "application/octet-stream",
+            "size": 887751
+          },
+          {
+            "id": "1774387749379.0732_att_5",
+            "name": "image006.png",
+            "mimeType": "application/octet-stream",
+            "size": 1059474
+          },
+          {
+            "id": "1774387749379.0732_att_6",
+            "name": "image007.png",
+            "mimeType": "application/octet-stream",
+            "size": 1351973
+          },
+          {
+            "id": "1774387749379.0732_att_7",
+            "name": "image008.png",
+            "mimeType": "application/octet-stream",
+            "size": 620
+          },
+          {
+            "id": "1774387749379.0732_att_8",
+            "name": "image009.png",
+            "mimeType": "application/octet-stream",
+            "size": 1120321
+          },
+          {
+            "id": "1774387749379.0732_att_9",
+            "name": "image010.png",
+            "mimeType": "application/octet-stream",
+            "size": 1521487
+          },
+          {
+            "id": "1774387749379.0732_att_10",
+            "name": "image011.png",
+            "mimeType": "application/octet-stream",
+            "size": 8352
+          },
+          {
+            "id": "1774387749379.0732_att_11",
+            "name": "image012.png",
+            "mimeType": "application/octet-stream",
+            "size": 3355
+          },
+          {
+            "id": "1774387749379.0732_att_12",
+            "name": "image013.png",
+            "mimeType": "application/octet-stream",
+            "size": 3148
+          },
+          {
+            "id": "1774387749379.0732_att_13",
+            "name": "FW: Ligger dak botenhuis Dorpsweide 12",
+            "mimeType": "application/octet-stream",
+            "size": 947712
+          }
+        ]
+      },
+      {
+        "id": "1774387877783.1294",
+        "direction": "in",
+        "van": "Harry Bakker <Harry@hbbouw.nl>",
+        "subject": "FW: Dorpsweide 5-3-26",
+        "date": "2026-03-05",
+        "categorie": "Overig",
+        "notitie": "",
+        "body": "Andre\r\n\r\nWil je alles goed nalopen aub zie foto’s en tekst \r\n\r\n \r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nHarry Bakker\r\n\r\n \r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\nT 0252 211 382\r\n\r\nTeylingerlaan 4\r\n\r\n2215 RR  Voorhout\r\n\r\n\r\n\r\n  \r\n\r\nharry@hbbouw.nl <mailto:harry@hbbouw.nl>  \r\n\r\nwww.hbbouw.nl <http://www.hbbouw.nl/> \r\n\r\n \r\n\r\n\t\t\t\r\n________________________________\r\n\r\n\r\nVan: Emile de Jong <emile@onderwaater.nu <mailto:emile@onderwaater.nu> >\r\nVerzonden: Thursday, March 5, 2026 10:25:59 AM\r\nAan: Fred Duinkerken <fred@hbbouw.nl <mailto:fred@hbbouw.nl> >\r\nCC: Jelle Noordsij <jelle@onderwaater.nu <mailto:jelle@onderwaater.nu> >\r\nOnderwerp: Dorpsweide 5-3-26 \r\n\r\n \r\n\r\nGoedemorgen Fred,\r\n\r\n \r\n\r\nZoals zojuist telefonisch besproken.\r\n\r\n \r\n\r\nIk zie je reactie op mijn mail d.d. 3-3-26, graag z.s.m. tegemoet. (Planning pergola + vlonderdelen en maatvoering lichtstraat boothuis)\r\n\r\n \r\n\r\nNalopen PVO.\r\n\r\n \r\n\r\nTot mijn verbazing was er vandaag niemand aanwezig van H&B voor nalopen PVO punten.\r\n\r\nGebeld met Johan en die gaf aan dat de meeste punten voor H&B waren afgehandeld.\r\n\r\n \r\n\r\nKees de Jong is er vandaag ergens tussen 10-12 u werd me medegedeeld. “Coördinatie” ervan wordt nu bij Saton neergelegd. Tactisch niet handig en niet de bedoeling. Zorg dat er iemand van H&B is om de werkzaamheden te begeleiden.\r\n\r\n \r\n\r\nKleine ronde gemaakt, maar ik krijg er nog geen goed gevoel bij.\r\n\r\n \r\n\r\n                       \r\n\r\n \r\n\r\nBijv. kopse kanten loopdeuren boothuis. De ene deur is nu wel behandeld, de andere niet. De deuren klapperen nog in de dagschoot.\r\n\r\nLoop de punten na en maakt het nu af.\r\n\r\n \r\n\r\nMorgen om 12.00 u maak ik een ronde met Kees Saton om de punten na te lopen. Ik wil je vragen om hierbij aan te sluiten en niet Johan. \r\n\r\n \r\n\r\nStucwerkherstel\r\n\r\nZoals deze week besproken, het maakt me niet uit hoe de reparaties worden uitgevoerd, maar ik wil er niks van zien.\r\n\r\nDat lijkt tot dusver niet te lukken.\r\n\r\n                        \r\n\r\n \r\n\r\nOp maaiveld niveau de gevel nalopen op andere beschadigingen tot op heden nog niet uitgevoerd?\r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nSchilderwerk\r\n\r\n \r\n\r\nKees Saton blijft erbij dat de kitnaden bij de trap b.g.g.-1 vd nog niet voldoende zijn bijgewerkt. Graag overleg met de schilder wat er nog mogelijk is voor morgen 12.00 u.\r\n\r\n                      \r\n\r\n \r\n\r\n \r\n\r\nIk zie je reactie graag tegemoet.\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nEmile de Jong\r\n\r\n06 27 47 11 92\r\n\r\n \r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\nA. van Leeuwenhoekweg 38 C18  ■  2408 AN  ■  Alphen aan den Rijn  \r\n0172 50 10 40  ■  info@onderwaater.nu <mailto:info@onderwaater.nu>   ■  onderwaater.nu <http://www.onderwaater.nu/> \r\n\r\n \r\n\r\nWerkdagen: maandag, dinsdag, donderdag, vrijdag\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n",
+        "status": "open",
+        "aangemaakt": "2026-03-24T21:31:17.784Z",
+        "from": "Harry Bakker <Harry@hbbouw.nl>",
+        "to": "",
+        "originalFile": {
+          "name": "FW_ Dorpsweide 5-3-26.msg",
+          "size": 13291520,
+          "fileId": 1774387875937.5583
+        },
+        "outlookId": null,
+        "attachments": [
+          {
+            "id": "1774387875937.5583_att_0",
+            "name": "image001.png",
+            "mimeType": "application/octet-stream",
+            "size": 14163
+          },
+          {
+            "id": "1774387875937.5583_att_1",
+            "name": "image002.png",
+            "mimeType": "application/octet-stream",
+            "size": 1695545
+          },
+          {
+            "id": "1774387875937.5583_att_2",
+            "name": "image003.png",
+            "mimeType": "application/octet-stream",
+            "size": 516
+          },
+          {
+            "id": "1774387875937.5583_att_3",
+            "name": "image004.png",
+            "mimeType": "application/octet-stream",
+            "size": 841642
+          },
+          {
+            "id": "1774387875937.5583_att_4",
+            "name": "image005.png",
+            "mimeType": "application/octet-stream",
+            "size": 887751
+          },
+          {
+            "id": "1774387875937.5583_att_5",
+            "name": "image006.png",
+            "mimeType": "application/octet-stream",
+            "size": 1059474
+          },
+          {
+            "id": "1774387875937.5583_att_6",
+            "name": "image007.png",
+            "mimeType": "application/octet-stream",
+            "size": 1351973
+          },
+          {
+            "id": "1774387875937.5583_att_7",
+            "name": "image008.png",
+            "mimeType": "application/octet-stream",
+            "size": 620
+          },
+          {
+            "id": "1774387875937.5583_att_8",
+            "name": "image009.png",
+            "mimeType": "application/octet-stream",
+            "size": 1120321
+          },
+          {
+            "id": "1774387875937.5583_att_9",
+            "name": "image010.png",
+            "mimeType": "application/octet-stream",
+            "size": 1521487
+          },
+          {
+            "id": "1774387875937.5583_att_10",
+            "name": "image011.png",
+            "mimeType": "application/octet-stream",
+            "size": 8352
+          },
+          {
+            "id": "1774387875937.5583_att_11",
+            "name": "image012.png",
+            "mimeType": "application/octet-stream",
+            "size": 3355
+          },
+          {
+            "id": "1774387875937.5583_att_12",
+            "name": "image013.png",
+            "mimeType": "application/octet-stream",
+            "size": 3148
+          },
+          {
+            "id": "1774387875937.5583_att_13",
+            "name": "FW: Ligger dak botenhuis Dorpsweide 12",
+            "mimeType": "application/octet-stream",
+            "size": 947712
+          }
+        ]
+      },
+      {
+        "id": "1774388826357.438",
+        "direction": "in",
+        "van": "Harry Bakker <Harry@hbbouw.nl>",
+        "subject": "FW: Dorpsweide 5-3-26",
+        "date": "2026-03-05",
+        "categorie": "Overig",
+        "notitie": "",
+        "body": "Andre\r\n\r\nWil je alles goed nalopen aub zie foto’s en tekst \r\n\r\n \r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nHarry Bakker\r\n\r\n \r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\nT 0252 211 382\r\n\r\nTeylingerlaan 4\r\n\r\n2215 RR  Voorhout\r\n\r\n\r\n\r\n  \r\n\r\nharry@hbbouw.nl <mailto:harry@hbbouw.nl>  \r\n\r\nwww.hbbouw.nl <http://www.hbbouw.nl/> \r\n\r\n \r\n\r\n\t\t\t\r\n________________________________\r\n\r\n\r\nVan: Emile de Jong <emile@onderwaater.nu <mailto:emile@onderwaater.nu> >\r\nVerzonden: Thursday, March 5, 2026 10:25:59 AM\r\nAan: Fred Duinkerken <fred@hbbouw.nl <mailto:fred@hbbouw.nl> >\r\nCC: Jelle Noordsij <jelle@onderwaater.nu <mailto:jelle@onderwaater.nu> >\r\nOnderwerp: Dorpsweide 5-3-26 \r\n\r\n \r\n\r\nGoedemorgen Fred,\r\n\r\n \r\n\r\nZoals zojuist telefonisch besproken.\r\n\r\n \r\n\r\nIk zie je reactie op mijn mail d.d. 3-3-26, graag z.s.m. tegemoet. (Planning pergola + vlonderdelen en maatvoering lichtstraat boothuis)\r\n\r\n \r\n\r\nNalopen PVO.\r\n\r\n \r\n\r\nTot mijn verbazing was er vandaag niemand aanwezig van H&B voor nalopen PVO punten.\r\n\r\nGebeld met Johan en die gaf aan dat de meeste punten voor H&B waren afgehandeld.\r\n\r\n \r\n\r\nKees de Jong is er vandaag ergens tussen 10-12 u werd me medegedeeld. “Coördinatie” ervan wordt nu bij Saton neergelegd. Tactisch niet handig en niet de bedoeling. Zorg dat er iemand van H&B is om de werkzaamheden te begeleiden.\r\n\r\n \r\n\r\nKleine ronde gemaakt, maar ik krijg er nog geen goed gevoel bij.\r\n\r\n \r\n\r\n                       \r\n\r\n \r\n\r\nBijv. kopse kanten loopdeuren boothuis. De ene deur is nu wel behandeld, de andere niet. De deuren klapperen nog in de dagschoot.\r\n\r\nLoop de punten na en maakt het nu af.\r\n\r\n \r\n\r\nMorgen om 12.00 u maak ik een ronde met Kees Saton om de punten na te lopen. Ik wil je vragen om hierbij aan te sluiten en niet Johan. \r\n\r\n \r\n\r\nStucwerkherstel\r\n\r\nZoals deze week besproken, het maakt me niet uit hoe de reparaties worden uitgevoerd, maar ik wil er niks van zien.\r\n\r\nDat lijkt tot dusver niet te lukken.\r\n\r\n                        \r\n\r\n \r\n\r\nOp maaiveld niveau de gevel nalopen op andere beschadigingen tot op heden nog niet uitgevoerd?\r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nSchilderwerk\r\n\r\n \r\n\r\nKees Saton blijft erbij dat de kitnaden bij de trap b.g.g.-1 vd nog niet voldoende zijn bijgewerkt. Graag overleg met de schilder wat er nog mogelijk is voor morgen 12.00 u.\r\n\r\n                      \r\n\r\n \r\n\r\n \r\n\r\nIk zie je reactie graag tegemoet.\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\nMet vriendelijke groet,\r\n\r\n \r\n\r\nEmile de Jong\r\n\r\n06 27 47 11 92\r\n\r\n \r\n\r\n \r\n\r\n\r\n\r\n \r\n\r\nA. van Leeuwenhoekweg 38 C18  ■  2408 AN  ■  Alphen aan den Rijn  \r\n0172 50 10 40  ■  info@onderwaater.nu <mailto:info@onderwaater.nu>   ■  onderwaater.nu <http://www.onderwaater.nu/> \r\n\r\n \r\n\r\nWerkdagen: maandag, dinsdag, donderdag, vrijdag\r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n \r\n\r\n",
+        "status": "open",
+        "aangemaakt": "2026-03-24T21:47:06.357Z",
+        "from": "Harry Bakker <Harry@hbbouw.nl>",
+        "to": "",
+        "originalFile": {
+          "name": "FW_ Dorpsweide 5-3-26.msg",
+          "size": 13291520,
+          "fileId": 1774388824766.905
+        },
+        "outlookId": null,
+        "attachments": [
+          {
+            "id": "1774388824766.905_att_0",
+            "name": "image001.png",
+            "mimeType": "image/png",
+            "size": 14163
+          },
+          {
+            "id": "1774388824766.905_att_1",
+            "name": "image002.png",
+            "mimeType": "image/png",
+            "size": 1695545
+          },
+          {
+            "id": "1774388824766.905_att_2",
+            "name": "image003.png",
+            "mimeType": "image/png",
+            "size": 516
+          },
+          {
+            "id": "1774388824766.905_att_3",
+            "name": "image004.png",
+            "mimeType": "image/png",
+            "size": 841642
+          },
+          {
+            "id": "1774388824766.905_att_4",
+            "name": "image005.png",
+            "mimeType": "image/png",
+            "size": 887751
+          },
+          {
+            "id": "1774388824766.905_att_5",
+            "name": "image006.png",
+            "mimeType": "image/png",
+            "size": 1059474
+          },
+          {
+            "id": "1774388824766.905_att_6",
+            "name": "image007.png",
+            "mimeType": "image/png",
+            "size": 1351973
+          },
+          {
+            "id": "1774388824766.905_att_7",
+            "name": "image008.png",
+            "mimeType": "image/png",
+            "size": 620
+          },
+          {
+            "id": "1774388824766.905_att_8",
+            "name": "image009.png",
+            "mimeType": "image/png",
+            "size": 1120321
+          },
+          {
+            "id": "1774388824766.905_att_9",
+            "name": "image010.png",
+            "mimeType": "image/png",
+            "size": 1521487
+          },
+          {
+            "id": "1774388824766.905_att_10",
+            "name": "image011.png",
+            "mimeType": "image/png",
+            "size": 8352
+          },
+          {
+            "id": "1774388824766.905_att_11",
+            "name": "image012.png",
+            "mimeType": "image/png",
+            "size": 3355
+          },
+          {
+            "id": "1774388824766.905_att_12",
+            "name": "image013.png",
+            "mimeType": "image/png",
+            "size": 3148
+          },
+          {
+            "id": "1774388824766.905_att_13",
+            "name": "FW: Ligger dak botenhuis Dorpsweide 12",
+            "mimeType": "message/rfc822",
+            "size": 947712
+          }
+        ],
+        "taken": [
+          {
+            "id": "t17743895602600.6335267108746455",
+            "naam": "Stucwerk reparaties afmaken (niet zichtbaar)",
+            "deadline": "2026-03-06",
+            "gedaan": false
+          },
+          {
+            "id": "t17743895824430.4247312237649292",
+            "naam": "PVO punten nalopen en afmaken (kopse kanten loopdeuren boothuis)",
+            "deadline": "2026-03-06",
+            "gedaan": false
+          }
+        ]
+      }
+    ],
+    "teamsKanaalId": "19:fdca50110fb442c28b8e38aa08f72a5d@thread.tacv2",
+    "teamsKanaalUrl": null,
+    "plannerPlanId": "5t6CMICrZ0i4mGcbLwDdcpgACKvE",
+    "teamsPlanAangemaakt": true,
+    "bestanden": [
+      {
+        "name": "Batch urenstaten.pdf",
+        "type": "application/pdf",
+        "size": 154328,
+        "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fbestanden%2F1775054337086_Batch_urenstaten.pdf",
+        "data": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fbestanden%2F1775054337086_Batch_urenstaten.pdf",
+        "uploadedAt": "2026-04-01T14:39:14.475Z"
+      }
+    ],
+    "fotos": [
+      {
+        "id": 1775241228432,
+        "name": "Jan_2026-04-03_20-33.jpg",
+        "type": "image/png",
+        "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fmedewerker-fotos%2F1775241227917_image011.png",
+        "datum": "3-4-2026",
+        "tijd": "20:33",
+        "auteur": "Jan Modaal"
+      }
+    ],
+    "checklist": [
+      {
+        "id": 1775240613967,
+        "text": "goten nakijken",
+        "done": false
+      },
+      {
+        "id": 1775240636765,
+        "text": "wbakcb",
+        "done": false
+      },
+      {
+        "id": 1775241127430,
+        "text": "fgff",
+        "done": false
+      }
+    ]
+  }
+]
