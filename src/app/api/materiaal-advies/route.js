@@ -7,8 +7,44 @@ const anthropic = new Anthropic({
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { producten, m2, gekozenMaat, besteProduct, besteTotaal, besteAantal } = body;
+        const { producten, m2, gekozenMaat, besteProduct, besteTotaal, besteAantal, modus, product, wizardContext } = body;
 
+        // ── Systeemopbouw modus ───────────────────────────────────────────
+        if (modus === 'systeem') {
+            if (!product) return Response.json({ error: 'Geen product opgegeven' }, { status: 400 });
+            const ctx = wizardContext || {};
+            const response = await anthropic.messages.create({
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 600,
+                messages: [{
+                    role: 'user',
+                    content: `Je bent een Sikkens verfadviseur. Geef de systeemopbouw voor dit product en deze situatie.
+
+Product: ${product}
+Situatie:
+- Aard: ${ctx.aard || 'onbekend'}
+- Situering: ${ctx.situering || 'onbekend'}
+- Ondergrond: ${ctx.ondergrond || 'onbekend'}
+- Conditie: ${ctx.conditie || 'n.v.t.'}
+- Dekking: ${ctx.dekking || 'dekkend'}
+- Glansgraad: ${ctx.glansgraad || 'onbekend'}
+
+Geef de werkvolgorde als JSON array. Elke stap heeft: laag (plamuurlaag/grondlaag/tussenlaag/eindlaag), product (Sikkens productnaam), verwerking (kwast/roller of spuit), aantal_lagen (bijv. "2x geheel"), opmerking (optioneel, max 1 zin). Laat lagen weg die niet van toepassing zijn. Antwoord ALLEEN met de JSON array, geen tekst buiten de array.
+
+Voorbeeld:
+[{"laag":"grondlaag","product":"Rubbol Primer","verwerking":"kwast/roller","aantal_lagen":"1x geheel"},{"laag":"eindlaag","product":"Rubbol EPS","verwerking":"kwast/roller","aantal_lagen":"2x geheel","opmerking":"halfglans afwerking"}]`,
+                }],
+            });
+            try {
+                const tekst = response.content[0].text.trim();
+                const systeem = JSON.parse(tekst.startsWith('[') ? tekst : tekst.slice(tekst.indexOf('[')));
+                return Response.json({ systeem });
+            } catch {
+                return Response.json({ error: 'Kon systeem niet parsen' }, { status: 500 });
+            }
+        }
+
+        // ── Productadvies modus (bestaand) ───────────────────────────────
         if (!producten || producten.length === 0) {
             return Response.json({ error: 'Geen producten opgegeven' }, { status: 400 });
         }

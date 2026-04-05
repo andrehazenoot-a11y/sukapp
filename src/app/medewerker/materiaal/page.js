@@ -345,6 +345,23 @@ export default function MateriaalBotPage() {
     ];
 
     const [wizard, setWizard] = useState(null);
+    const [systeemModal, setSysteemModal] = useState(null);
+
+    async function laadSysteem(productnaam, wizardContext) {
+        setSysteemModal({ product: productnaam, loading: true, systeem: null, error: false });
+        try {
+            const res = await fetch('/api/materiaal-advies', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ modus: 'systeem', product: productnaam, wizardContext: wizardContext || {} }),
+            });
+            const { systeem, error } = await res.json();
+            if (error || !systeem) throw new Error();
+            setSysteemModal(prev => ({ ...prev, loading: false, systeem }));
+        } catch {
+            setSysteemModal(prev => ({ ...prev, loading: false, error: true }));
+        }
+    }
 
     function zoekOpWizard(keuzes) {
         const terms = [keuzes.ondergrond, keuzes.glansgraad, keuzes.eindlaag !== 'n.v.t.' ? keuzes.eindlaag : null]
@@ -433,7 +450,8 @@ export default function MateriaalBotPage() {
                                         inhoud:    cols.inhoud ? (row[cols.inhoud] ?? '') : '',
                                     };
                                     return (
-                                        <div key={i} style={{ background: beste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${beste ? '#86efac' : '#f1f5f9'}`, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                        <div key={i} style={{ background: beste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${beste ? '#86efac' : '#f1f5f9'}`, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: '#fff8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                                 <i className="fa-solid fa-cube" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
                                             </div>
@@ -484,6 +502,13 @@ export default function MateriaalBotPage() {
                                                       </>
                                                     : <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>Op aanvraag</div>}
                                             </div>
+                                        </div>
+                                        {/* Systeemopbouw knop */}
+                                        <button onClick={() => laadSysteem(naam, wizard?.keuzes || {})}
+                                            style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#6366f1', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
+                                            <i className="fa-solid fa-layer-group" />
+                                            Systeemopbouw
+                                        </button>
                                         </div>
                                     );
                                 })}
@@ -707,6 +732,75 @@ export default function MateriaalBotPage() {
             </div>
 
             <style>{`@keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }`}</style>
+
+            {/* Systeemopbouw modal */}
+            {systeemModal && (
+                <>
+                    <div onClick={() => setSysteemModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 300 }} />
+                    <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', padding: '0 0 32px', boxShadow: '0 -8px 32px rgba(0,0,0,0.15)', zIndex: 310 }}>
+                        <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '10px auto 0' }} />
+                        <div style={{ padding: '12px 20px 10px', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#1e293b' }}>Systeemopbouw</div>
+                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>{systeemModal.product}</div>
+                        </div>
+                        {systeemModal.loading && (
+                            <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: '8px' }} />
+                                Verfadvies ophalen…
+                            </div>
+                        )}
+                        {systeemModal.error && (
+                            <div style={{ padding: '28px', textAlign: 'center', color: '#ef4444', fontSize: '0.85rem' }}>
+                                Kon geen systeemadvies ophalen. Probeer opnieuw.
+                            </div>
+                        )}
+                        {systeemModal.systeem && (
+                            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '60vh', overflowY: 'auto' }}>
+                                {systeemModal.systeem.map((stap, i) => {
+                                    const laagStijl = {
+                                        plamuurlaag: { bg: '#faf5ff', clr: '#7c3aed', icon: 'fa-fill-drip' },
+                                        grondlaag:   { bg: '#fff7ed', clr: '#ea580c', icon: 'fa-layer-group' },
+                                        tussenlaag:  { bg: '#f0f9ff', clr: '#0284c7', icon: 'fa-layer-group' },
+                                        eindlaag:    { bg: '#f0fdf4', clr: '#16a34a', icon: 'fa-paint-roller' },
+                                    }[stap.laag] || { bg: '#f8fafc', clr: '#64748b', icon: 'fa-layer-group' };
+                                    return (
+                                        <div key={i} style={{ background: laagStijl.bg, borderRadius: '12px', padding: '12px 14px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                                                <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: laagStijl.clr, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <i className={`fa-solid ${laagStijl.icon}`} style={{ color: '#fff', fontSize: '0.75rem' }} />
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.62rem', fontWeight: 700, color: laagStijl.clr, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stap.laag}</div>
+                                                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b' }}>{stap.product}</div>
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginLeft: '40px' }}>
+                                                <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#fff', borderRadius: '6px', padding: '2px 7px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fa-solid fa-paintbrush" />{stap.verwerking}
+                                                </span>
+                                                <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#fff', borderRadius: '6px', padding: '2px 7px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fa-solid fa-clone" />{stap.aantal_lagen}
+                                                </span>
+                                                {stap.opmerking && (
+                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontStyle: 'italic', alignSelf: 'center' }}>{stap.opmerking}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                <a href="https://bestekservice.sikkens.nl/wizard" target="_blank" rel="noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'linear-gradient(135deg,#F5850A,#D96800)', borderRadius: '12px', color: '#fff', textDecoration: 'none', marginTop: '4px' }}>
+                                    <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '1rem', flexShrink: 0 }} />
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Controleer op Sikkens bestekservice</div>
+                                        <div style={{ fontSize: '0.68rem', opacity: 0.85, marginTop: '1px' }}>Voor officieel verfsysteem met bestektekst</div>
+                                    </div>
+                                </a>
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
 
             {/* Opslaan bij project modal */}
             {opslaanModal && (
