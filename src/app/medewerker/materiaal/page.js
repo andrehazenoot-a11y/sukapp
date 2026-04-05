@@ -335,14 +335,63 @@ export default function MateriaalBotPage() {
         { key: 'situering', label: 'Situering',                opties: ['Binnen', 'Buiten'] },
         { key: 'ondergrond',label: 'Ondergrond',               opties: ['Hout', 'Kunststof', 'Metaal, non-ferro', 'Staal', 'Staal, verzinkt', 'Steenachtig, vloeren', 'Steenachtig, wanden en plafonds'] },
         { key: 'conditie',  label: 'Conditie verfsysteem',     opties: ['Redelijk', 'Matig', 'Slecht', 'n.v.t.', 'Onbehandeld'] },
-        { key: 'verwerking',label: 'Plaats verwerking',        opties: ['Bouwplaats', 'Fabriek en Bouwplaats', 'Timmerfabriek'] },
-        { key: 'opbouw',    label: 'Opbouw verfsysteem',       opties: ['A: Compleet herschildersysteem', 'B: Uitgebreid herschildersysteem', 'D: Eenvoudig herschildersysteem', 'N0: Nieuw verfsysteem', 'N1: Concept I', 'N2: Concept II', 'N3: Concept III', 'N4: Fabrieksmatig gegrond + aflakken op de bouw', 'N5: Gronden in de bouw', 'N6: Nieuw verfsysteem op onbehandelde bestaande ondergrond'] },
+        { key: 'opbouw',    label: 'Opbouw verfsysteem',       opties: [
+            'A: Compleet herschildersysteem — volledig schuren, gronden en aflakken',
+            'B: Uitgebreid herschildersysteem — schuren, bijgronden en aflakken',
+            'D: Eenvoudig herschildersysteem — geheel aflakken, geen grondlaag',
+            'N0: Nieuw verfsysteem — volledige opbouw op onbehandeld hout/metaal/steen',
+            'N1: Concept I — grondverf + 1 aflaklaag',
+            'N2: Concept II — grondverf + 2 aflaklagen',
+            'N3: Concept III — plamuur + grondverf + 2 aflaklagen',
+            'N4: Fabrieksmatig gegrond + aflakken op de bouw',
+            'N5: Gronden in de bouw — alleen grondlaag aanbrengen',
+            'N6: Nieuw systeem op onbehandelde bestaande ondergrond',
+        ] },
         { key: 'dekking',   label: 'Dekkend / transparant',    opties: ['Afwerking dekkend', 'Afwerking transparant'] },
-        { key: 'glansgraad',label: 'Glansgraad eindlaag',      opties: ['Hoogglans', 'Halfglans', 'Hoge zijdeglans', 'Zijdeglans', 'Lage zijdeglans', 'Mat', 'Kalkmat', 'Glans'] },
+        { key: 'glansgraad',label: 'Glansgraad eindlaag',      opties: ['Alle glansgraden', 'Hoogglans', 'Halfglans', 'Hoge zijdeglans', 'Zijdeglans', 'Lage zijdeglans', 'Mat', 'Kalkmat', 'Glans'] },
         { key: 'kenmerk',   label: 'Speciaal kenmerk',         opties: ['n.v.t.', '2-componenten product', 'Ademende muurverf', 'Bacteriebestendige muurverf', 'Carbonatatieremmende muurverf', 'Doorwerk product', 'Één-pot-systeem', 'Extreem duurzame lak', 'Haarscheuroverbruggende muurverf', 'Hoogglans watergedragen buitenlak', 'Huidvetresistente grondverf', 'Huidvetresistente lak', 'Hydrofoberend', 'Isolerende grondverf', 'Isolerende muurverf', 'Metallic muurverf', 'Muurverf voor plafonds', 'Muurverf voor vochtige ruimten', 'Natuurlijke houten uitstraling', 'Sneldrogend watergedragen voor metaal', 'Spuitapplicatie product', 'Structuur muurverf', 'Vlekafstotende muurverf', 'Watergedragen grondverf'] },
-        { key: 'onderhoud', label: 'Onderhoudsverwachting',    opties: ['n.v.t.', '2 - 3 jaar', '3 - 4 jaar', '4 - 5 jaar', '5 - 6 jaar', '6 jaar', '7 - 8 jaar', '8 - 10 jaar'] },
-        { key: 'eindlaag',  label: 'Productnaam eindlaag',     opties: ['n.v.t.', 'Rubbol XD High Gloss', 'Rubbol XD Semi Gloss', 'Rubbol SB', 'Rubbol AZ', 'Rubbol EPS', 'Rubbol EPS Thix', 'Rubbol Satura', 'Rubbol BL Ventura Satin', 'Rubbol Express High Gloss', 'Rubbol BL Safira', 'Rubbol BL Satura', 'Rubbol BL Rezisto Mat', 'Rubbol BL Rezisto Satin', 'Rubbol BL Rezisto Semi-Gloss', 'Rubbol BL Rezisto High Gloss', 'Rubbol BL Rezisto Spray', 'Rubbol BL Endurance High Gloss', 'Rubbol Primer', 'Rubbol Primer Express', 'Rubbol BL Primer', 'Rubbol BL Isoprimer', 'Rubbol BL Rezisto Primer', 'Rubbol DSA Thix', 'Rubbol WF 376', 'Rubbol WF 387', 'Cetol TGX Gloss', 'Cetol TGL Satin Plus', 'Cetol Novatech', 'Cetol HLS Plus', 'Cetol BLX-Pro', 'Cetol BL Decor', 'Cetol BL Varnish Mat', 'Cetol BL Natural Mat', 'Cetol BL Endurance Primer', 'Alpha Aqua SI', 'Alpha Humitex SF', 'Alpha Isolux SF', 'Alpha Metallic', 'Alpha Plafond Extreem Mat', 'Alpha Prof Mat', 'Alpha Projecttex', 'Alpha Recycle Mat', 'Alpha Rezisto Anti Marks', 'Alpha Rezisto Easy Clean', 'Alpha Sanocryl', 'Alpha Topcoat', 'Alpha Topcoat Flex', 'Alphacoat', 'Alphacryl Easy Spray', 'Alphacryl Pure Mat SF', 'Alphaloxan', 'Alphaloxan Flex', 'Alphatex 4SO Mat', 'Alphatex IQ', 'Alphatex IQ Mat', 'Alphatex Satin SF', 'Alphatex SF', 'Alphaxylan SF', 'Redox BL Forte', 'Redox BL Metal Protect Satin', 'Redox PUR Finish High Gloss', 'Redox PUR Finish Satin', 'Wapex 647 Semi-mat', 'Wapex 650', 'Wapex 660', 'Wapex 660 Mat', 'Wapex PUR Clearcoat'] },
+        { key: 'eindlaag',  label: 'Productnaam eindlaag',     opties: ['n.v.t.', 'Rubbol XD High Gloss', 'Rubbol XD Semi Gloss', 'Rubbol SB', 'Rubbol EPS', 'Rubbol EPS Thix', 'Rubbol Satura', 'Rubbol BL Ventura Satin', 'Rubbol Express High Gloss', 'Rubbol BL Safira', 'Rubbol BL Satura', 'Rubbol BL Rezisto Mat', 'Rubbol BL Rezisto Satin', 'Rubbol BL Rezisto Semi-Gloss', 'Rubbol BL Rezisto High Gloss', 'Rubbol BL Rezisto Spray', 'Rubbol BL Endurance High Gloss', 'Rubbol Primer', 'Rubbol Primer Express', 'Rubbol BL Primer', 'Rubbol BL Isoprimer', 'Rubbol BL Rezisto Primer', 'Rubbol DSA Thix', 'Rubbol WF 376', 'Rubbol WF 387', 'Cetol TGX Gloss', 'Cetol TGL Satin Plus', 'Cetol Novatech', 'Cetol HLS Plus', 'Cetol BLX-Pro', 'Cetol BL Decor', 'Cetol BL Varnish Mat', 'Cetol BL Natural Mat', 'Cetol BL Endurance Primer', 'Alpha Aqua SI', 'Alpha Humitex SF', 'Alpha Isolux SF', 'Alpha Metallic', 'Alpha Plafond Extreem Mat', 'Alpha Prof Mat', 'Alpha Projecttex', 'Alpha Recycle Mat', 'Alpha Rezisto Anti Marks', 'Alpha Rezisto Easy Clean', 'Alpha Sanocryl', 'Alpha Topcoat', 'Alpha Topcoat Flex', 'Alphacoat', 'Alphacryl Easy Spray', 'Alphacryl Pure Mat SF', 'Alphaloxan', 'Alphaloxan Flex', 'Alphatex 4SO Mat', 'Alphatex IQ', 'Alphatex IQ Mat', 'Alphatex Satin SF', 'Alphatex SF', 'Alphaxylan SF', 'Redox BL Forte', 'Redox BL Metal Protect Satin', 'Redox PUR Finish High Gloss', 'Redox PUR Finish Satin', 'Wapex 647 Semi-mat', 'Wapex 650', 'Wapex 660', 'Wapex 660 Mat', 'Wapex PUR Clearcoat'] },
     ];
+
+    const KENMERK_FILTER = {
+        'n.v.t.':                               ['hout', 'kunststof', 'metaal', 'staal', 'steenachtig', 'vloeren'],
+        '2-componenten product':                ['hout', 'metaal', 'staal', 'kunststof', 'steenachtig', 'vloeren'],
+        'Ademende muurverf':                    ['steenachtig'],
+        'Bacteriebestendige muurverf':          ['steenachtig'],
+        'Carbonatatieremmende muurverf':        ['steenachtig'],
+        'Doorwerk product':                     ['hout', 'kunststof', 'metaal', 'staal'],
+        'Één-pot-systeem':                      ['hout', 'metaal', 'staal', 'kunststof'],
+        'Extreem duurzame lak':                 ['hout', 'metaal', 'staal', 'kunststof'],
+        'Haarscheuroverbruggende muurverf':     ['steenachtig'],
+        'Hoogglans watergedragen buitenlak':    ['hout', 'kunststof'],
+        'Huidvetresistente grondverf':          ['metaal', 'staal'],
+        'Huidvetresistente lak':                ['metaal', 'staal'],
+        'Hydrofoberend':                        ['steenachtig'],
+        'Isolerende grondverf':                 ['metaal', 'staal'],
+        'Isolerende muurverf':                  ['steenachtig'],
+        'Metallic muurverf':                    ['steenachtig'],
+        'Muurverf voor plafonds':               ['steenachtig'],
+        'Muurverf voor vochtige ruimten':       ['steenachtig'],
+        'Natuurlijke houten uitstraling':       ['hout'],
+        'Sneldrogend watergedragen voor metaal':['metaal', 'staal'],
+        'Spuitapplicatie product':              ['hout', 'kunststof', 'metaal', 'staal', 'steenachtig', 'vloeren'],
+        'Structuur muurverf':                   ['steenachtig'],
+        'Vlekafstotende muurverf':              ['steenachtig'],
+        'Watergedragen grondverf':              ['hout', 'kunststof', 'metaal', 'staal', 'steenachtig', 'vloeren'],
+    };
+
+    function getKenmerkOpties(keuzes) {
+        const ond = (keuzes.ondergrond || '').toLowerCase();
+        const cat = ond.includes('hout') ? 'hout'
+                  : ond.includes('kunststof') ? 'kunststof'
+                  : ond.includes('non-ferro') ? 'metaal'
+                  : ond.includes('staal') ? 'staal'
+                  : ond.includes('vloeren') ? 'vloeren'
+                  : ond.includes('steenachtig') ? 'steenachtig'
+                  : null;
+        if (!cat) return Object.keys(KENMERK_FILTER);
+        return Object.keys(KENMERK_FILTER).filter(k => KENMERK_FILTER[k].includes(cat));
+    }
 
     const [wizard, setWizard] = useState(null);
     const [systeemModal, setSysteemModal] = useState(null);
@@ -355,9 +404,9 @@ export default function MateriaalBotPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ modus: 'systeem', product: productnaam, wizardContext: wizardContext || {} }),
             });
-            const { systeem, error } = await res.json();
+            const { systeem, onderhoud, error } = await res.json();
             if (error || !systeem) throw new Error();
-            setSysteemModal(prev => ({ ...prev, loading: false, systeem }));
+            setSysteemModal(prev => ({ ...prev, loading: false, systeem, onderhoud }));
         } catch {
             setSysteemModal(prev => ({ ...prev, loading: false, error: true }));
         }
@@ -705,9 +754,9 @@ export default function MateriaalBotPage() {
                     </div>
                     {/* Knoppen */}
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
-                        {WIZARD_STAPPEN[wizard.stap].opties.map(opt => (
+                        {(WIZARD_STAPPEN[wizard.stap].key === 'kenmerk' ? getKenmerkOpties(wizard.keuzes) : WIZARD_STAPPEN[wizard.stap].opties).map(opt => (
                             <button key={opt} onClick={() => kiesWizardOptie(opt)}
-                                style={{ padding: '6px 14px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                style={{ padding: '6px 14px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', lineHeight: 1.4 }}>
                                 {opt}
                             </button>
                         ))}
@@ -788,6 +837,17 @@ export default function MateriaalBotPage() {
                                         </div>
                                     );
                                 })}
+                                {systeemModal.onderhoud && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: '#f0fdf4', borderRadius: '12px', border: '1.5px solid #86efac' }}>
+                                        <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <i className="fa-solid fa-calendar-check" style={{ color: '#fff', fontSize: '0.75rem' }} />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Onderhoudsverwachting</div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#15803d' }}>{systeemModal.onderhoud}</div>
+                                        </div>
+                                    </div>
+                                )}
                                 <a href="https://bestekservice.sikkens.nl/wizard" target="_blank" rel="noreferrer"
                                     style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'linear-gradient(135deg,#F5850A,#D96800)', borderRadius: '12px', color: '#fff', textDecoration: 'none', marginTop: '4px' }}>
                                     <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '1rem', flexShrink: 0 }} />

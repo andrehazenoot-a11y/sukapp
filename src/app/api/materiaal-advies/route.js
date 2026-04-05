@@ -29,16 +29,20 @@ Situatie:
 - Dekking: ${ctx.dekking || 'dekkend'}
 - Glansgraad: ${ctx.glansgraad || 'onbekend'}
 
-Geef de werkvolgorde als JSON array. Elke stap heeft: laag (plamuurlaag/grondlaag/tussenlaag/eindlaag), product (Sikkens productnaam), verwerking (kwast/roller of spuit), aantal_lagen (bijv. "2x geheel"), opmerking (optioneel, max 1 zin). Laat lagen weg die niet van toepassing zijn. Antwoord ALLEEN met de JSON array, geen tekst buiten de array.
+Geef een JSON object met twee velden:
+1. "systeem": array van lagen. Elke laag heeft: laag (plamuurlaag/grondlaag/tussenlaag/eindlaag), product (Sikkens productnaam), verwerking (kwast/roller of spuit), aantal_lagen (bijv. "2x geheel"), opmerking (optioneel, max 1 zin). Laat lagen weg die niet van toepassing zijn.
+2. "onderhoud": verwachte onderhoudstermijn als string, bijv. "6 - 8 jaar" of "8 - 10 jaar", gebaseerd op het eindproduct en de situering.
+
+Antwoord ALLEEN met het JSON object, geen tekst buiten het object.
 
 Voorbeeld:
-[{"laag":"grondlaag","product":"Rubbol Primer","verwerking":"kwast/roller","aantal_lagen":"1x geheel"},{"laag":"eindlaag","product":"Rubbol EPS","verwerking":"kwast/roller","aantal_lagen":"2x geheel","opmerking":"halfglans afwerking"}]`,
+{"systeem":[{"laag":"grondlaag","product":"Rubbol Primer","verwerking":"kwast/roller","aantal_lagen":"1x geheel"},{"laag":"eindlaag","product":"Rubbol EPS","verwerking":"kwast/roller","aantal_lagen":"2x geheel","opmerking":"halfglans afwerking"}],"onderhoud":"5 - 7 jaar"}`,
                 }],
             });
             try {
                 const tekst = response.content[0].text.trim();
-                const systeem = JSON.parse(tekst.startsWith('[') ? tekst : tekst.slice(tekst.indexOf('[')));
-                return Response.json({ systeem });
+                const parsed = JSON.parse(tekst.startsWith('{') ? tekst : tekst.slice(tekst.indexOf('{')));
+                return Response.json({ systeem: parsed.systeem, onderhoud: parsed.onderhoud });
             } catch {
                 return Response.json({ error: 'Kon systeem niet parsen' }, { status: 500 });
             }
