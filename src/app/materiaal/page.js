@@ -47,7 +47,9 @@ export default function MateriaalPage() {
     const [opslagen, setOpslagen]             = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_materiaal_opslagen') || '{}'); } catch { return {}; } });
     const [groepOpslag, setGroepOpslag]       = useState('');
     const [tdsLinks, setTdsLinks]             = useState({});
+    const [afronden, setAfronden]             = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_materiaal_afronden') || 'false'); } catch { return false; } });
     const tdsRef                              = useRef(null);
+    const opslagenBackup                      = useRef(null); // bewaard originele opslagen vóór afronden
     const [tdsUploading, setTdsUploading]     = useState(null);
     const [importing, setImporting]           = useState(false);
     const [importResult, setImportResult]     = useState(null);
@@ -402,11 +404,12 @@ export default function MateriaalPage() {
                                     <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>Groepsopslag toepassen op alle rijen</span>
                                     <div style={{ position: 'relative', marginLeft: 'auto' }}>
                                         <input
-                                            type="number" min="0" step="1"
+                                            type="number" min="0" step="0.01"
                                             value={groepOpslag}
-                                            placeholder="0"
+                                            placeholder="0.00"
                                             onChange={e => setGroepOpslag(e.target.value)}
-                                            style={{ width: '70px', padding: '6px 22px 6px 8px', border: '1.5px solid #6366f1', borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', textAlign: 'right', color: '#1e293b', fontWeight: 700 }}
+                                            onBlur={e => { if (e.target.value !== '') setGroepOpslag(parseFloat(e.target.value).toFixed(2)); }}
+                                            style={{ width: '100px', padding: '6px 22px 6px 8px', border: '1.5px solid #6366f1', borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', textAlign: 'right', color: '#1e293b', fontWeight: 700 }}
                                         />
                                         <span style={{ position: 'absolute', right: '7px', top: '50%', transform: 'translateY(-50%)', color: '#6366f1', fontSize: '0.8rem', fontWeight: 700 }}>%</span>
                                     </div>
@@ -438,20 +441,51 @@ export default function MateriaalPage() {
                                         <i className="fa-solid fa-xmark" />
                                     </button>
                                     <button onClick={() => {
-                                        const updated = { ...verkoopprijzen };
-                                        rows.forEach((row, gi) => {
-                                            const rk = row[cols.code] || row[cols.naam] || String(gi);
-                                            const { incl } = getPrijs(row);
-                                            const opslag = parseFloat(opslagen[rk]) || 0;
-                                            const berekend = opslag > 0 ? incl * (1 + opslag / 100) : incl;
-                                            const huidig = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : berekend;
-                                            updated[rk] = String(Math.ceil(huidig));
-                                        });
-                                        setVerkoopprijzen(updated);
-                                        localStorage.setItem('schildersapp_materiaal_verkoop', JSON.stringify(updated));
+                                        const nieuw = !afronden;
+                                        setAfronden(nieuw);
+                                        localStorage.setItem('schildersapp_materiaal_afronden', JSON.stringify(nieuw));
+                                        if (nieuw) {
+                                            // Zet AAN: sla originele opslagen op, herbereken op basis van afgeronde prijs
+                                            opslagenBackup.current = { ...opslagen };
+                                            const oUpdated = { ...opslagen };
+                                            const vUpdated = { ...verkoopprijzen };
+                                            rows.forEach((row, gi) => {
+                                                const rk = row[cols.code] || row[cols.naam] || String(gi);
+                                                const { incl } = getPrijs(row);
+                                                if (!incl) return;
+                                                const rijOpslag = parseFloat(opslagen[rk]) || 0;
+                                                const berekend  = rijOpslag > 0 ? incl * (1 + rijOpslag / 100) : incl;
+                                                const ceiled    = Math.ceil(berekend);
+                                                vUpdated[rk]    = String(ceiled);
+                                                oUpdated[rk]    = ((ceiled / incl - 1) * 100).toFixed(2);
+                                            });
+                                            setVerkoopprijzen(vUpdated);
+                                            setOpslagen(oUpdated);
+                                            localStorage.setItem('schildersapp_materiaal_verkoop', JSON.stringify(vUpdated));
+                                            localStorage.setItem('schildersapp_materiaal_opslagen', JSON.stringify(oUpdated));
+                                        } else {
+                                            // Zet UIT: herstel originele opslagen, verwijder auto-afgeronde verkoopprijzen
+                                            const herstel = opslagenBackup.current ?? {};
+                                            setOpslagen(herstel);
+                                            localStorage.setItem('schildersapp_materiaal_opslagen', JSON.stringify(herstel));
+                                            opslagenBackup.current = null;
+                                            const vUpdated = { ...verkoopprijzen };
+                                            rows.forEach((row, gi) => {
+                                                const rk = row[cols.code] || row[cols.naam] || String(gi);
+                                                if (vUpdated[rk] == null) return;
+                                                const { incl } = getPrijs(row);
+                                                const rijOpslag = parseFloat(herstel[rk]) || 0;
+                                                const berekend  = rijOpslag > 0 ? incl * (1 + rijOpslag / 100) : incl;
+                                                if (berekend && Math.ceil(berekend) === parseFloat(vUpdated[rk])) {
+                                                    delete vUpdated[rk];
+                                                }
+                                            });
+                                            setVerkoopprijzen(vUpdated);
+                                            localStorage.setItem('schildersapp_materiaal_verkoop', JSON.stringify(vUpdated));
+                                        }
                                     }}
-                                        title="Rond alle verkoopprijzen op naar hele euro's"
-                                        style={{ padding: '6px 12px', borderRadius: '8px', border: '1.5px solid #10b981', background: '#f0fdf4', color: '#10b981', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        title={afronden ? 'Afronden staat AAN — klik om uit te zetten' : 'Zet afronden aan (verkoopprijzen naar hele euro\'s)'}
+                                        style={{ padding: '6px 12px', borderRadius: '8px', border: `1.5px solid ${afronden ? '#10b981' : '#e2e8f0'}`, background: afronden ? '#10b981' : '#f8fafc', color: afronden ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s' }}>
                                         <i className="fa-solid fa-up-long" />€ Afronden
                                     </button>
                                 </div>
@@ -549,8 +583,8 @@ export default function MateriaalPage() {
                                                                 <div style={{ fontSize: '0.6rem', color: '#6366f1', fontWeight: 600, marginBottom: '2px' }}>OPSLAG</div>
                                                                 <div style={{ position: 'relative' }}>
                                                                     <input
-                                                                        type="number" min="0" step="1"
-                                                                        value={opslagen[rk] ?? ''}
+                                                                        type="number" min="0" step="0.01"
+                                                                        value={opslagen[rk] != null && opslagen[rk] !== '' ? parseFloat(opslagen[rk]).toFixed(2) : ''}
                                                                         placeholder="0"
                                                                         onChange={e => {
                                                                             const updated = { ...opslagen, [rk]: e.target.value };
@@ -563,7 +597,7 @@ export default function MateriaalPage() {
                                                                                 localStorage.setItem('schildersapp_materiaal_verkoop', JSON.stringify(vUpdated));
                                                                             }
                                                                         }}
-                                                                        style={{ width: '70px', padding: '5px 20px 5px 6px', border: `1.5px solid ${opslagen[rk] ? '#6366f1' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', textAlign: 'right', color: '#1e293b', background: opslagen[rk] ? '#eef2ff' : '#f8fafc', fontWeight: 700 }}
+                                                                        style={{ width: '84px', padding: '5px 20px 5px 6px', border: `1.5px solid ${opslagen[rk] ? '#6366f1' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', textAlign: 'right', color: '#1e293b', background: opslagen[rk] ? '#eef2ff' : '#f8fafc', fontWeight: 700 }}
                                                                     />
                                                                     <span style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', color: '#6366f1', fontSize: '0.75rem', fontWeight: 700 }}>%</span>
                                                                 </div>
@@ -576,7 +610,11 @@ export default function MateriaalPage() {
                                                                     <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.75rem' }}>€</span>
                                                                     <input
                                                                         type="number" min="0" step="0.01"
-                                                                        value={verkoopprijzen[rk] ?? (berekend ? berekend.toFixed(2) : '')}
+                                                                        value={(() => {
+                                                                            const raw = verkoopprijzen[rk] != null ? parseFloat(verkoopprijzen[rk]) : berekend;
+                                                                            if (!raw) return '';
+                                                                            return afronden ? String(Math.ceil(raw)) : (verkoopprijzen[rk] ?? berekend.toFixed(2));
+                                                                        })()}
                                                                         placeholder="—"
                                                                         onChange={e => {
                                                                             const updated = { ...verkoopprijzen, [rk]: e.target.value };
@@ -585,8 +623,8 @@ export default function MateriaalPage() {
                                                                             // Herbereken opslag% op basis van nieuwe verkoopprijs
                                                                             const vp = parseFloat(e.target.value);
                                                                             if (vp > 0 && incl > 0) {
-                                                                                const nieuwOpslag = Math.round((vp / incl - 1) * 100);
-                                                                                const oUpdated = { ...opslagen, [rk]: String(nieuwOpslag) };
+                                                                                const nieuwOpslag = ((vp / incl - 1) * 100).toFixed(2);
+                                                                                const oUpdated = { ...opslagen, [rk]: nieuwOpslag };
                                                                                 setOpslagen(oUpdated);
                                                                                 localStorage.setItem('schildersapp_materiaal_opslagen', JSON.stringify(oUpdated));
                                                                             }
@@ -770,7 +808,8 @@ export default function MateriaalPage() {
                                 const { incl } = getPrijs(row);
                                 const opslag   = parseFloat(opslagen[rk]) || 0;
                                 const berekend = opslag > 0 ? incl * (1 + opslag / 100) : incl;
-                                const verkPrijs = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : berekend;
+                                const verkPrijsRaw = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : berekend;
+                                const verkPrijs = afronden && verkPrijsRaw ? Math.ceil(verkPrijsRaw) : verkPrijsRaw;
                                 const fv = {
                                     naam:         row[cols.naam]         ?? '—',
                                     code:         row[cols.code]         ?? '',
