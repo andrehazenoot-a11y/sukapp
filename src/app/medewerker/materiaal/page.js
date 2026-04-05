@@ -353,6 +353,47 @@ export default function MateriaalBotPage() {
         { key: 'eindlaag',  label: 'Productnaam eindlaag',     opties: ['n.v.t.', 'Rubbol XD High Gloss', 'Rubbol XD Semi Gloss', 'Rubbol SB', 'Rubbol EPS', 'Rubbol EPS Thix', 'Rubbol Satura', 'Rubbol BL Ventura Satin', 'Rubbol Express High Gloss', 'Rubbol BL Safira', 'Rubbol BL Satura', 'Rubbol BL Rezisto Mat', 'Rubbol BL Rezisto Satin', 'Rubbol BL Rezisto Semi-Gloss', 'Rubbol BL Rezisto High Gloss', 'Rubbol BL Rezisto Spray', 'Rubbol BL Endurance High Gloss', 'Rubbol Primer', 'Rubbol Primer Express', 'Rubbol BL Primer', 'Rubbol BL Isoprimer', 'Rubbol BL Rezisto Primer', 'Rubbol DSA Thix', 'Rubbol WF 376', 'Rubbol WF 387', 'Cetol TGX Gloss', 'Cetol TGL Satin Plus', 'Cetol Novatech', 'Cetol HLS Plus', 'Cetol BLX-Pro', 'Cetol BL Decor', 'Cetol BL Varnish Mat', 'Cetol BL Natural Mat', 'Cetol BL Endurance Primer', 'Alpha Aqua SI', 'Alpha Humitex SF', 'Alpha Isolux SF', 'Alpha Metallic', 'Alpha Plafond Extreem Mat', 'Alpha Prof Mat', 'Alpha Projecttex', 'Alpha Recycle Mat', 'Alpha Rezisto Anti Marks', 'Alpha Rezisto Easy Clean', 'Alpha Sanocryl', 'Alpha Topcoat', 'Alpha Topcoat Flex', 'Alphacoat', 'Alphacryl Easy Spray', 'Alphacryl Pure Mat SF', 'Alphaloxan', 'Alphaloxan Flex', 'Alphatex 4SO Mat', 'Alphatex IQ', 'Alphatex IQ Mat', 'Alphatex Satin SF', 'Alphatex SF', 'Alphaxylan SF', 'Redox BL Forte', 'Redox BL Metal Protect Satin', 'Redox PUR Finish High Gloss', 'Redox PUR Finish Satin', 'Wapex 647 Semi-mat', 'Wapex 650', 'Wapex 660', 'Wapex 660 Mat', 'Wapex PUR Clearcoat'] },
     ];
 
+    const EINDLAAG_FILTER = {
+        hout: {
+            dekkend:     ['n.v.t.', 'Rubbol XD High Gloss', 'Rubbol XD Semi Gloss', 'Rubbol SB', 'Rubbol EPS', 'Rubbol EPS Thix', 'Rubbol Satura', 'Rubbol BL Ventura Satin', 'Rubbol Express High Gloss', 'Rubbol BL Safira', 'Rubbol BL Satura', 'Rubbol BL Rezisto Mat', 'Rubbol BL Rezisto Satin', 'Rubbol BL Rezisto Semi-Gloss', 'Rubbol BL Rezisto High Gloss', 'Rubbol BL Endurance High Gloss', 'Rubbol DSA Thix', 'Rubbol WF 376', 'Rubbol WF 387'],
+            transparant: ['n.v.t.', 'Cetol TGX Gloss', 'Cetol TGL Satin Plus', 'Cetol Novatech', 'Cetol HLS Plus', 'Cetol BLX-Pro', 'Cetol BL Decor', 'Cetol BL Varnish Mat', 'Cetol BL Natural Mat'],
+        },
+        kunststof: {
+            dekkend:     ['n.v.t.', 'Rubbol BL Rezisto Mat', 'Rubbol BL Rezisto Satin', 'Rubbol BL Rezisto Semi-Gloss', 'Rubbol BL Rezisto High Gloss', 'Rubbol BL Rezisto Spray', 'Rubbol BL Safira', 'Rubbol BL Endurance High Gloss'],
+            transparant: ['n.v.t.'],
+        },
+        metaal: {
+            dekkend:     ['n.v.t.', 'Redox BL Forte', 'Redox BL Metal Protect Satin', 'Redox PUR Finish High Gloss', 'Redox PUR Finish Satin', 'Rubbol XD High Gloss', 'Rubbol XD Semi Gloss', 'Rubbol SB'],
+            transparant: ['n.v.t.'],
+        },
+        staal: {
+            dekkend:     ['n.v.t.', 'Redox BL Forte', 'Redox BL Metal Protect Satin', 'Redox PUR Finish High Gloss', 'Redox PUR Finish Satin', 'Rubbol XD High Gloss', 'Rubbol XD Semi Gloss'],
+            transparant: ['n.v.t.'],
+        },
+        steenachtig: {
+            dekkend:     ['n.v.t.', 'Alpha Aqua SI', 'Alpha Humitex SF', 'Alpha Isolux SF', 'Alpha Metallic', 'Alpha Plafond Extreem Mat', 'Alpha Prof Mat', 'Alpha Projecttex', 'Alpha Recycle Mat', 'Alpha Rezisto Anti Marks', 'Alpha Rezisto Easy Clean', 'Alpha Sanocryl', 'Alpha Topcoat', 'Alpha Topcoat Flex', 'Alphacoat', 'Alphacryl Easy Spray', 'Alphacryl Pure Mat SF', 'Alphaloxan', 'Alphaloxan Flex', 'Alphatex 4SO Mat', 'Alphatex IQ', 'Alphatex IQ Mat', 'Alphatex Satin SF', 'Alphatex SF', 'Alphaxylan SF'],
+            transparant: ['n.v.t.', 'Alphaloxan', 'Alphaloxan Flex'],
+        },
+        vloeren: {
+            dekkend:     ['n.v.t.', 'Wapex 647 Semi-mat', 'Wapex 650', 'Wapex 660', 'Wapex 660 Mat', 'Wapex PUR Clearcoat'],
+            transparant: ['n.v.t.', 'Wapex PUR Clearcoat'],
+        },
+    };
+
+    function getEindlaagOpties(keuzes) {
+        const ond = (keuzes.ondergrond || '').toLowerCase();
+        const cat = ond.includes('hout') ? 'hout'
+                  : ond.includes('kunststof') ? 'kunststof'
+                  : ond.includes('non-ferro') ? 'metaal'
+                  : ond.includes('staal') ? 'staal'
+                  : ond.includes('vloeren') ? 'vloeren'
+                  : ond.includes('steenachtig') ? 'steenachtig'
+                  : null;
+        const dek = (keuzes.dekking || '').includes('transparant') ? 'transparant' : 'dekkend';
+        if (!cat || !EINDLAAG_FILTER[cat]) return WIZARD_STAPPEN.find(s => s.key === 'eindlaag').opties;
+        return EINDLAAG_FILTER[cat][dek] || EINDLAAG_FILTER[cat].dekkend;
+    }
+
     const KENMERK_FILTER = {
         'n.v.t.':                               ['hout', 'kunststof', 'metaal', 'staal', 'steenachtig', 'vloeren'],
         '2-componenten product':                ['hout', 'metaal', 'staal', 'kunststof', 'steenachtig', 'vloeren'],
@@ -430,15 +471,20 @@ export default function MateriaalBotPage() {
             const samenvatting = Object.values(nieuweKeuzes).filter(v => v && v !== 'n.v.t.').join(' · ');
             setMessages(prev => [...prev, { id: Date.now(), from: 'user', text: samenvatting }]);
             setWizard(null);
-            setTyping(true);
-            setTimeout(() => {
-                setTyping(false);
-                const resultaten = zoekOpWizard(nieuweKeuzes);
-                const tekst = resultaten.length > 0
-                    ? `${resultaten.length} producten gevonden voor jouw situatie:`
-                    : 'Geen exacte match gevonden. Bekijk het volledige verfadvies op Sikkens:';
-                setMessages(prev => [...prev, { id: Date.now() + 1, from: 'bot', text: tekst, results: resultaten.length > 0 ? resultaten : null, sikkensLink: true }]);
-            }, 700);
+            // Als eindlaag gekozen (en niet n.v.t.) → direct systeemopbouw tonen
+            if (huidigeStap.key === 'eindlaag' && waarde !== 'n.v.t.') {
+                laadSysteem(waarde, nieuweKeuzes);
+            } else {
+                setTyping(true);
+                setTimeout(() => {
+                    setTyping(false);
+                    const resultaten = zoekOpWizard(nieuweKeuzes);
+                    const tekst = resultaten.length > 0
+                        ? `${resultaten.length} producten gevonden voor jouw situatie:`
+                        : 'Geen exacte match gevonden. Bekijk het volledige verfadvies op Sikkens:';
+                    setMessages(prev => [...prev, { id: Date.now() + 1, from: 'bot', text: tekst, results: resultaten.length > 0 ? resultaten : null, sikkensLink: true }]);
+                }, 700);
+            }
         } else {
             setWizard({ stap: volgendeStap, keuzes: nieuweKeuzes });
         }
@@ -743,6 +789,15 @@ export default function MateriaalBotPage() {
                             style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}>
                             ↩ Annuleren
                         </button>
+                        {wizard.stap > 0 && (
+                            <button onClick={() => setWizard(w => {
+                                const entries = Object.entries(w.keuzes);
+                                return { ...w, stap: w.stap - 1, keuzes: Object.fromEntries(entries.slice(0, w.stap - 1)) };
+                            })}
+                                style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 600, cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}>
+                                ← Vorige
+                            </button>
+                        )}
                         {Object.values(wizard.keuzes).filter(Boolean).map((v, i) => (
                             <span key={i} style={{ background: '#f1f5f9', borderRadius: '10px', padding: '1px 7px', color: '#475569' }}>· {v}</span>
                         ))}
@@ -754,7 +809,9 @@ export default function MateriaalBotPage() {
                     </div>
                     {/* Knoppen */}
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
-                        {(WIZARD_STAPPEN[wizard.stap].key === 'kenmerk' ? getKenmerkOpties(wizard.keuzes) : WIZARD_STAPPEN[wizard.stap].opties).map(opt => (
+                        {(WIZARD_STAPPEN[wizard.stap].key === 'kenmerk' ? getKenmerkOpties(wizard.keuzes)
+                          : WIZARD_STAPPEN[wizard.stap].key === 'eindlaag' ? getEindlaagOpties(wizard.keuzes)
+                          : WIZARD_STAPPEN[wizard.stap].opties).map(opt => (
                             <button key={opt} onClick={() => kiesWizardOptie(opt)}
                                 style={{ padding: '6px 14px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', lineHeight: 1.4 }}>
                                 {opt}
