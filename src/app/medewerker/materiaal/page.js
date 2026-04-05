@@ -335,18 +335,23 @@ export default function MateriaalBotPage() {
         { key: 'situering', label: 'Situering',                opties: ['Binnen', 'Buiten'] },
         { key: 'ondergrond',label: 'Ondergrond',               opties: ['Hout', 'Kunststof', 'Metaal, non-ferro', 'Staal', 'Staal, verzinkt', 'Steenachtig, vloeren', 'Steenachtig, wanden en plafonds'] },
         { key: 'conditie',  label: 'Conditie verfsysteem',     opties: ['Redelijk', 'Matig', 'Slecht', 'n.v.t.', 'Onbehandeld'] },
-        { key: 'opbouw',    label: 'Opbouw verfsysteem',       opties: [
-            'A: Compleet herschildersysteem — volledig schuren, gronden en aflakken',
-            'B: Uitgebreid herschildersysteem — schuren, bijgronden en aflakken',
-            'D: Eenvoudig herschildersysteem — geheel aflakken, geen grondlaag',
-            'N0: Nieuw verfsysteem — volledige opbouw op onbehandeld hout/metaal/steen',
-            'N1: Concept I — grondverf + 1 aflaklaag',
-            'N2: Concept II — grondverf + 2 aflaklagen',
-            'N3: Concept III — plamuur + grondverf + 2 aflaklagen',
-            'N4: Fabrieksmatig gegrond + aflakken op de bouw',
-            'N5: Gronden in de bouw — alleen grondlaag aanbrengen',
-            'N6: Nieuw systeem op onbehandelde bestaande ondergrond',
-        ] },
+        { key: 'opbouw',    label: 'Opbouw verfsysteem',
+            opties_bestaand: [
+                'A: Compleet herschildersysteem — volledig schuren, gronden en aflakken',
+                'B: Uitgebreid herschildersysteem — schuren, bijgronden en aflakken',
+                'D: Eenvoudig herschildersysteem — geheel aflakken, geen grondlaag',
+            ],
+            opties_nieuw: [
+                'N0: Nieuw verfsysteem — volledige opbouw op onbehandeld hout/metaal/steen',
+                'N1: Concept I — grondverf + 1 aflaklaag',
+                'N2: Concept II — grondverf + 2 aflaklagen',
+                'N3: Concept III — plamuur + grondverf + 2 aflaklagen',
+                'N4: Fabrieksmatig gegrond + aflakken op de bouw',
+                'N5: Gronden in de bouw — alleen grondlaag aanbrengen',
+                'N6: Nieuw systeem op onbehandelde bestaande ondergrond',
+            ],
+            opties: [], // wordt dynamisch bepaald
+        },
         { key: 'dekking',   label: 'Dekkend / transparant',    opties: ['Afwerking dekkend', 'Afwerking transparant'] },
         { key: 'glansgraad',label: 'Glansgraad eindlaag',      opties: ['Alle glansgraden', 'Hoogglans', 'Halfglans', 'Hoge zijdeglans', 'Zijdeglans', 'Lage zijdeglans', 'Mat', 'Kalkmat', 'Glans'] },
         { key: 'kenmerk',   label: 'Speciaal kenmerk',         opties: ['n.v.t.', '2-componenten product', 'Ademende muurverf', 'Bacteriebestendige muurverf', 'Carbonatatieremmende muurverf', 'Doorwerk product', 'Één-pot-systeem', 'Extreem duurzame lak', 'Haarscheuroverbruggende muurverf', 'Hoogglans watergedragen buitenlak', 'Huidvetresistente grondverf', 'Huidvetresistente lak', 'Hydrofoberend', 'Isolerende grondverf', 'Isolerende muurverf', 'Metallic muurverf', 'Muurverf voor plafonds', 'Muurverf voor vochtige ruimten', 'Natuurlijke houten uitstraling', 'Sneldrogend watergedragen voor metaal', 'Spuitapplicatie product', 'Structuur muurverf', 'Vlekafstotende muurverf', 'Watergedragen grondverf'] },
@@ -790,13 +795,14 @@ export default function MateriaalBotPage() {
                             ↩ Annuleren
                         </button>
                         {wizard.stap > 0 && (
-                            <button onClick={() => setWizard(w => {
-                                const vorigeStapKey = WIZARD_STAPPEN[w.stap - 1].key;
-                                const nieuweKeuzes = { ...w.keuzes };
-                                delete nieuweKeuzes[WIZARD_STAPPEN[w.stap].key];
-                                delete nieuweKeuzes[vorigeStapKey];
-                                return { ...w, stap: w.stap - 1, keuzes: nieuweKeuzes };
-                            })}
+                            <button onClick={() => {
+                                const huidigeKey = WIZARD_STAPPEN[wizard.stap].key;
+                                const vorigeKey  = WIZARD_STAPPEN[wizard.stap - 1].key;
+                                const nieuweKeuzes = { ...wizard.keuzes };
+                                delete nieuweKeuzes[huidigeKey];
+                                delete nieuweKeuzes[vorigeKey];
+                                setWizard({ stap: wizard.stap - 1, keuzes: nieuweKeuzes });
+                            }}
                                 style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 600, cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}>
                                 ← Vorige
                             </button>
@@ -814,6 +820,8 @@ export default function MateriaalBotPage() {
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
                         {(WIZARD_STAPPEN[wizard.stap].key === 'kenmerk' ? getKenmerkOpties(wizard.keuzes)
                           : WIZARD_STAPPEN[wizard.stap].key === 'eindlaag' ? getEindlaagOpties(wizard.keuzes)
+                          : WIZARD_STAPPEN[wizard.stap].key === 'opbouw'
+                            ? ((wizard.keuzes.aard || '').includes('Nieuwe') ? WIZARD_STAPPEN[wizard.stap].opties_nieuw : WIZARD_STAPPEN[wizard.stap].opties_bestaand)
                           : WIZARD_STAPPEN[wizard.stap].opties).map(opt => (
                             <button key={opt} onClick={() => kiesWizardOptie(opt)}
                                 style={{ padding: '6px 14px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', lineHeight: 1.4 }}>
