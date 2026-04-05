@@ -390,7 +390,7 @@ export default function MateriaalBotPage() {
                   : ond.includes('steenachtig') ? 'steenachtig'
                   : null;
         const dek = (keuzes.dekking || '').includes('transparant') ? 'transparant' : 'dekkend';
-        if (!cat || !EINDLAAG_FILTER[cat]) return WIZARD_STAPPEN.find(s => s.key === 'eindlaag').opties;
+        if (!cat || !EINDLAAG_FILTER[cat]) return Object.values(EINDLAAG_FILTER).flatMap(v => [...v.dekkend, ...(v.transparant||[])]).filter((v,i,a)=>a.indexOf(v)===i);
         return EINDLAAG_FILTER[cat][dek] || EINDLAAG_FILTER[cat].dekkend;
     }
 
@@ -791,8 +791,11 @@ export default function MateriaalBotPage() {
                         </button>
                         {wizard.stap > 0 && (
                             <button onClick={() => setWizard(w => {
-                                const entries = Object.entries(w.keuzes);
-                                return { ...w, stap: w.stap - 1, keuzes: Object.fromEntries(entries.slice(0, w.stap - 1)) };
+                                const vorigeStapKey = WIZARD_STAPPEN[w.stap - 1].key;
+                                const nieuweKeuzes = { ...w.keuzes };
+                                delete nieuweKeuzes[WIZARD_STAPPEN[w.stap].key];
+                                delete nieuweKeuzes[vorigeStapKey];
+                                return { ...w, stap: w.stap - 1, keuzes: nieuweKeuzes };
                             })}
                                 style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 600, cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}>
                                 ← Vorige
