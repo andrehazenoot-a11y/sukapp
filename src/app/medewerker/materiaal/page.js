@@ -330,6 +330,54 @@ export default function MateriaalBotPage() {
 
     const suggestions = ['primer', 'verf', 'kwast', 'roller', 'tape', 'kit', 'schuurpapier'];
 
+    const WIZARD_STAPPEN = [
+        { key: 'aard',      label: 'Aard van het werk',       opties: ['Bestaande ondergrond', 'Nieuwe ondergrond'] },
+        { key: 'situering', label: 'Situering',                opties: ['Binnen', 'Buiten'] },
+        { key: 'ondergrond',label: 'Ondergrond',               opties: ['Hout', 'Kunststof', 'Metaal, non-ferro', 'Staal', 'Staal, verzinkt', 'Steenachtig, vloeren', 'Steenachtig, wanden en plafonds'] },
+        { key: 'conditie',  label: 'Conditie verfsysteem',     opties: ['Redelijk', 'Matig', 'Slecht', 'n.v.t.', 'Onbehandeld'] },
+        { key: 'verwerking',label: 'Plaats verwerking',        opties: ['Bouwplaats', 'Fabriek en Bouwplaats', 'Timmerfabriek'] },
+        { key: 'opbouw',    label: 'Opbouw verfsysteem',       opties: ['A: Compleet herschildersysteem', 'B: Uitgebreid herschildersysteem', 'D: Eenvoudig herschildersysteem', 'N0: Nieuw verfsysteem', 'N1: Concept I', 'N2: Concept II', 'N3: Concept III', 'N4: Fabrieksmatig gegrond + aflakken op de bouw', 'N5: Gronden in de bouw', 'N6: Nieuw verfsysteem op onbehandelde bestaande ondergrond'] },
+        { key: 'dekking',   label: 'Dekkend / transparant',    opties: ['Afwerking dekkend', 'Afwerking transparant'] },
+        { key: 'glansgraad',label: 'Glansgraad eindlaag',      opties: ['Hoogglans', 'Halfglans', 'Hoge zijdeglans', 'Zijdeglans', 'Lage zijdeglans', 'Mat', 'Kalkmat', 'Glans'] },
+        { key: 'kenmerk',   label: 'Speciaal kenmerk',         opties: ['n.v.t.', '2-componenten product', 'Ademende muurverf', 'Bacteriebestendige muurverf', 'Carbonatatieremmende muurverf', 'Doorwerk product', 'Één-pot-systeem', 'Extreem duurzame lak', 'Haarscheuroverbruggende muurverf', 'Hoogglans watergedragen buitenlak', 'Huidvetresistente grondverf', 'Huidvetresistente lak', 'Hydrofoberend', 'Isolerende grondverf', 'Isolerende muurverf', 'Metallic muurverf', 'Muurverf voor plafonds', 'Muurverf voor vochtige ruimten', 'Natuurlijke houten uitstraling', 'Sneldrogend watergedragen voor metaal', 'Spuitapplicatie product', 'Structuur muurverf', 'Vlekafstotende muurverf', 'Watergedragen grondverf'] },
+        { key: 'onderhoud', label: 'Onderhoudsverwachting',    opties: ['n.v.t.', '2 - 3 jaar', '3 - 4 jaar', '4 - 5 jaar', '5 - 6 jaar', '6 jaar', '7 - 8 jaar', '8 - 10 jaar'] },
+        { key: 'eindlaag',  label: 'Productnaam eindlaag',     opties: ['n.v.t.', 'Rubbol XD High Gloss', 'Rubbol XD Semi Gloss', 'Rubbol SB', 'Rubbol AZ', 'Rubbol EPS', 'Rubbol EPS Thix', 'Rubbol Satura', 'Rubbol BL Ventura Satin', 'Rubbol Express High Gloss', 'Rubbol BL Safira', 'Rubbol BL Satura', 'Rubbol BL Rezisto Mat', 'Rubbol BL Rezisto Satin', 'Rubbol BL Rezisto Semi-Gloss', 'Rubbol BL Rezisto High Gloss', 'Rubbol BL Rezisto Spray', 'Rubbol BL Endurance High Gloss', 'Rubbol Primer', 'Rubbol Primer Express', 'Rubbol BL Primer', 'Rubbol BL Isoprimer', 'Rubbol BL Rezisto Primer', 'Rubbol DSA Thix', 'Rubbol WF 376', 'Rubbol WF 387', 'Cetol TGX Gloss', 'Cetol TGL Satin Plus', 'Cetol Novatech', 'Cetol HLS Plus', 'Cetol BLX-Pro', 'Cetol BL Decor', 'Cetol BL Varnish Mat', 'Cetol BL Natural Mat', 'Cetol BL Endurance Primer', 'Alpha Aqua SI', 'Alpha Humitex SF', 'Alpha Isolux SF', 'Alpha Metallic', 'Alpha Plafond Extreem Mat', 'Alpha Prof Mat', 'Alpha Projecttex', 'Alpha Recycle Mat', 'Alpha Rezisto Anti Marks', 'Alpha Rezisto Easy Clean', 'Alpha Sanocryl', 'Alpha Topcoat', 'Alpha Topcoat Flex', 'Alphacoat', 'Alphacryl Easy Spray', 'Alphacryl Pure Mat SF', 'Alphaloxan', 'Alphaloxan Flex', 'Alphatex 4SO Mat', 'Alphatex IQ', 'Alphatex IQ Mat', 'Alphatex Satin SF', 'Alphatex SF', 'Alphaxylan SF', 'Redox BL Forte', 'Redox BL Metal Protect Satin', 'Redox PUR Finish High Gloss', 'Redox PUR Finish Satin', 'Wapex 647 Semi-mat', 'Wapex 650', 'Wapex 660', 'Wapex 660 Mat', 'Wapex PUR Clearcoat'] },
+    ];
+
+    const [wizard, setWizard] = useState(null);
+
+    function zoekOpWizard(keuzes) {
+        const terms = [keuzes.ondergrond, keuzes.glansgraad, keuzes.eindlaag !== 'n.v.t.' ? keuzes.eindlaag : null]
+            .filter(Boolean)
+            .map(s => s.toLowerCase().split(/[\s,]+/)[0]);
+        return rows.map((row, i) => ({ row, i })).filter(({ row }) => {
+            const tekst = [row[cols.naam], row[cols.categorie]].join(' ').toLowerCase();
+            return terms.some(t => tekst.includes(t));
+        }).slice(0, 15);
+    }
+
+    function kiesWizardOptie(waarde) {
+        const huidigeStap = WIZARD_STAPPEN[wizard.stap];
+        const nieuweKeuzes = { ...wizard.keuzes, [huidigeStap.key]: waarde };
+        const volgendeStap = wizard.stap + 1;
+        if (volgendeStap >= WIZARD_STAPPEN.length) {
+            const samenvatting = Object.values(nieuweKeuzes).filter(v => v && v !== 'n.v.t.').join(' · ');
+            setMessages(prev => [...prev, { id: Date.now(), from: 'user', text: samenvatting }]);
+            setWizard(null);
+            setTyping(true);
+            setTimeout(() => {
+                setTyping(false);
+                const resultaten = zoekOpWizard(nieuweKeuzes);
+                const tekst = resultaten.length > 0
+                    ? `${resultaten.length} producten gevonden voor jouw situatie:`
+                    : 'Geen exacte match gevonden. Bekijk het volledige verfadvies op Sikkens:';
+                setMessages(prev => [...prev, { id: Date.now() + 1, from: 'bot', text: tekst, results: resultaten.length > 0 ? resultaten : null, sikkensLink: true }]);
+            }, 700);
+        } else {
+            setWizard({ stap: volgendeStap, keuzes: nieuweKeuzes });
+        }
+    }
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f1f5f9' }}>
 
@@ -548,6 +596,18 @@ export default function MateriaalBotPage() {
                             </div>
                         )}
 
+                        {/* Sikkens bestekservice link */}
+                        {msg.sikkensLink && (
+                            <a href="https://bestekservice.sikkens.nl/wizard" target="_blank" rel="noreferrer"
+                                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'linear-gradient(135deg,#F5850A,#D96800)', borderRadius: '12px', color: '#fff', textDecoration: 'none', boxShadow: '0 2px 8px rgba(245,133,10,0.3)' }}>
+                                <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '1rem', flexShrink: 0 }} />
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Volledig verfadvies op Sikkens</div>
+                                    <div style={{ fontSize: '0.68rem', opacity: 0.85, marginTop: '1px' }}>Voer dezelfde keuzes in voor een compleet verfsysteem met lagen</div>
+                                </div>
+                            </a>
+                        )}
+
                         {/* Opslaan bij project knop */}
                         {msg.opslaanData && (
                             <button
@@ -574,15 +634,59 @@ export default function MateriaalBotPage() {
                 <div ref={bottomRef} />
             </div>
 
-            {/* Suggesties */}
-            {messages.length <= 1 && rows.length > 0 && (
-                <div style={{ padding: '0 16px 10px', display: 'flex', gap: '6px', flexWrap: 'wrap', flexShrink: 0 }}>
-                    {suggestions.map(s => (
-                        <button key={s} onClick={() => { setInput(s); inputRef.current?.focus(); }}
-                            style={{ padding: '5px 12px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
-                            {s}
+            {/* Verfadvies wizard */}
+            {messages.length <= 1 && rows.length > 0 && !wizard && (
+                <div style={{ padding: '0 16px 10px', flexShrink: 0 }}>
+                    <button onClick={() => setWizard({ stap: 0, keuzes: {} })}
+                        style={{ width: '100%', padding: '10px 16px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '8px', boxShadow: '0 2px 8px rgba(245,133,10,0.3)' }}>
+                        <i className="fa-solid fa-paint-roller" />
+                        Verfadvies op maat
+                        <span style={{ fontWeight: 400, opacity: 0.85, fontSize: '0.75rem' }}>stap voor stap</span>
+                    </button>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {suggestions.map(s => (
+                            <button key={s} onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                                style={{ padding: '5px 12px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
+                                {s}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Wizard actief */}
+            {wizard && (
+                <div style={{ padding: '10px 16px 12px', flexShrink: 0, background: '#fff', borderTop: '1px solid #f1f5f9' }}>
+                    {/* Voortgangsbalk */}
+                    <div style={{ display: 'flex', gap: '2px', marginBottom: '8px' }}>
+                        {WIZARD_STAPPEN.map((_, i) => (
+                            <div key={i} style={{ flex: 1, height: '3px', borderRadius: '2px', background: i <= wizard.stap ? '#F5850A' : '#e2e8f0', transition: 'background 0.2s' }} />
+                        ))}
+                    </div>
+                    {/* Breadcrumb + annuleer */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '0.7rem', color: '#94a3b8', flexWrap: 'wrap' }}>
+                        <button onClick={() => setWizard(null)}
+                            style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}>
+                            ↩ Annuleren
                         </button>
-                    ))}
+                        {Object.values(wizard.keuzes).filter(Boolean).map((v, i) => (
+                            <span key={i} style={{ background: '#f1f5f9', borderRadius: '10px', padding: '1px 7px', color: '#475569' }}>· {v}</span>
+                        ))}
+                    </div>
+                    {/* Stap label + stap nr */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>{WIZARD_STAPPEN[wizard.stap].label}</div>
+                        <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Stap {wizard.stap + 1} / {WIZARD_STAPPEN.length}</div>
+                    </div>
+                    {/* Knoppen */}
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
+                        {WIZARD_STAPPEN[wizard.stap].opties.map(opt => (
+                            <button key={opt} onClick={() => kiesWizardOptie(opt)}
+                                style={{ padding: '6px 14px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                {opt}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 
