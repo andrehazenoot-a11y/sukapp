@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { getBestekOpties, BESTEK } from './bestek.js';
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -13,38 +14,91 @@ export async function POST(request) {
         if (modus === 'systeem') {
             if (!product) return Response.json({ error: 'Geen product opgegeven' }, { status: 400 });
             const ctx = wizardContext || {};
+
+            // Bestek code direct uit wizardContext (gebruiker heeft zelf gekozen)
+            let bestekCode = null, bestekNaam = null, bestekStappen = [];
+            if (ctx.bestekCode) {
+                const [codedeel, ...naamDelen] = ctx.bestekCode.split(' — ');
+                const delen = codedeel.trim().split(' ');
+                const catCode = delen[0];   // bijv. "OHD"
+                const nr = delen[1];        // bijv. "03"
+                bestekCode = codedeel.trim();
+                const sitKey = ctx.situering === 'Buiten' ? 'buiten' : 'binnen';
+                const entry = BESTEK[catCode]?.[sitKey]?.[nr] || BESTEK[catCode]?.['buiten']?.[nr];
+                bestekNaam = naamDelen.join(' — ') || entry?.naam || null;
+                bestekStappen = entry?.stappen || [];
+            }
+
+            // Bestek stappen in prompt opnemen als referentie
+            const bestekRegel = bestekCode
+                ? `\nOnderhoudNL bestek ${bestekCode} — "${bestekNaam}":\nStandaard bewerkingsstappen:\n${bestekStappen.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n`
+                : '';
+
+            // Per-laag productbeperkingen meegeven aan Claude
+            const lagenRegel = ctx.bestekLagen
+                ? `\nToegestane producten per laag (gebruik ALLEEN deze producten voor de betreffende laag):\n` +
+                  Object.entries(ctx.bestekLagen)
+                      .filter(([, ps]) => ps && ps.length > 0)
+                      .map(([l, ps]) => `- ${l}: ${ps.join(', ')}`)
+                      .join('\n') + '\n'
+                : '';
+
             const response = await anthropic.messages.create({
                 model: 'claude-haiku-4-5-20251001',
-                max_tokens: 600,
+                max_tokens: 900,
                 messages: [{
                     role: 'user',
-                    content: `Je bent een Sikkens verfadviseur. Geef de systeemopbouw voor dit product en deze situatie.
+                    content: `Je bent een Sikkens verfadviseur. Geef de systeemopbouw als JSON. Gebruik ALLEEN de productnamen uit de tabel hieronder.
 
-Product: ${product}
-Situatie:
-- Aard: ${ctx.aard || 'onbekend'}
-- Situering: ${ctx.situering || 'onbekend'}
-- Ondergrond: ${ctx.ondergrond || 'onbekend'}
-- Conditie: ${ctx.conditie || 'n.v.t.'}
-- Dekking: ${ctx.dekking || 'dekkend'}
-- Glansgraad: ${ctx.glansgraad || 'onbekend'}
+Eindproduct (aflaklaag): ${product}
+Ondergrond: ${ctx.ondergrond || '?'} | Situering: ${ctx.situering || '?'} | Aard: ${ctx.aard || '?'} | Opbouw: ${ctx.opbouw || '?'}
+${bestekRegel}${lagenRegel}
+VASTE SYSTEEMTABEL — gebruik exact deze producten:
+Hout buiten dekkend:     grondlaag=Rubbol Primer 1x | voorlak=Rubbol Primer Extra 1x | aflaklaag=${product} 1x
+Hout buiten transparant: grondlaag=Cetol BL Endurance Primer 1x | voorlak=Cetol HLS Plus 1x | aflaklaag=${product} 1x
+Hout binnen dekkend:     grondlaag=Rubbol BL Primer 1x | voorlak=Rubbol Primer Extra 1x | aflaklaag=${product} 1x
+Metaal/non-ferro buiten: grondlaag=Redox BL Forte 1x | voorlak=Redox BL Metal Protect Satin 1x | aflaklaag=${product} 1x
+Staal buiten:            grondlaag=Redox BL Forte 2x | voorlak=Redox BL Metal Protect Satin 1x | aflaklaag=${product} 1x
+Steenachtig buiten:      grondlaag=Alpha Fixeer 1x | aflaklaag=${product} 2x
+Steenachtig binnen:      grondlaag=Alpha Fixeer 1x | aflaklaag=${product} 2x
+Vloeren:                 grondlaag=Wapex Primer 1x | aflaklaag=${product} 2x
 
-Geef een JSON object met twee velden:
-1. "systeem": array van lagen. Elke laag heeft: laag (plamuurlaag/grondlaag/tussenlaag/eindlaag), product (Sikkens productnaam), verwerking (kwast/roller of spuit), aantal_lagen (bijv. "2x geheel"), opmerking (optioneel, max 1 zin). Laat lagen weg die niet van toepassing zijn.
-2. "onderhoud": verwachte onderhoudstermijn als string, bijv. "6 - 8 jaar" of "8 - 10 jaar", gebaseerd op het eindproduct en de situering.
+Uitzonderingen op opbouw:
+- Conditie "1.5 beurt": grondlaag=plaatselijk bijwerken 1x | aflaklaag=${product} geheel 1x
+- Conditie "2.0 beurt": grondlaag=passende grondverf geheel 1x | aflaklaag=${product} geheel 1x
+- Conditie "2.5 beurt": grondlaag=plaatselijk bijwerken 1x | voorlak=${product} geheel 1x | aflaklaag=${product} geheel 1x
+- Conditie "3.0 beurt": grondlaag=passende grondverf geheel 1x | voorlak=${product} geheel 1x | aflaklaag=${product} geheel 1x
+- S1 (1x bijwerken + 1x dekkend sauzen): grondlaag=bijwerken kale plekken 1x | aflaklaag=${product} 1x
+- S2 (2x dekkend sauzen): aflaklaag=${product} 2x
+- S3 (alleen bijwerken): grondlaag=bijwerken kale plekken 1x | aflaklaag=${product} 1x
+- S4 (1x fixeren + 2x dekkend sauzen): grondlaag=Alpha Fixeer 1x | aflaklaag=${product} 2x
+- S5 (1x fixeren + 1x dekkend sauzen): grondlaag=Alpha Fixeer 1x | aflaklaag=${product} 1x
+- S6 (2x dekkend sauzen): aflaklaag=${product} 2x
+- Opbouw bevat "bijgronden" of "geheel aflakken": grondlaag=Rubbol Primer bijgronden kale plekken 1x | aflaklaag=${product} 1x (geen voorlak)
+- Opbouw bevat "alleen aflakken": alleen aflaklaag=${product} 1x
 
-Antwoord ALLEEN met het JSON object, geen tekst buiten het object.
+REGELS: voorlak is NOOIT hetzelfde als aflaklaag. Bij steenachtig en vloeren geen voorlak.
+1-POT SYSTEMEN: Als aflaklaag "Redox BL Forte" of "Redox BL Metal Protect Satin" is, dan is dit een 1-pot systeem: grondverf, voorlak en aflak zijn hetzelfde product. Geef dan slechts 1 laag in systeem: laag="1-pot systeem", product=${product}, aantal_lagen="3x geheel", opmerking="grondverf, voorlak en aflak in één product".
 
-Voorbeeld:
-{"systeem":[{"laag":"grondlaag","product":"Rubbol Primer","verwerking":"kwast/roller","aantal_lagen":"1x geheel"},{"laag":"eindlaag","product":"Rubbol EPS","verwerking":"kwast/roller","aantal_lagen":"2x geheel","opmerking":"halfglans afwerking"}],"onderhoud":"5 - 7 jaar"}`,
+Geef JSON met velden:
+- "systeem": array van lagen met: laag ("grondlaag"/"voorlak"/"aflaklaag"), product, verwerking ("kwast/roller"), aantal_lagen ("1x geheel" of "2x geheel"), opmerking (optioneel, max 1 zin)
+- "onderhoud": string bijv. "6 - 8 jaar"
+
+Antwoord ALLEEN met JSON object, geen tekst erbuiten.`,
                 }],
             });
             try {
-                const tekst = response.content[0].text.trim();
-                const parsed = JSON.parse(tekst.startsWith('{') ? tekst : tekst.slice(tekst.indexOf('{')));
-                return Response.json({ systeem: parsed.systeem, onderhoud: parsed.onderhoud });
-            } catch {
-                return Response.json({ error: 'Kon systeem niet parsen' }, { status: 500 });
+                let tekst = response.content[0].text.trim();
+                // Strip markdown code blocks if present
+                tekst = tekst.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+                const start = tekst.indexOf('{');
+                const end = tekst.lastIndexOf('}');
+                if (start === -1 || end === -1) throw new Error('Geen JSON gevonden');
+                const parsed = JSON.parse(tekst.slice(start, end + 1));
+                return Response.json({ systeem: parsed.systeem, onderhoud: parsed.onderhoud, bestekCode, bestekNaam });
+            } catch (parseErr) {
+                console.error('Parse error:', parseErr.message, response.content[0]?.text?.slice(0, 200));
+                return Response.json({ error: 'Kon systeem niet parsen', detail: parseErr.message }, { status: 500 });
             }
         }
 
