@@ -31,7 +31,7 @@ function Field({ label, icon, field, type = 'text', placeholder = '', obj, upd }
 }
 
 export default function ProfielPage() {
-    const { user, hasAccess, updateProfile, getProfile } = useAuth();
+    const { user, hasAccess, updateProfile, getProfile, getAllUsers } = useAuth();
     const router = useRouter();
     const storageKey = `schildersapp_profiel_${user?.id || 1}`;
     const zzpStorageKey = `schildersapp_zzp_profiel_${user?.id || 1}`;
@@ -143,14 +143,10 @@ export default function ProfielPage() {
 
     // ── DASHBOARD OVERVIEW MODE ──
     const [dashboardMode, setDashboardMode] = useState(true);
-    const [teamList, setTeamList] = useState([]);
+    const [teamList, setTeamList] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('wa_medewerkers')) || []; } catch { return []; }
+    });
     const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
-
-    useEffect(() => {
-        try {
-            setTeamList(JSON.parse(localStorage.getItem('wa_medewerkers')) || []);
-        } catch {}
-    }, [dashboardMode]);
 
     const openEmployee = (emp) => {
         setSelectedEmployeeId(emp.id);
@@ -471,7 +467,14 @@ export default function ProfielPage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {teamList.map(emp => (
+                            {(() => {
+                                const seen = new Set();
+                                const lijst = [
+                                    ...(user && !teamList.some(m => m.naam === user.name) ? [{ id: user.id, naam: user.name, type: 'werknemer', status: 'Actief', rol: user.role || '' }] : []),
+                                    ...teamList,
+                                ];
+                                return lijst.filter(m => { if (seen.has(m.naam)) return false; seen.add(m.naam); return true; });
+                            })().map(emp => (
                                 <tr key={emp.id} onClick={() => openEmployee(emp)} style={{ borderBottom: '1px solid #e2e8f0', cursor: 'pointer', transition: 'background 0.15s' }} onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                                     <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '12px' }}>
                                         <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: emp.type === 'zzp' ? 'rgba(59,130,246,0.1)' : 'rgba(245,133,10,0.1)', color: emp.type === 'zzp' ? '#3b82f6' : '#F5850A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem' }}>
@@ -907,6 +910,20 @@ export default function ProfielPage() {
                                             placeholder="18.50" style={{ flex: 1, padding: '9px 12px', borderRadius: '0 8px 8px 0', border: '1px solid #e2e8f0', borderLeft: 'none', fontSize: '0.85rem', background: '#fafafa', outline: 'none' }} />
                                     </div>
                                 </div>
+                                <div style={{ marginBottom: '12px' }}>
+                                    <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fa-solid fa-tag" style={{ fontSize: '0.7rem', color: '#7c3aed' }}></i>
+                                        Verkoop uurloon
+                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 400 }}>(wordt gebruikt in werkbonnen)</span>
+                                    </label>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                                        <span style={{ padding: '9px 12px', background: '#ede9fe', borderRadius: '8px 0 0 8px', fontSize: '0.85rem', color: '#7c3aed', fontWeight: 700 }}>€</span>
+                                        <input type="number" value={profiel.verkoopUurloon || ''} onChange={e => update('verkoopUurloon', e.target.value)}
+                                            placeholder="45.00" style={{ flex: 1, padding: '9px 12px', borderRadius: '0 8px 8px 0', border: '1px solid #e2e8f0', borderLeft: 'none', fontSize: '0.85rem', background: '#fafafa', outline: 'none' }} />
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
                                 <Field label="Salarisschaal / Periodiek" icon="fa-layer-group" field="salarisschaal" placeholder="Schaal 5, periodiek 3" obj={profiel} upd={update} />
                             </div>
                             {/* Berekening overzicht */}

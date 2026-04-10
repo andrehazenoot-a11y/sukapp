@@ -9,9 +9,8 @@ const NAV = [
     { label: 'Vandaag',   icon: 'fa-house',         path: '/medewerker' },
     { label: 'Planning',  icon: 'fa-calendar-days', path: '/medewerker/planning' },
     { label: 'Materiaal', icon: 'fa-box-open',      path: '/medewerker/materiaal' },
-    { label: 'Project',   icon: 'fa-folder-open',  path: '/medewerker/werkbon' },
-    { label: 'Werkbon',   icon: 'fa-file-pen',     path: '/medewerker/werkbonnen' },
-    { label: 'Meer',      icon: 'fa-bars',          path: null },
+    { label: 'Mijn Suk',  icon: 'fa-user-circle',   path: '/medewerker/mijn-suk' },
+    { label: 'Meer',      icon: 'fa-bars',           path: null },
 ];
 
 export default function MedewerkerLayout({ children }) {
@@ -125,14 +124,14 @@ export default function MedewerkerLayout({ children }) {
                     }}>
                         <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '8px auto 16px' }} />
                         {[
-                            { icon: 'fa-file-alt', label: 'Werkbon', path: '/medewerker/werkbon' },
-                            { icon: 'fa-folder-open', label: 'Formulieren & Documenten', path: '/medewerker/formulieren' },
-                            { icon: 'fa-user', label: 'Mijn profiel', path: '/profiel' },
+                            { icon: 'fa-folder-tree',  label: 'Project info',             path: '/medewerker/werkbon' },
+                            { icon: 'fa-folder-open',  label: 'Formulieren & Documenten', path: '/medewerker/formulieren' },
                         ].map(item => (
                             <button key={item.path} onClick={() => { setMeerOpen(false); router.push(item.path); }}
+                                onPointerDown={e => e.currentTarget.style.background = '#fff8f0'}
+                                onPointerUp={e => e.currentTarget.style.background = 'none'}
+                                onPointerLeave={e => e.currentTarget.style.background = 'none'}
                                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 24px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', color: '#1e293b', textAlign: 'left' }}
-                                onMouseOver={e => e.currentTarget.style.background = '#f8fafc'}
-                                onMouseOut={e => e.currentTarget.style.background = 'none'}
                             >
                                 <i className={`fa-solid ${item.icon}`} style={{ width: '20px', color: '#F5850A', fontSize: '1rem' }} />
                                 {item.label}

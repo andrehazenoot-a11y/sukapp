@@ -14,6 +14,12 @@ export async function getDbConnection() {
             connectionLimit: 10,
             queueLimit: 0,
         });
+        // Verhoog max_allowed_packet globaal zodat grote bestanden (BLOB) werken
+        try {
+            const conn = await pool.getConnection();
+            await conn.query('SET GLOBAL max_allowed_packet = 67108864'); // 64 MB
+            conn.release();
+        } catch { /* geen SUPER-rechten: stel max_allowed_packet handmatig in op de server */ }
     }
     return pool;
 }

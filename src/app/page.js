@@ -1,16 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { useLanguage } from '../components/LanguageContext';
 import Link from 'next/link';
 import TestDataGenerator from '../components/TestDataGenerator';
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user, getAllUsers } = useAuth();
   const { t } = useLanguage();
   const currentUser = user?.name || 'Jan Modaal';
   const [meldingen, setMeldingen] = useState([]);
+  const [docs, setDocs]               = useState([]);
+  const [docFilter, setDocFilter]     = useState('alle');
+  const [docDatumFilter, setDocDatumFilter] = useState('');
+  const [docUploading, setDocUploading] = useState(false);
+  const [docFout, setDocFout]         = useState(null);
+  const [werkbonnen, setWerkbonnen]   = useState([]);
+  const [werkbonOpen, setWerkbonOpen] = useState({});
+const docInputRef                   = useRef();
 
   // Live stats uit localStorage
   const [stats, setStats] = useState({
@@ -21,8 +29,6 @@ export default function Home() {
     const load = () => {
       const data = JSON.parse(localStorage.getItem('schildersapp_meldingen') || '[]');
       setMeldingen(data);
-
-      // Load WhatsApp / contract data
       const contracten = JSON.parse(localStorage.getItem('wa_contracten') || '[]');
       const medewerkers = JSON.parse(localStorage.getItem('wa_medewerkers') || '[]');
       const urenLog = JSON.parse(localStorage.getItem('wa_uren_log') || '[]');
@@ -32,6 +38,11 @@ export default function Home() {
     load();
     const interval = setInterval(load, 3000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/documenten?alle=1').then(r => r.json()).then(data => { if (Array.isArray(data)) setDocs(data); }).catch(() => {});
+    fetch('/api/werkbonnen').then(r => r.json()).then(data => { if (Array.isArray(data)) setWerkbonnen(data); }).catch(() => {});
   }, []);
 
   const mijnMeldingen = meldingen.filter(m => m.aan === currentUser);
@@ -58,6 +69,39 @@ export default function Home() {
     if (uur < 24) return `${uur} ${t('common.hoursAgo')}`;
     return `${Math.floor(uur / 24)} ${t('common.daysAgo')}`;
   };
+
+  function handleDocUpload(e) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setDocFout(null);
+    files.forEach(file => {
+      if (file.size > 5 * 1024 * 1024) { setDocFout(`${file.name} is te groot (max 5 MB).`); return; }
+      setDocUploading(true);
+      const reader = new FileReader();
+      reader.onload = async ev => {
+        try {
+          const res = await fetch('/api/documenten', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ titel: file.name.replace(/\.[^.]+$/, ''), bestandsnaam: file.name, type: file.type, data: ev.target.result, geuploadDoor: user?.name || 'Beheerder', zichtbaarVanaf: null }),
+          });
+          const doc = await res.json();
+          if (doc.error) { setDocFout(doc.error); } else {
+            setDocs(prev => [{ ...doc, gelezen: [] }, ...prev]);
+          }
+        } catch { setDocFout('Upload mislukt.'); }
+        setDocUploading(false);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  }
+
+  async function verwijderDoc(id) {
+    await fetch(`/api/documenten/${id}`, { method: 'DELETE' }).catch(() => {});
+    setDocs(prev => prev.filter(d => d.id !== id));
+  }
+
 
   // Berekende statistieken
   const zzpers = stats.medewerkers.filter(m => m.type === 'zzp');
@@ -343,6 +387,193 @@ export default function Home() {
 
       </div>
 
+
+{/* === DOCUMENTEN === */}
+      <div className="panel" style={{ marginTop: '16px' }}>
+        <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <h2><i className="fa-solid fa-file-pdf" style={{ color: '#e11d48', marginRight: '8px' }} />Toolboxmeeting Bestanden</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {/* Filter knoppen */}
+            {['alle', 'actief', 'gepland'].map(f => (
+              <button key={f} onClick={() => { setDocFilter(f); setDocDatumFilter(''); }}
+                style={{ padding: '5px 12px', borderRadius: '7px', border: '1.5px solid', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                  borderColor: docFilter === f && !docDatumFilter ? '#e11d48' : '#e2e8f0',
+                  background: docFilter === f && !docDatumFilter ? '#fff1f2' : '#f8fafc',
+                  color: docFilter === f && !docDatumFilter ? '#e11d48' : '#64748b' }}>
+                {f === 'alle' ? 'Alle' : f === 'actief' ? 'Actief' : 'Gepland'}
+              </button>
+            ))}
+            <input type="date" value={docDatumFilter} onChange={e => { setDocDatumFilter(e.target.value); setDocFilter('alle'); }}
+              title="Filter op datum"
+              style={{ fontSize: '0.75rem', border: `1.5px solid ${docDatumFilter ? '#e11d48' : '#e2e8f0'}`, borderRadius: '7px', padding: '5px 8px', color: docDatumFilter ? '#e11d48' : '#64748b', background: docDatumFilter ? '#fff1f2' : '#f8fafc', fontWeight: 600 }} />
+            {docDatumFilter && (
+              <button onClick={() => setDocDatumFilter('')} title="Filter wissen"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.85rem', padding: '2px' }}>✕</button>
+            )}
+            {docFout && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{docFout}</span>}
+            <input ref={docInputRef} type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={handleDocUpload} style={{ display: 'none' }} />
+            <button onClick={() => docInputRef.current?.click()} disabled={docUploading}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: '#e11d48', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
+              {docUploading ? <><i className="fa-solid fa-circle-notch fa-spin" />Uploaden…</> : <><i className="fa-solid fa-upload" />Uploaden</>}
+            </button>
+          </div>
+        </div>
+
+        {docs.length === 0 ? (
+          <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+            <i className="fa-solid fa-file-pdf" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', color: '#cbd5e1' }} />
+            Nog geen documenten geüpload
+          </div>
+        ) : (
+          <div>
+            {[...docs].sort((a, b) => {
+              const da = a.zichtbaarVanaf ? new Date(a.zichtbaarVanaf) : new Date(a.datum);
+              const db = b.zichtbaarVanaf ? new Date(b.zichtbaarVanaf) : new Date(b.datum);
+              return da - db;
+            }).filter(doc => {
+              if (docDatumFilter) {
+                // Toon docs die zichtbaar zijn op de gekozen datum
+                const gekozen = new Date(docDatumFilter);
+                const vanaf = doc.zichtbaarVanaf ? new Date(doc.zichtbaarVanaf) : null;
+                return !vanaf || vanaf <= gekozen;
+              }
+              const isGepland = doc.zichtbaarVanaf && new Date(doc.zichtbaarVanaf) > new Date();
+              if (docFilter === 'actief') return !isGepland;
+              if (docFilter === 'gepland') return isGepland;
+              return true;
+            }).map((doc, i, arr) => {
+              const alleGebruikers = getAllUsers();
+              const gelezenEntries = doc.gelezen || [];
+              const isPdf = doc.type === 'application/pdf';
+              const isGepland = doc.zichtbaarVanaf && new Date(doc.zichtbaarVanaf) > new Date();
+              return (
+                <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderBottom: i < arr.length - 1 ? '1px solid #f1f5f9' : 'none', opacity: isGepland ? 0.6 : 1 }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: isPdf ? '#fff1f2' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <i className={`fa-solid ${isPdf ? 'fa-file-pdf' : 'fa-file-lines'}`} style={{ color: isPdf ? '#e11d48' : '#3b82f6', fontSize: '0.95rem' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
+                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {new Date(doc.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })} · {doc.bestandsnaam}
+                      {isGepland ? (
+                        <span style={{ background: '#fff7ed', color: '#ea580c', border: '1px solid #fed7aa', borderRadius: '4px', padding: '1px 6px', fontWeight: 700, fontSize: '0.63rem' }}>
+                          Gepland: {new Date(doc.zichtbaarVanaf).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                        </span>
+                      ) : doc.categorie ? (
+                        <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: '4px', padding: '1px 6px', fontWeight: 700, fontSize: '0.63rem' }}>
+                          {doc.categorie}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  {/* Wie heeft het gelezen */}
+                  <div style={{ textAlign: 'right', flexShrink: 0, minWidth: '90px' }}>
+                    {isGepland ? (
+                      <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>Nog niet zichtbaar</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: gelezenEntries.length === alleGebruikers.length ? '#10b981' : '#f59e0b' }}>
+                          {gelezenEntries.length}/{alleGebruikers.length} gelezen
+                        </div>
+                        {gelezenEntries.map((e, ei) => (
+                          <div key={ei} style={{ fontSize: '0.63rem', color: '#94a3b8', marginTop: '2px', lineHeight: 1.4 }}>
+                            <span style={{ fontWeight: 600, color: '#64748b' }}>{e.naam.split(' ')[0]}</span>
+                            {e.timestamp && <> · {new Date(e.timestamp).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} {new Date(e.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</>}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                  <input
+                    type="date"
+                    value={doc.zichtbaarVanaf ? doc.zichtbaarVanaf.split('T')[0] : ''}
+                    title="Zichtbaar vanaf"
+                    onChange={async e => {
+                      const val = e.target.value || null;
+                      await fetch(`/api/documenten/${doc.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zichtbaarVanaf: val }) }).catch(() => {});
+                      setDocs(prev => prev.map(d => d.id === doc.id ? { ...d, zichtbaarVanaf: val } : d));
+                    }}
+                    style={{ fontSize: '0.72rem', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '4px 6px', color: '#475569', background: '#f8fafc', flexShrink: 0 }}
+                  />
+                  <button onClick={() => verwijderDoc(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', fontSize: '0.85rem', padding: '4px', flexShrink: 0 }}>
+                    <i className="fa-solid fa-trash" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* === UREN PER PROJECT === */}
+      {werkbonnen.length > 0 && (() => {
+        const perProject = {};
+        for (const bon of werkbonnen) {
+          if (!perProject[bon.projectNaam]) perProject[bon.projectNaam] = { bonnen: [], totaal: 0 };
+          perProject[bon.projectNaam].bonnen.push(bon);
+          perProject[bon.projectNaam].totaal += bon.uren;
+        }
+        const projecten = Object.entries(perProject).sort((a, b) => {
+          const latestA = Math.max(...a[1].bonnen.map(b => new Date(b.aangemaakt)));
+          const latestB = Math.max(...b[1].bonnen.map(b => new Date(b.aangemaakt)));
+          return latestB - latestA;
+        });
+        return (
+          <div className="panel" style={{ marginTop: '16px' }}>
+            <div className="panel-header">
+              <h2><i className="fa-solid fa-clock" style={{ color: '#F5850A', marginRight: '8px' }} />Uren per project</h2>
+            </div>
+            {projecten.map(([naam, { bonnen: bons, totaal }]) => {
+              const isOpen = werkbonOpen[naam];
+              return (
+                <div key={naam} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <button onClick={() => setWerkbonOpen(prev => ({ ...prev, [naam]: !prev[naam] }))}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <i className="fa-solid fa-folder-tree" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
+                      <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{naam}</span>
+                      <span style={{ fontSize: '0.75rem', background: '#fff8f0', color: '#ea580c', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>{totaal}u totaal</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{bons.length} registratie{bons.length !== 1 ? 's' : ''}</span>
+                      <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div style={{ padding: '0 16px 12px' }}>
+                      {bons.map(bon => (
+                        <div key={bon.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderTop: '1px solid #f8fafc' }}>
+                          <div style={{ minWidth: '36px', textAlign: 'center', background: '#f0f9ff', borderRadius: '8px', padding: '4px 6px', fontSize: '0.78rem', fontWeight: 700, color: '#0891b2' }}>{bon.uren}u</div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}>{bon.naam || bon.medewerkerNaam}</div>
+                            {bon.medewerkerNaam && bon.naam && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '1px' }}>{bon.medewerkerNaam}</div>}
+                            {bon.omschrijving && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{bon.omschrijving}</div>}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>
+                            {new Date(bon.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm(`Werkbon "${bon.naam || bon.medewerkerNaam}" verwijderen?`)) return;
+                              await fetch(`/api/werkbonnen/${bon.id}`, { method: 'DELETE' });
+                              setWerkbonnen(prev => prev.filter(b => b.id !== bon.id));
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', padding: '2px 4px', flexShrink: 0 }}
+                            title="Verwijderen"
+                          >
+                            <i className="fa-solid fa-trash" style={{ fontSize: '0.75rem' }} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* === SNELLE ACTIES === */}
       <div className="panel quick-actions" style={{ marginTop: '16px' }}>
         <div className="panel-header">
@@ -360,6 +591,9 @@ export default function Home() {
           </Link>
           <Link href="/projecten" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <i className="fa-solid fa-folder-tree"></i> Projecten
+          </Link>
+          <Link href="/werkbonnen" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <i className="fa-solid fa-file-pen"></i> Werkbonnen
           </Link>
         </div>
       </div>

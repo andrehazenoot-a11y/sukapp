@@ -56,12 +56,13 @@ export default function MateriaalPage() {
     const [importResult, setImportResult]     = useState(null);
     const [bestekMap, setBestekMap]           = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_bestek_producten') || '{}'); } catch { return {}; } });
     const [bestekLocks, setBestekLocks]       = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_bestek_locks') || '{}'); } catch { return {}; } });
-    const [bestekCat, setBestekCat]           = useState(Object.keys(BESTEK)[0] || 'OHD');
+    const [bestekCats, setBestekCats]         = useState([Object.keys(BESTEK)[0] || 'OHD']);
     const [bestekZoek, setBestekZoek]         = useState('');
     const [uitgevouweCode, setUitgevouweCode] = useState(null);
     const [actiefLaag, setActiefLaag]         = useState('bijgronden');
     const [actiefLaagCode, setActiefLaagCode] = useState('bijgronden');
     const [actiefSit, setActiefSit]           = useState('buiten');
+    const [ingeklapteGroepen, setIngeklapteGroepen] = useState({});
     const [productTags, setProductTags]       = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_product_tags') || '{}'); } catch { return {}; } });
 
     const isBeheerder = user?.role === 'Beheerder';
@@ -984,24 +985,44 @@ export default function MateriaalPage() {
             {/* ── TAB: BESTEK KOPPELINGEN ── */}
             {tab === 'bestek' && isBeheerder && (() => {
                 const ALLE_PRODUCTEN = [
-                    'Rubbol XD High Gloss','Rubbol XD Semi Gloss','Rubbol SB','Rubbol EPS','Rubbol EPS Thix',
-                    'Rubbol Satura','Rubbol BL Ventura Satin','Rubbol Express High Gloss','Rubbol BL Safira',
-                    'Rubbol BL Satura','Rubbol BL Rezisto Mat','Rubbol BL Rezisto Satin','Rubbol BL Rezisto Semi-Gloss',
+                    // Hout grondverf / primer syn
+                    'Rubbol Primer','Rubbol Primer Extra','Rubbol Primer Express',
+                    // Hout grondverf / primer wat
+                    'Rubbol BL Primer','Rubbol BL Rezisto Primer','Rubbol BL Uniprimer','Rubbol BL Isoprimer',
+                    // Hout dekkend buiten syn
+                    'Rubbol SB','Rubbol Express High Gloss','Rubbol Finura High Gloss','Rubbol Finura Satin',
+                    'Rubbol DSA Thix','Alphaloxan','Alphaloxan Flex','Alphaxylan SF',
+                    // Hout dekkend buiten wat
+                    'Rubbol XD High Gloss','Rubbol XD Semi Gloss','Rubbol EPS','Rubbol EPS Thix',
+                    'Rubbol Satura','Rubbol WF 376','Rubbol WF 387',
+                    // Hout dekkend binnen wat
+                    'Rubbol BL Ventura Satin','Rubbol BL Safira','Rubbol BL Satura',
+                    'Rubbol BL Rezisto Mat','Rubbol BL Rezisto Satin','Rubbol BL Rezisto Semi-Gloss',
                     'Rubbol BL Rezisto High Gloss','Rubbol BL Rezisto Spray','Rubbol BL Endurance High Gloss',
-                    'Rubbol DSA Thix','Rubbol WF 376','Rubbol WF 387',
+                    // Hout beits/vernis
                     'Cetol TGX Gloss','Cetol TGL Satin Plus','Cetol Novatech','Cetol HLS Plus','Cetol BLX-Pro',
                     'Cetol BL Decor','Cetol BL Varnish Mat','Cetol BL Natural Mat','Cetol BL Endurance Primer',
+                    // Steenachtig primer
+                    'Alpha Fixeer',
+                    // Steenachtig buiten
                     'Alpha Aqua SI','Alpha Humitex SF','Alpha Isolux SF','Alpha Metallic','Alpha Plafond Extreem Mat',
                     'Alpha Prof Mat','Alpha Projecttex','Alpha Recycle Mat','Alpha Rezisto Anti Marks',
                     'Alpha Rezisto Easy Clean','Alpha Sanocryl','Alpha Topcoat','Alpha Topcoat Flex',
-                    'Alphacoat','Alphacryl Easy Spray','Alphacryl Pure Mat SF','Alphaloxan','Alphaloxan Flex',
-                    'Alphatex 4SO Mat','Alphatex IQ','Alphatex IQ Mat','Alphatex Satin SF','Alphatex SF','Alphaxylan SF',
+                    'Alphacoat','Alphacryl Easy Spray','Alphacryl Pure Mat SF',
+                    'Alphatex 4SO Mat','Alphatex IQ','Alphatex IQ Mat','Alphatex Satin SF','Alphatex SF',
+                    // Metaal primer
+                    'Redox BL Multi Primer','Redox AK Primer','Sudwest All Grund',
+                    // Metaal aflak
                     'Redox BL Forte','Redox BL Metal Protect Satin','Redox PUR Finish High Gloss','Redox PUR Finish Satin',
-                    'Wapex 647 Semi-mat','Wapex 650','Wapex 660','Wapex 660 Mat','Wapex PUR Clearcoat',
+                    // Vloer primer
+                    'Wapex Primer',
+                    // Vloer aflak
+                    'Wapex 501','Wapex 647 Semi-mat','Wapex 650','Wapex 660','Wapex 660 Mat','Wapex PUR Clearcoat',
                 ];
 
                 // Categorieën uit BESTEK
                 const catLijst = Object.keys(BESTEK);
+                const bestekCat = bestekCats[0] || 'OHD'; // primaire cat voor display
                 const huidigeCat = BESTEK[bestekCat] || {};
 
                 // Codes binnen geselecteerde categorie
@@ -1022,48 +1043,164 @@ export default function MateriaalPage() {
                 const catRaw = bestekMap[bestekCat];
                 const isNieuwCatFormaat = catRaw && (catRaw.buiten !== undefined || catRaw.binnen !== undefined);
 
-                // Standaard productselecties per categorie/situering/laag
-                const _HD_BUI = ['Rubbol XD High Gloss','Rubbol XD Semi Gloss','Rubbol SB','Rubbol EPS','Rubbol EPS Thix','Rubbol Satura','Rubbol Express High Gloss','Rubbol WF 376','Rubbol WF 387','Alphacoat','Alphaloxan','Alphaloxan Flex'];
-                const _HD_BIN = ['Rubbol BL Ventura Satin','Rubbol BL Safira','Rubbol BL Satura','Rubbol BL Rezisto Mat','Rubbol BL Rezisto Satin','Rubbol BL Rezisto Semi-Gloss','Rubbol BL Rezisto High Gloss','Rubbol BL Rezisto Spray','Rubbol BL Endurance High Gloss','Alphacoat','Alphaloxan','Alphaloxan Flex'];
-                const _HT_BUI = ['Cetol TGX Gloss','Cetol TGL Satin Plus','Cetol Novatech','Cetol HLS Plus','Cetol BLX-Pro'];
-                const _HT_BIN = ['Cetol BL Decor','Cetol BL Varnish Mat','Cetol BL Natural Mat'];
-                const _HV_BUI = ['Cetol TGX Gloss','Cetol BLX-Pro'];
-                const _HV_BIN = ['Cetol BL Varnish Mat','Cetol BL Natural Mat'];
-                const _ME_AFL = ['Redox PUR Finish High Gloss','Redox PUR Finish Satin','Redox BL Metal Protect Satin'];
-                const _MA_AFL = ['Redox PUR Finish High Gloss','Redox PUR Finish Satin'];
-                const _ME_GR  = ['Redox BL Forte'];
-                const _SD_BUI = ['Alpha Aqua SI','Alpha Humitex SF','Alpha Isolux SF','Alpha Projecttex','Alphacoat','Alphaloxan','Alphaloxan Flex'];
-                const _SD_BIN = ['Alpha Prof Mat','Alpha Plafond Extreem Mat','Alpha Recycle Mat','Alpha Rezisto Anti Marks','Alpha Rezisto Easy Clean','Alpha Sanocryl','Alpha Topcoat','Alpha Topcoat Flex','Alpha Projecttex','Alpha Metallic','Alpha Isolux SF','Alphatex SF','Alphatex IQ','Alphatex IQ Mat','Alphatex Satin SF','Alphatex 4SO Mat','Alphacryl Pure Mat SF','Alphacryl Easy Spray'];
-                const _VLR    = ['Wapex 647 Semi-mat','Wapex 650','Wapex 660','Wapex 660 Mat','Wapex PUR Clearcoat'];
-                const _KD_BUI = ['Rubbol XD High Gloss','Rubbol XD Semi Gloss','Rubbol SB','Rubbol EPS','Rubbol EPS Thix','Alphacoat','Alphaloxan','Alphaloxan Flex'];
-                const _KD_BIN = ['Rubbol BL Ventura Satin','Rubbol BL Safira','Rubbol BL Rezisto Mat','Rubbol BL Rezisto Satin','Alphacoat','Alphaloxan','Alphaloxan Flex'];
+                // ── Standaard productselecties per categorie/situering/laag ────────────
+                // OHD/NHD — Hout Dekkend
+                const _HD_BUI = {
+                    bijgronden:   ['Rubbol Primer','Rubbol Primer Express'],
+                    geheelGronden:['Rubbol Primer','Rubbol Primer Express'],
+                    voorlakken:   ['Rubbol Primer Extra'],
+                    aflakken:     ['Rubbol XD High Gloss','Rubbol XD Semi Gloss','Rubbol SB','Rubbol EPS','Rubbol EPS Thix','Rubbol Satura','Rubbol Express High Gloss','Rubbol Finura High Gloss','Rubbol Finura Satin','Rubbol WF 376','Rubbol WF 387','Alphaloxan','Alphaloxan Flex'],
+                };
+                const _HD_BIN = {
+                    bijgronden:   ['Rubbol BL Primer','Rubbol BL Isoprimer'],
+                    geheelGronden:['Rubbol BL Primer','Rubbol BL Isoprimer'],
+                    voorlakken:   ['Rubbol BL Rezisto Primer'],
+                    aflakken:     ['Rubbol BL Ventura Satin','Rubbol BL Safira','Rubbol BL Satura','Rubbol BL Rezisto Mat','Rubbol BL Rezisto Satin','Rubbol BL Rezisto Semi-Gloss','Rubbol BL Rezisto High Gloss','Rubbol BL Rezisto Spray','Rubbol BL Endurance High Gloss','Alphacoat'],
+                };
+                // OHT/NHT — Hout Transparante Beits
+                const _HT_BUI = {
+                    bijgronden:   ['Cetol BL Endurance Primer'],
+                    geheelGronden:['Cetol BL Endurance Primer'],
+                    voorlakken:   ['Cetol HLS Plus','Cetol TGL Satin Plus'],
+                    aflakken:     ['Cetol TGX Gloss','Cetol TGL Satin Plus','Cetol Novatech','Cetol HLS Plus','Cetol BLX-Pro'],
+                };
+                const _HT_BIN = {
+                    bijgronden:   ['Cetol BLX-Pro'],
+                    voorlakken:   ['Cetol BLX-Pro'],
+                    aflakken:     ['Cetol BL Decor','Cetol BL Varnish Mat','Cetol BL Natural Mat','Cetol BLX-Pro'],
+                };
+                // OHV/NHV — Hout Vernis
+                const _HV_BUI = {
+                    bijgronden:   ['Cetol BL Endurance Primer'],
+                    geheelGronden:['Cetol BL Endurance Primer'],
+                    voorlakken:   ['Cetol TGX Gloss','Cetol BLX-Pro'],
+                    aflakken:     ['Cetol TGX Gloss','Cetol BLX-Pro'],
+                };
+                const _HV_BIN = {
+                    voorlakken:   ['Cetol BL Varnish Mat','Cetol BL Natural Mat'],
+                    aflakken:     ['Cetol BL Varnish Mat','Cetol BL Natural Mat'],
+                };
+                // OMS/NMS — Metaal Staal
+                const _MS_BUI = {
+                    bijgronden:   ['Redox BL Forte','Redox BL Multi Primer','Redox AK Primer','Sudwest All Grund'],
+                    geheelGronden:['Redox BL Forte','Redox BL Multi Primer','Redox AK Primer','Sudwest All Grund'],
+                    voorlakken:   ['Redox BL Metal Protect Satin'],
+                    aflakken:     ['Redox PUR Finish High Gloss','Redox PUR Finish Satin','Redox BL Metal Protect Satin'],
+                };
+                const _MS_BIN = {
+                    bijgronden:   ['Redox BL Forte','Redox BL Multi Primer','Sudwest All Grund'],
+                    geheelGronden:['Redox BL Forte','Redox BL Multi Primer','Sudwest All Grund'],
+                    voorlakken:   ['Redox BL Metal Protect Satin'],
+                    aflakken:     ['Redox PUR Finish High Gloss','Redox PUR Finish Satin','Redox BL Metal Protect Satin'],
+                };
+                // OMV/NMV — Metaal Verzinkt
+                const _MV_BUI = {
+                    bijgronden:   ['Redox BL Forte','Redox BL Multi Primer','Rubbol BL Uniprimer','Sudwest All Grund'],
+                    geheelGronden:['Redox BL Forte','Redox BL Multi Primer','Rubbol BL Uniprimer','Sudwest All Grund'],
+                    voorlakken:   ['Redox BL Metal Protect Satin'],
+                    aflakken:     ['Redox PUR Finish High Gloss','Redox PUR Finish Satin','Redox BL Metal Protect Satin'],
+                };
+                const _MV_BIN = {
+                    bijgronden:   ['Redox BL Forte','Redox BL Multi Primer','Rubbol BL Uniprimer'],
+                    geheelGronden:['Redox BL Forte','Redox BL Multi Primer','Rubbol BL Uniprimer'],
+                    aflakken:     ['Redox PUR Finish High Gloss','Redox PUR Finish Satin','Redox BL Metal Protect Satin'],
+                };
+                // OMA/NMA — Metaal Aluminium
+                const _MA_BUI = {
+                    bijgronden:   ['Rubbol BL Uniprimer','Redox BL Multi Primer','Redox BL Forte'],
+                    geheelGronden:['Rubbol BL Uniprimer','Redox BL Multi Primer','Redox BL Forte'],
+                    voorlakken:   ['Redox PUR Finish High Gloss','Redox PUR Finish Satin'],
+                    aflakken:     ['Redox PUR Finish High Gloss','Redox PUR Finish Satin'],
+                };
+                const _MA_BIN = {
+                    bijgronden:   ['Rubbol BL Uniprimer','Redox BL Multi Primer','Redox BL Forte'],
+                    aflakken:     ['Redox PUR Finish High Gloss','Redox PUR Finish Satin'],
+                };
+                // OSD/NSD — Steenachtig Dekkend
+                const _SD_BUI = {
+                    bijgronden:   ['Alpha Fixeer'],
+                    geheelGronden:['Alpha Fixeer'],
+                    aflakken:     ['Alpha Aqua SI','Alpha Humitex SF','Alpha Isolux SF','Alpha Projecttex','Alphacoat','Finura'],
+                };
+                const _SD_BIN = {
+                    bijgronden:   ['Alpha Fixeer'],
+                    geheelGronden:['Alpha Fixeer'],
+                    aflakken:     ['Alpha Prof Mat','Alpha Plafond Extreem Mat','Alpha Recycle Mat','Alpha Rezisto Anti Marks','Alpha Rezisto Easy Clean','Alpha Sanocryl','Alpha Topcoat','Alpha Topcoat Flex','Alpha Projecttex','Alpha Metallic','Alpha Isolux SF','Alphatex SF','Alphatex IQ','Alphatex IQ Mat','Alphatex Satin SF','Alphatex 4SO Mat','Alphacryl Pure Mat SF','Alphacryl Easy Spray'],
+                };
+                // OSV/NSV — Steenachtig Vloeren
+                const _SV_BUI = {
+                    bijgronden:   ['Wapex Primer'],
+                    geheelGronden:['Wapex Primer'],
+                    aflakken:     ['Wapex 647 Semi-mat','Wapex 650','Wapex 660','Wapex 660 Mat','Wapex PUR Clearcoat'],
+                };
+                const _SV_BIN = {
+                    bijgronden:   ['Wapex Primer'],
+                    geheelGronden:['Wapex Primer'],
+                    aflakken:     ['Wapex 647 Semi-mat','Wapex 650','Wapex 660','Wapex 660 Mat','Wapex PUR Clearcoat'],
+                };
+                // OKD/NKD — Kunststof Dekkend
+                const _KD_BUI = {
+                    bijgronden:   ['Rubbol BL Uniprimer','Rubbol Primer'],
+                    geheelGronden:['Rubbol BL Uniprimer','Rubbol Primer'],
+                    voorlakken:   ['Rubbol Primer Extra'],
+                    aflakken:     ['Rubbol XD High Gloss','Rubbol XD Semi Gloss','Rubbol SB','Rubbol EPS','Rubbol EPS Thix','Alphaloxan','Alphaloxan Flex'],
+                };
+                const _KD_BIN = {
+                    bijgronden:   ['Rubbol BL Uniprimer','Rubbol BL Primer'],
+                    geheelGronden:['Rubbol BL Uniprimer','Rubbol BL Primer'],
+                    voorlakken:   ['Rubbol BL Rezisto Primer'],
+                    aflakken:     ['Rubbol BL Ventura Satin','Rubbol BL Safira','Rubbol BL Rezisto Mat','Rubbol BL Rezisto Satin','Alphacoat'],
+                };
+
                 const BESTEK_PRODUCTEN_DEFAULT = {
-                    OHD: { buiten: { aflakken: _HD_BUI }, binnen: { aflakken: _HD_BIN } },
-                    NHD: { buiten: { aflakken: _HD_BUI }, binnen: { aflakken: _HD_BIN } },
-                    OHT: { buiten: { bijgronden: ['Cetol BL Endurance Primer'], voorlakken: ['Cetol HLS Plus'], aflakken: _HT_BUI }, binnen: { aflakken: _HT_BIN } },
-                    NHT: { buiten: { bijgronden: ['Cetol BL Endurance Primer'], voorlakken: ['Cetol HLS Plus'], aflakken: _HT_BUI }, binnen: { aflakken: _HT_BIN } },
-                    OHV: { buiten: { aflakken: _HV_BUI }, binnen: { aflakken: _HV_BIN } },
-                    NHV: { buiten: { aflakken: _HV_BUI }, binnen: { aflakken: _HV_BIN } },
-                    OMS: { buiten: { bijgronden: _ME_GR, aflakken: _ME_AFL }, binnen: { bijgronden: _ME_GR, aflakken: _ME_AFL } },
-                    NMS: { buiten: { bijgronden: _ME_GR, aflakken: _ME_AFL }, binnen: { bijgronden: _ME_GR, aflakken: _ME_AFL } },
-                    OMV: { buiten: { bijgronden: _ME_GR, aflakken: _ME_AFL }, binnen: { bijgronden: _ME_GR, aflakken: _ME_AFL } },
-                    NMV: { buiten: { bijgronden: _ME_GR, aflakken: _ME_AFL }, binnen: { bijgronden: _ME_GR, aflakken: _ME_AFL } },
-                    OMA: { buiten: { aflakken: _MA_AFL }, binnen: { aflakken: _MA_AFL } },
-                    NMA: { buiten: { aflakken: _MA_AFL }, binnen: { aflakken: _MA_AFL } },
-                    OSD: { buiten: { aflakken: _SD_BUI }, binnen: { aflakken: _SD_BIN } },
-                    NSD: { buiten: { aflakken: _SD_BUI }, binnen: { aflakken: _SD_BIN } },
-                    OSV: { buiten: { aflakken: _VLR }, binnen: { aflakken: _VLR } },
-                    NSV: { buiten: { aflakken: _VLR }, binnen: { aflakken: _VLR } },
-                    OKD: { buiten: { aflakken: _KD_BUI }, binnen: { aflakken: _KD_BIN } },
-                    NKD: { buiten: { aflakken: _KD_BUI }, binnen: { aflakken: _KD_BIN } },
+                    OHD: { buiten: _HD_BUI, binnen: _HD_BIN },
+                    NHD: { buiten: _HD_BUI, binnen: _HD_BIN },
+                    OHT: { buiten: _HT_BUI, binnen: _HT_BIN },
+                    NHT: { buiten: _HT_BUI, binnen: _HT_BIN },
+                    OHV: { buiten: _HV_BUI, binnen: _HV_BIN },
+                    NHV: { buiten: _HV_BUI, binnen: _HV_BIN },
+                    OMS: { buiten: _MS_BUI, binnen: _MS_BIN },
+                    NMS: { buiten: _MS_BUI, binnen: _MS_BIN },
+                    OMV: { buiten: _MV_BUI, binnen: _MV_BIN },
+                    NMV: { buiten: _MV_BUI, binnen: _MV_BIN },
+                    OMA: { buiten: _MA_BUI, binnen: _MA_BIN },
+                    NMA: { buiten: _MA_BUI, binnen: _MA_BIN },
+                    OSD: { buiten: _SD_BUI, binnen: _SD_BIN },
+                    NSD: { buiten: _SD_BUI, binnen: _SD_BIN },
+                    OSV: { buiten: _SV_BUI, binnen: _SV_BIN },
+                    NSV: { buiten: _SV_BUI, binnen: _SV_BIN },
+                    OKD: { buiten: _KD_BUI, binnen: _KD_BIN },
+                    NKD: { buiten: _KD_BUI, binnen: _KD_BIN },
                 };
 
                 // Geef de laag-map voor een specifieke situering (buiten/binnen)
+                // Default wordt gebruikt voor lagen die de admin nog niet handmatig heeft ingesteld.
+                // Expliciet lege arrays ([]) in localStorage worden WEL gerespecteerd (admin heeft gewist).
                 function getCatVoorSit(sit) {
-                    if (isNieuwCatFormaat) return catRaw[sit] || {};
+                    const def = BESTEK_PRODUCTEN_DEFAULT[bestekCat]?.[sit] || {};
+                    if (isNieuwCatFormaat) {
+                        const stored = catRaw[sit] || {};
+                        // Per laag: gebruik stored als de sleutel bestaat (ook als leeg), anders default
+                        const merged = { ...def };
+                        Object.keys(stored).forEach(laag => { merged[laag] = stored[laag]; });
+                        return merged;
+                    }
                     if (catRaw && !Array.isArray(catRaw)) return catRaw;
-                    return BESTEK_PRODUCTEN_DEFAULT[bestekCat]?.[sit] || {};
+                    return def;
                 }
+
+                const PRODUCT_GROEPEN = [
+                    { label: 'Hout grondverf', producten: ['Rubbol Primer','Rubbol Primer Extra','Rubbol Primer Express','Rubbol BL Primer','Rubbol BL Rezisto Primer','Rubbol BL Uniprimer','Rubbol BL Isoprimer','Rubbol BL Endurance Primer','Cetol BL Endurance Primer'] },
+                    { label: 'Houtverf buiten syn', producten: ['Rubbol SB','Rubbol Express High Gloss','Rubbol Finura High Gloss','Rubbol Finura Satin','Rubbol DSA Thix'] },
+                    { label: 'Houtverf buiten wat', producten: ['Rubbol XD High Gloss','Rubbol XD Semi Gloss','Rubbol EPS','Rubbol EPS Thix','Rubbol Satura','Rubbol WF 376','Rubbol WF 387','Rubbol BL Endurance High Gloss'] },
+                    { label: 'Houtverf binnen', producten: ['Rubbol BL Ventura Satin','Rubbol BL Safira','Rubbol BL Satura','Rubbol BL Rezisto Mat','Rubbol BL Rezisto Satin','Rubbol BL Rezisto Semi-Gloss','Rubbol BL Rezisto High Gloss','Rubbol BL Rezisto Spray'] },
+                    { label: 'Houtbeits buiten', producten: ['Cetol TGX Gloss','Cetol TGL Satin Plus','Cetol Novatech','Cetol HLS Plus','Cetol BLX-Pro'] },
+                    { label: 'Houtbeits binnen', producten: ['Cetol BL Decor','Cetol BL Varnish Mat','Cetol BL Natural Mat'] },
+                    { label: 'Buitenmuurverf / gevelverf', producten: ['Alpha Fixeer','Alpha Aqua SI','Alpha Humitex SF','Alpha Isolux SF','Alpha Metallic','Alpha Topcoat','Alpha Topcoat Flex','Alphacoat','Alphacryl Easy Spray','Alphacryl Pure Mat SF','Alphatex 4SO Mat','Alphatex IQ Mat','Alphatex Satin SF','Alphatex SF','Alphaloxan','Alphaloxan Flex','Alphaxylan SF'] },
+                    { label: 'Binnenmuurverf / plafondverf', producten: ['Alpha Plafond Extreem Mat','Alpha Prof Mat','Alpha Projecttex','Alpha Recycle Mat','Alpha Rezisto Anti Marks','Alpha Rezisto Easy Clean','Alpha Sanocryl','Alphatex IQ','Finura','Rubbol Finura High Gloss','Rubbol Finura Satin'] },
+                    { label: 'Metaalverf', producten: ['Redox BL Multi Primer','Redox AK Primer','Sudwest All Grund','Redox BL Forte','Redox BL Metal Protect Satin','Redox PUR Finish High Gloss','Redox PUR Finish Satin'] },
+                    { label: 'Vloerverf', producten: ['Wapex Primer','Wapex 501','Wapex 647 Semi-mat','Wapex 650','Wapex 660','Wapex 660 Mat','Wapex PUR Clearcoat'] },
+                ];
 
                 const gefilterdeProducten = ALLE_PRODUCTEN.filter(p =>
                     !bestekZoek || p.toLowerCase().includes(bestekZoek.toLowerCase())
@@ -1072,32 +1209,38 @@ export default function MateriaalPage() {
                 const MIRROR = { OHD:'NHD',NHD:'OHD',OHT:'NHT',NHT:'OHT',OHV:'NHV',NHV:'OHV',OMS:'NMS',NMS:'OMS',OMV:'NMV',NMV:'OMV',OMA:'NMA',NMA:'OMA',OSD:'NSD',NSD:'OSD',OSV:'NSV',NSV:'OSV',OKD:'NKD',NKD:'OKD' };
 
                 function slaOp(key, laag, lijst, sit = null) {
-                    const huidig = (bestekMap[key] && !Array.isArray(bestekMap[key])) ? bestekMap[key] : {};
-                    let updated;
-                    if (sit) {
-                        const sitHuidig = huidig[sit] || {};
-                        updated = { ...bestekMap, [key]: { ...huidig, [sit]: { ...sitHuidig, [laag]: lijst } } };
-                    } else {
-                        updated = { ...bestekMap, [key]: { ...huidig, [laag]: lijst } };
-                    }
-                    // O↔N spiegelen: als categorie-niveau opgeslagen, kopieer naar equivalent indien leeg en niet vergrendeld
-                    if (sit && key === bestekCat && MIRROR[key]) {
-                        const mk = MIRROR[key];
-                        const lockKey = `${mk}.${sit}`;
-                        if (!bestekLocks[lockKey]) {
-                            const mHuidig = (updated[mk] && !Array.isArray(updated[mk])) ? updated[mk] : {};
-                            const mSit = mHuidig[sit] || {};
-                            if (!mSit[laag] || mSit[laag].length === 0) {
-                                updated = { ...updated, [mk]: { ...mHuidig, [sit]: { ...mSit, [laag]: lijst } } };
+                    // Schrijf naar opgegeven key + alle andere geselecteerde cats indien key === bestekCat
+                    const keys = (key === bestekCat && bestekCats.length > 1)
+                        ? bestekCats
+                        : [key];
+                    let updated = { ...bestekMap };
+                    keys.forEach(k => {
+                        const huidig = (updated[k] && !Array.isArray(updated[k])) ? updated[k] : {};
+                        if (sit) {
+                            const sitHuidig = huidig[sit] || {};
+                            updated = { ...updated, [k]: { ...huidig, [sit]: { ...sitHuidig, [laag]: lijst } } };
+                        } else {
+                            updated = { ...updated, [k]: { ...huidig, [laag]: lijst } };
+                        }
+                        // O↔N spiegelen
+                        if (sit && MIRROR[k]) {
+                            const mk = MIRROR[k];
+                            const lockKey = `${mk}.${sit}.${laag}`;
+                            if (!bestekLocks[lockKey]) {
+                                const mHuidig = (updated[mk] && !Array.isArray(updated[mk])) ? updated[mk] : {};
+                                const mSit = mHuidig[sit] || {};
+                                if (!mSit[laag] || mSit[laag].length === 0) {
+                                    updated = { ...updated, [mk]: { ...mHuidig, [sit]: { ...mSit, [laag]: lijst } } };
+                                }
                             }
                         }
-                    }
+                    });
                     setBestekMap(updated);
                     localStorage.setItem('schildersapp_bestek_producten', JSON.stringify(updated));
                 }
 
-                function toggleLock(cat, sit) {
-                    const key = `${cat}.${sit}`;
+                function toggleLock(cat, sit, laag) {
+                    const key = `${cat}.${sit}.${laag}`;
                     const updated = { ...bestekLocks, [key]: !bestekLocks[key] };
                     setBestekLocks(updated);
                     localStorage.setItem('schildersapp_bestek_locks', JSON.stringify(updated));
@@ -1125,15 +1268,40 @@ export default function MateriaalPage() {
 
                 function setTag(product, tag) {
                     const updated = { ...productTags };
-                    if (updated[product] === tag) delete updated[product];
-                    else updated[product] = tag;
+                    const huidig = Array.isArray(updated[product]) ? updated[product] : (updated[product] ? [updated[product]] : []);
+                    const nieuw = huidig.includes(tag) ? huidig.filter(t => t !== tag) : [...huidig, tag];
+                    if (nieuw.length === 0) delete updated[product];
+                    else updated[product] = nieuw;
                     setProductTags(updated);
                     localStorage.setItem('schildersapp_product_tags', JSON.stringify(updated));
                 }
 
+                function getTags(product) {
+                    const stored = productTags[product];
+                    const def = PRODUCT_TAGS_DEFAULT[product];
+                    if (stored !== undefined) return Array.isArray(stored) ? stored : [stored];
+                    return def ? [def] : [];
+                }
+
                 const TAG_TYPES = [['verfSyn','verf syn','#F5850A'],['verfWat','verf wat','#f97316'],['beitsSyn','beits syn','#0d9488'],['beitsWat','beits wat','#0891b2'],['bibui','bi/bui','#7c3aed']];
                 const PRODUCT_TAGS_DEFAULT = {
+                    // Grondverf / primer
+                    'Rubbol Primer':                  'verfSyn',
+                    'Rubbol Primer Extra':             'verfSyn',
+                    'Rubbol Primer Express':                'verfSyn',
+                    'Rubbol BL Primer':               'verfWat',
+                    'Rubbol BL Rezisto Primer':       'verfWat',
+                    'Rubbol BL Uniprimer':            'verfWat',
+                    'Rubbol BL Isoprimer':            'verfWat',
+                    'Alpha Fixeer':                   'verfWat',
+                    'Finura':                         'verfWat',
+                    'Wapex Primer':                   'verfWat',
+                    'Redox BL Multi Primer':          'verfWat',
+                    'Redox AK Primer':                'verfSyn',
+                    'Sudwest All Grund':              'verfSyn',
                     // Verf synthetisch — oplosmiddelgedragen dekkende verf
+                    'Rubbol Finura High Gloss':       'verfSyn',
+                    'Rubbol Finura Satin':            'verfSyn',
                     'Rubbol SB':                      'verfSyn',
                     'Rubbol Express High Gloss':      'verfSyn',
                     'Alphaxylan SF':                  'verfSyn',
@@ -1208,10 +1376,9 @@ export default function MateriaalPage() {
                 const BEITS_CATS = ['OHT','OHV','NHT','NHV'];
                 const isBeits = BEITS_CATS.includes(bestekCat);
                 function tagWaarschuwing(product) {
-                    const tag = productTags[product] ?? PRODUCT_TAGS_DEFAULT[product];
-                    if (!tag) return null;
-                    if ((tag === 'beitsSyn' || tag === 'beitsWat') && !isBeits) return `Beits-product in dekkende categorie (${bestekCat})`;
-                    if ((tag === 'verfSyn' || tag === 'verfWat') && isBeits) return `Verfproduct in beits-categorie (${bestekCat})`;
+                    const tags = getTags(product);
+                    if (tags.some(t => t === 'beitsSyn' || t === 'beitsWat') && !isBeits) return `Beits-product in dekkende categorie (${bestekCat})`;
+                    if (tags.some(t => t === 'verfSyn' || t === 'verfWat') && isBeits) return `Verfproduct in beits-categorie (${bestekCat})`;
                     return null;
                 }
 
@@ -1245,44 +1412,48 @@ export default function MateriaalPage() {
                                 const heeftData = d && (d.buiten || d.binnen)
                                     ? [...Object.values(d.buiten || {}), ...Object.values(d.binnen || {})].some(l => Array.isArray(l) && l.length > 0)
                                     : false;
+                                const geselecteerd = bestekCats.includes(cat);
+                                const isPrimair = bestekCat === cat;
+                                const lockedCount = ['buiten','binnen'].flatMap(s =>
+                                    ['bijgronden','geheelGronden','voorlakken','aflakken'].map(l => `${cat}.${s}.${l}`)
+                                ).filter(k => bestekLocks[k]).length;
+                                const isCompleet = lockedCount === 8;
                                 return (
-                                    <button key={cat} onClick={() => { setBestekCat(cat); setUitgevouweCode(null); setBestekZoek(''); }}
+                                    <button key={cat} onClick={() => { setBestekCats([cat]); setUitgevouweCode(null); setBestekZoek(''); }}
                                         title={CAT_OMSCHRIJVING[cat] || cat}
                                         style={{
                                             padding: '5px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
-                                            border: bestekCat === cat ? '1.5px solid #F5850A' : '1.5px solid #e2e8f0',
-                                            background: bestekCat === cat ? 'rgba(245,133,10,0.1)' : '#f8fafc',
-                                            color: bestekCat === cat ? '#F5850A' : '#64748b',
+                                            border: isPrimair ? '1.5px solid #F5850A' : isCompleet ? '1.5px solid #16a34a' : '1.5px solid #e2e8f0',
+                                            background: isPrimair ? 'rgba(245,133,10,0.1)' : isCompleet ? '#f0fdf4' : '#f8fafc',
+                                            color: isPrimair ? '#F5850A' : isCompleet ? '#16a34a' : '#64748b',
                                             position: 'relative',
                                         }}>
                                         {cat}
-                                        {heeftData && <span style={{ marginLeft: '4px', fontSize: '0.6rem', color: '#F5850A' }}>●</span>}
+                                        {isCompleet
+                                            ? <span style={{ marginLeft: '4px', fontSize: '0.58rem', fontWeight: 800 }}>✓</span>
+                                            : lockedCount > 0
+                                                ? <span style={{ marginLeft: '4px', fontSize: '0.58rem', color: '#d97706', fontWeight: 800 }}>{lockedCount}/8</span>
+                                                : heeftData && <span style={{ marginLeft: '4px', fontSize: '0.6rem', color: '#F5850A' }}>●</span>
+                                        }
                                     </button>
                                 );
                             })}
                         </div>
 
-                        {/* Header met categorienaam */}
-                        <div style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '2px solid #f1f5f9' }}>
-                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
-                                <span style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0369a1', letterSpacing: '-0.03em' }}>{bestekCat}</span>
-                                <span style={{ fontSize: '1rem', fontWeight: 600, color: '#334155' }}>{CAT_OMSCHRIJVING[bestekCat]}</span>
-                            </div>
-                            <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '3px 0 0' }}>
-                                Stel per kolom en laagtype in welke producten beschikbaar zijn. Codes erven de standaard, tenzij je een uitzondering instelt.
-                            </p>
+                        {/* Situering tabs */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                            {[['buiten','Buitenschilderwerk','fa-sun','#0369a1'],['binnen','Binnenschilderwerk','fa-house','#7c3aed']].map(([s, label, icon, kleur]) => (
+                                <button key={s} onClick={() => setActiefSit(s)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 18px', borderRadius: '10px', border: `2px solid ${actiefSit === s ? kleur : '#e2e8f0'}`, background: actiefSit === s ? kleur : '#f8fafc', color: actiefSit === s ? '#fff' : '#64748b', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>
+                                    <i className={`fa-solid ${icon}`} />
+                                    {label}
+                                </button>
+                            ))}
                         </div>
 
-                        {/* Zoekbalk */}
-                        <div style={{ marginBottom: '12px' }}>
-                            <input value={bestekZoek} onChange={e => setBestekZoek(e.target.value)}
-                                placeholder="Zoek product om snel te filteren..."
-                                style={{ width: '100%', maxWidth: '360px', padding: '7px 12px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.82rem', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                        </div>
-
-                        {/* Twee kolommen: Buiten | Binnen */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
-                            {['buiten', 'binnen'].map(sit => {
+                        {/* Één situering tegelijk op volle breedte */}
+                        <div>
+                            {['buiten', 'binnen'].filter(s => s === actiefSit).map(sit => {
                                 const sitKleur = sit === 'buiten' ? '#0369a1' : '#7c3aed';
                                 const sitBg    = sit === 'buiten' ? '#f0f9ff' : '#faf5ff';
                                 const sitBord  = sit === 'buiten' ? '#bae6fd' : '#e9d5ff';
@@ -1290,59 +1461,21 @@ export default function MateriaalPage() {
                                 const sitLabel = sit === 'buiten' ? 'Buitenschilderwerk' : 'Binnenschilderwerk';
                                 const catVoorSit = getCatVoorSit(sit);
                                 const groepCodes = codesInCat.filter(c => c.sit === sit);
-                                const standaardOpen = actiefSit === sit;
+                                const standaardOpen = true;
 
                                 return (
-                                    <div key={sit}>
-                                        {/* ── Standaard-kaart ── */}
-                                        <div style={{ border: `2px solid ${standaardOpen ? sitKleur : sitBord}`, borderRadius: '14px', overflow: 'hidden', background: '#fff', marginBottom: '10px', boxShadow: standaardOpen ? `0 0 0 3px ${sitKleur}18` : 'none' }}>
-                                            {/* Koptekst */}
-                                            <div style={{ padding: '12px 16px', background: sitBg, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}
-                                                onClick={() => setActiefSit(standaardOpen ? null : sit)}>
-                                                <i className={`fa-solid ${sitIcon}`} style={{ color: sitKleur, fontSize: '1rem' }} />
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: sitKleur }}>{sitLabel}</div>
-                                                    <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>
-                                                        Standaard voor alle {bestekCat} {sit} codes
-                                                    </div>
-                                                </div>
-                                                {/* Product-summary chips */}
-                                                {!standaardOpen && (
-                                                    <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', maxWidth: '120px', justifyContent: 'flex-end' }}>
-                                                        {LAGEN.some(l => (catVoorSit[l] || []).length > 0)
-                                                            ? LAGEN.filter(l => (catVoorSit[l] || []).length > 0).map(l => (
-                                                                <span key={l} style={{ padding: '1px 6px', borderRadius: '8px', fontSize: '0.6rem', fontWeight: 700, background: `${LAAG_KLEUR[l]}20`, color: LAAG_KLEUR[l] }}>
-                                                                    {LAAG_LABEL[l].split(' ')[0]} {(catVoorSit[l] || []).length}×
-                                                                </span>
-                                                            ))
-                                                            : <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Geen beperking</span>
-                                                        }
-                                                    </div>
-                                                )}
-                                                <i className={`fa-solid fa-chevron-${standaardOpen ? 'up' : 'down'}`} style={{ color: sitKleur, fontSize: '0.7rem', flexShrink: 0 }} />
-                                            </div>
-                                            {/* Vergrendelknop — voorkomt O↔N auto-spiegelen */}
-                                            {(() => {
-                                                const lockKey = `${bestekCat}.${sit}`;
-                                                const locked = !!bestekLocks[lockKey];
-                                                return (
-                                                    <div style={{ padding: '4px 12px', background: locked ? '#fef3c7' : '#f8fafc', borderBottom: `1px solid ${sitBord}`, display: 'flex', alignItems: 'center', gap: '6px' }}
-                                                        onClick={e => { e.stopPropagation(); toggleLock(bestekCat, sit); }}>
-                                                        <i className={`fa-solid ${locked ? 'fa-lock' : 'fa-lock-open'}`} style={{ fontSize: '0.65rem', color: locked ? '#d97706' : '#94a3b8' }} />
-                                                        <span style={{ fontSize: '0.65rem', color: locked ? '#92400e' : '#94a3b8', cursor: 'pointer' }}>
-                                                            {locked ? 'Vergrendeld — auto-leren uitgeschakeld' : 'Niet vergrendeld — auto-leren actief'}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            })()}
-
+                                    <div key={sit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'start' }}>
+                                        {/* ── Standaard-kaart (links, sticky) ── */}
+                                        <div style={{ position: 'sticky', top: '80px' }}>
+                                        <div style={{ border: `2px solid ${sitKleur}`, borderRadius: '14px', overflow: 'hidden', background: '#fff', boxShadow: `0 0 0 3px ${sitKleur}18` }}>
                                             {/* Uitgevouwen: laag-tabs + producten */}
                                             {standaardOpen && (
                                                 <div>
-                                                    {/* Laag-tabs */}
-                                                    <div style={{ display: 'flex', borderBottom: '2px solid #f1f5f9' }}>
+                                                    {/* Laag-tabs + vergrendelknop */}
+                                                    <div style={{ display: 'flex', borderBottom: '2px solid #f1f5f9', alignItems: 'stretch' }}>
                                                         {LAGEN.map(laag => {
                                                             const isActief = actiefLaag === laag;
+                                                            const locked = !!bestekLocks[`${bestekCat}.${sit}.${laag}`];
                                                             const n = (catVoorSit[laag] || []).length;
                                                             return (
                                                                 <button key={laag} onClick={() => setActiefLaag(laag)}
@@ -1352,58 +1485,116 @@ export default function MateriaalPage() {
                                                                 </button>
                                                             );
                                                         })}
+                                                        {/* Opslaan knop */}
+                                                        <button onClick={() => {
+                                                                    localStorage.setItem('schildersapp_bestek_producten', JSON.stringify(bestekMap));
+                                                                    localStorage.setItem('schildersapp_product_tags', JSON.stringify(productTags));
+                                                                    localStorage.setItem('schildersapp_bestek_locks', JSON.stringify(bestekLocks));
+                                                                    showToast?.('Bestek opgeslagen', 'success');
+                                                                }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', padding: '6px 12px', border: 'none', borderBottom: '3px solid transparent', background: '#f0fdf4', cursor: 'pointer', flexShrink: 0 }}>
+                                                            <i className="fa-solid fa-floppy-disk" style={{ fontSize: '0.8rem', color: '#16a34a' }} />
+                                                            <span style={{ fontSize: '0.55rem', fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>opslaan</span>
+                                                        </button>
                                                     </div>
                                                     {/* Toolbar */}
                                                     <div style={{ display: 'flex', gap: '6px', padding: '8px 14px', background: '#fafafa', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
                                                         <span style={{ fontSize: '0.72rem', color: '#64748b', flex: 1 }}>
                                                             {(catVoorSit[actiefLaag] || []).length === 0 ? 'Geen beperking' : `${(catVoorSit[actiefLaag] || []).length} geselecteerd`}
                                                         </span>
+                                                        {(() => {
+                                                            const actiefLocked = !!bestekLocks[`${bestekCat}.${sit}.${actiefLaag}`];
+                                                            return (
+                                                                <button onClick={() => toggleLock(bestekCat, sit, actiefLaag)}
+                                                                    title={actiefLocked ? 'Vergrendeld — klik om auto-leren in te schakelen' : 'Auto-leren — klik om te vergrendelen'}
+                                                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '6px', border: `1.5px solid ${actiefLocked ? '#d97706' : '#e2e8f0'}`, background: actiefLocked ? '#fef3c7' : '#fff', color: actiefLocked ? '#92400e' : '#94a3b8', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                                                                    <i className={`fa-solid ${actiefLocked ? 'fa-lock' : 'fa-lock-open'}`} style={{ fontSize: '0.75rem' }} />
+                                                                    {actiefLocked ? 'vergrendeld' : 'auto-leren'}
+                                                                </button>
+                                                            );
+                                                        })()}
+                                                        {actiefLaag === 'geheelGronden' && (catVoorSit['bijgronden'] || []).length > 0 && (
+                                                            <button onClick={() => slaOp(bestekCat, 'geheelGronden', [...(catVoorSit['bijgronden'] || [])], sit)}
+                                                                title="Kopieer de bijgronden-selectie naar geheel gronden"
+                                                                style={{ padding: '4px 10px', borderRadius: '6px', border: '1.5px solid #bae6fd', background: '#f0f9ff', color: '#0369a1', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>↑ van bijgronden</button>
+                                                        )}
                                                         <button onClick={() => slaOp(bestekCat, actiefLaag, [...ALLE_PRODUCTEN], sit)}
                                                             style={{ padding: '4px 10px', borderRadius: '6px', border: '1.5px solid #86efac', background: '#f0fdf4', color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>✓ Alles</button>
                                                         <button onClick={() => slaOp(bestekCat, actiefLaag, [], sit)}
                                                             style={{ padding: '4px 10px', borderRadius: '6px', border: '1.5px solid #fca5a5', background: '#fff1f2', color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>✗ Wissen</button>
                                                     </div>
-                                                    {/* Product lijst */}
-                                                    <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
-                                                        {[...gefilterdeProducten].sort((a, b) => {
+                                                    {/* Product lijst — gegroepeerd */}
+                                                    <div style={{ maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
+                                                        {(() => {
                                                             const lijst = catVoorSit[actiefLaag] || [];
-                                                            return (lijst.includes(b) ? 1 : 0) - (lijst.includes(a) ? 1 : 0);
-                                                        }).map(product => {
-                                                            const aan = (catVoorSit[actiefLaag] || []).includes(product);
-                                                            const tag = productTags[product] ?? PRODUCT_TAGS_DEFAULT[product];
-                                                            const tagInfo = TAG_TYPES.find(([t]) => t === tag);
-                                                            const waarschuwing = tagWaarschuwing(product);
-                                                            return (
-                                                                <div key={product} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9', background: aan ? `${LAAG_KLEUR[actiefLaag]}08` : '#fff' }}>
-                                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer', flex: 1, minWidth: 0 }}>
-                                                                        <input type="checkbox" checked={aan} onChange={() => toggleCat(sit, actiefLaag, product)}
-                                                                            style={{ accentColor: LAAG_KLEUR[actiefLaag], width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0 }} />
-                                                                        <span style={{ fontSize: '0.78rem', color: aan ? '#1e293b' : '#475569', fontWeight: aan ? 600 : 400, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product}</span>
-                                                                        {waarschuwing && <span title={waarschuwing} style={{ color: '#f59e0b', fontSize: '0.75rem', flexShrink: 0 }}>⚠</span>}
-                                                                    </label>
-                                                                    {/* 3 type-knoppen */}
-                                                                    <div style={{ display: 'flex', gap: '3px', padding: '0 12px 0 0', flexShrink: 0 }}>
-                                                                        {TAG_TYPES.map(([type, label, kleur]) => {
-                                                                            const actief = tag === type;
-                                                                            return (
-                                                                                <button key={type} onClick={() => setTag(product, type)}
-                                                                                    style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${actief ? kleur : '#e2e8f0'}`, background: actief ? kleur : '#f8fafc', color: actief ? '#fff' : '#94a3b8', whiteSpace: 'nowrap' }}>
-                                                                                    {label}
-                                                                                </button>
-                                                                            );
-                                                                        })}
+                                                            const renderRij = (product) => {
+                                                                const aan = lijst.includes(product);
+                                                                const tags = getTags(product);
+                                                                const waarschuwing = tagWaarschuwing(product);
+                                                                return (
+                                                                    <div key={product} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9', background: aan ? `${LAAG_KLEUR[actiefLaag]}08` : '#fff' }}>
+                                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                                                                            <input type="checkbox" checked={aan} onChange={() => toggleCat(sit, actiefLaag, product)}
+                                                                                style={{ accentColor: LAAG_KLEUR[actiefLaag], width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0 }} />
+                                                                            <span style={{ fontSize: '0.78rem', color: aan ? '#1e293b' : '#475569', fontWeight: aan ? 600 : 400, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product}</span>
+                                                                            {waarschuwing && <span title={waarschuwing} style={{ color: '#f59e0b', fontSize: '0.75rem', flexShrink: 0 }}>⚠</span>}
+                                                                        </label>
+                                                                        <div style={{ display: 'flex', gap: '3px', padding: '0 12px 0 0', flexShrink: 0 }}>
+                                                                            {TAG_TYPES.map(([type, label, kleur]) => {
+                                                                                const actief = tags.includes(type);
+                                                                                return (
+                                                                                    <button key={type} onClick={() => setTag(product, type)}
+                                                                                        style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${actief ? kleur : '#e2e8f0'}`, background: actief ? kleur : '#f8fafc', color: actief ? '#fff' : '#94a3b8', whiteSpace: 'nowrap' }}>
+                                                                                        {label}
+                                                                                    </button>
+                                                                                );
+                                                                            })}
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                            );
-                                                        })}
+                                                                );
+                                                            };
+                                                            const aangevinkt = lijst.filter(p => !bestekZoek || p.toLowerCase().includes(bestekZoek.toLowerCase()));
+                                                            const groepen = PRODUCT_GROEPEN.map(g => ({
+                                                                ...g,
+                                                                producten: g.producten.filter(p =>
+                                                                    (!bestekZoek || p.toLowerCase().includes(bestekZoek.toLowerCase())) &&
+                                                                    !lijst.includes(p)
+                                                                )
+                                                            })).filter(g => g.producten.length > 0);
+                                                            const toggleGroep = (label) => setIngeklapteGroepen(prev => ({ ...prev, [label]: !prev[label] }));
+                                                            return (<>
+                                                                {aangevinkt.length > 0 && (<>
+                                                                    <div onClick={() => toggleGroep('__geselecteerd')} style={{ padding: '6px 14px', fontSize: '0.7rem', fontWeight: 800, color: LAAG_KLEUR[actiefLaag], background: `${LAAG_KLEUR[actiefLaag]}12`, borderBottom: `2px solid ${LAAG_KLEUR[actiefLaag]}40`, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                                                                        <i className={`fa-solid fa-chevron-${ingeklapteGroepen['__geselecteerd'] ? 'right' : 'down'}`} style={{ fontSize: '0.55rem' }} />
+                                                                        Geselecteerd
+                                                                        <span style={{ marginLeft: 'auto', background: LAAG_KLEUR[actiefLaag], color: '#fff', borderRadius: '10px', padding: '1px 7px', fontSize: '0.6rem', fontWeight: 700 }}>{aangevinkt.length}</span>
+                                                                    </div>
+                                                                    {!ingeklapteGroepen['__geselecteerd'] && aangevinkt.map(renderRij)}
+                                                                </>)}
+                                                                {groepen.map(g => {
+                                                                    const ingeklapt = !!ingeklapteGroepen[g.label];
+                                                                    return (<div key={g.label}><div onClick={() => toggleGroep(g.label)} style={{ padding: '6px 14px', fontSize: '0.7rem', fontWeight: 700, color: '#475569', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                                                                            <i className={`fa-solid fa-chevron-${ingeklapt ? 'right' : 'down'}`} style={{ fontSize: '0.55rem', color: '#94a3b8' }} />
+                                                                            {g.label}
+                                                                            <span style={{ marginLeft: 'auto', background: '#e2e8f0', color: '#64748b', borderRadius: '10px', padding: '1px 7px', fontSize: '0.6rem', fontWeight: 700 }}>{g.producten.length}</span>
+                                                                        </div>
+                                                                        {!ingeklapt && g.producten.map(renderRij)}
+                                                                    </div>);
+                                                                })}
+                                                            </>);
+                                                        })()}
                                                     </div>
                                                 </div>
                                             )}
                                         </div>
+                                        </div>{/* einde sticky wrapper */}
 
-
-                                        {/* ── Code-lijst ── */}
+                                        {/* ── Code-lijst (rechts) ── */}
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                        {/* Categorie-label boven code-lijst */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 18px', borderRadius: '10px', border: `2px solid ${sitKleur}`, background: sitKleur, color: '#fff', fontWeight: 700, fontSize: '0.85rem', marginBottom: '4px', alignSelf: 'flex-start' }}>
+                                            <span style={{ fontWeight: 900, fontSize: '1rem', letterSpacing: '-0.03em' }}>{bestekCat}</span>
+                                            <span style={{ fontWeight: 500, fontSize: '0.8rem', opacity: 0.85 }}>{CAT_OMSCHRIJVING[bestekCat]}</span>
+                                        </div>
                                             {groepCodes.map(({ code, naam }) => {
                                                 const codeRaw = bestekMap[code];
                                                 const codeObj = (codeRaw && !Array.isArray(codeRaw)) ? codeRaw : null;
@@ -1492,7 +1683,7 @@ export default function MateriaalPage() {
                                                                         const effectief = codeObj?.[actiefLaagCode] ?? catVoorCode[actiefLaagCode] ?? [];
                                                                         const aan = effectief.includes(product);
                                                                         const vanCat = (catVoorCode[actiefLaagCode] || []).includes(product);
-                                                                        const tag = productTags[product] ?? PRODUCT_TAGS_DEFAULT[product];
+                                                                        const tags = getTags(product);
                                                                         const waarschuwing = tagWaarschuwing(product);
                                                                         return (
                                                                             <div key={product} style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -1513,7 +1704,7 @@ export default function MateriaalPage() {
                                                                                 {/* Type-knoppen naast pill */}
                                                                                 <div style={{ display: 'flex', gap: '1px' }}>
                                                                                     {TAG_TYPES.map(([type, label, kleur]) => {
-                                                                                        const actief = tag === type;
+                                                                                        const actief = tags.includes(type);
                                                                                         return (
                                                                                             <button key={type} onClick={e => { e.preventDefault(); setTag(product, type); }}
                                                                                                 style={{ padding: '1px 4px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 700, cursor: 'pointer', border: `1px solid ${actief ? kleur : '#e2e8f0'}`, background: actief ? kleur : '#f8fafc', color: actief ? '#fff' : '#cbd5e1' }}>

@@ -905,6 +905,7 @@ export default function UrenPage() {
             )}
 
             {activeTab === 'verlof' && (
+                <>
                 <div className="panel">
                     <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h2>Verlof Aanvragen</h2>
@@ -1183,6 +1184,10 @@ export default function UrenPage() {
                                                                 title={tooltip}
                                                             >
                                                                 {day}
+                                                                {/* Feestdag ster badge */}
+                                                                {isHoliday && (
+                                                                    <span style={{ position:'absolute', top:'0px', right:'1px', fontSize:'0.5rem', lineHeight:1, pointerEvents:'none' }}>⭐</span>
+                                                                )}
                                                                 {/* Colleague dots */}
                                                                 {colleaguesOff.length > 0 && !isWeekend && (
                                                                     <div style={{ display: 'flex', justifyContent: 'center', gap: '1px', marginTop: '0px' }}>
@@ -1241,6 +1246,91 @@ export default function UrenPage() {
                         );
                     })()}
                 </div>
+
+                {/* ═══ BEHEERDER: Verlofaanvragen medewerkers ═══ */}
+                {user?.role === 'Beheerder' && (() => {
+                    const MONTH_S = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+                    function fmtD(iso) { if (!iso) return ''; const d = new Date(iso+'T00:00:00'); return `${d.getDate()} ${MONTH_S[d.getMonth()]}`; }
+
+                    // Laad alle aanvragen van alle medewerkers
+                    const alleAanvragen = [];
+                    try {
+                        const users = JSON.parse(localStorage.getItem('schildersapp_permissions') || '{}');
+                        const alleUsers = [1,2,3,4,...Object.keys(users).map(Number)].filter((v,i,a)=>a.indexOf(v)===i);
+                        alleUsers.forEach(uid => {
+                            const lijst = JSON.parse(localStorage.getItem(`schildersapp_verlof_${uid}`) || '[]');
+                            lijst.forEach(v => alleAanvragen.push({ ...v, userId: uid }));
+                        });
+                    } catch {}
+                    alleAanvragen.sort((a,b) => (a.van||'') > (b.van||'') ? 1 : -1);
+
+                    function setStatus(userId, id, status) {
+                        try {
+                            const key = `schildersapp_verlof_${userId}`;
+                            const lijst = JSON.parse(localStorage.getItem(key) || '[]');
+                            const updated = lijst.map(v => v.id === id ? { ...v, status } : v);
+                            localStorage.setItem(key, JSON.stringify(updated));
+                            // Bij afwijzen: verwijder dag uit vakantie-key
+                            if (status === 'Afgewezen') {
+                                const entry = lijst.find(v => v.id === id);
+                                if (entry) {
+                                    const naam = (entry.naam || '').replace(/\s/g, '_');
+                                    const vacKey2 = `schildersapp_vakantie_${YEAR}_${naam}`;
+                                    const vacDays = JSON.parse(localStorage.getItem(vacKey2) || '[]');
+                                    const d = new Date(entry.van+'T00:00:00');
+                                    const e = new Date((entry.tot||entry.van)+'T00:00:00');
+                                    const toRemove = new Set();
+                                    while(d<=e){toRemove.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);d.setDate(d.getDate()+1);}
+                                    localStorage.setItem(vacKey2, JSON.stringify(vacDays.filter(d=>!toRemove.has(d))));
+                                }
+                            }
+                            window.location.reload();
+                        } catch {}
+                    }
+
+                    if (alleAanvragen.length === 0) return null;
+
+                    return (
+                        <div style={{ marginTop:'24px', padding:'16px 20px', background:'#f8fafc', borderRadius:'16px', border:'1px solid #e2e8f0' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'14px' }}>
+                                <i className="fa-solid fa-clipboard-list" style={{ color:'#F5850A' }} />
+                                <span style={{ fontWeight:800, fontSize:'0.9rem', color:'#1e293b' }}>Verlofaanvragen medewerkers</span>
+                                <span style={{ background:'#F5850A', color:'#fff', borderRadius:'999px', fontSize:'0.65rem', fontWeight:800, padding:'2px 8px', marginLeft:'4px' }}>{alleAanvragen.length}</span>
+                            </div>
+                            <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+                                {alleAanvragen.map(v => {
+                                    const isGoed = v.status === 'Goedgekeurd';
+                                    const isAf   = v.status === 'Afgewezen';
+                                    return (
+                                        <div key={`${v.userId}-${v.id}`} style={{ background:'#fff', borderRadius:'12px', padding:'11px 14px', border:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:'12px', boxShadow:'0 1px 4px rgba(0,0,0,0.05)' }}>
+                                            <div style={{ width:'34px', height:'34px', borderRadius:'10px', background:'#fff8f0', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                                <i className="fa-solid fa-user" style={{ color:'#F5850A', fontSize:'0.8rem' }} />
+                                            </div>
+                                            <div style={{ flex:1, minWidth:0 }}>
+                                                <div style={{ fontSize:'0.85rem', fontWeight:700, color:'#1e293b' }}>{v.naam || `Medewerker ${v.userId}`}</div>
+                                                <div style={{ fontSize:'0.72rem', color:'#64748b', marginTop:'1px' }}>
+                                                    {v.type} · {fmtD(v.van)}{v.tot&&v.tot!==v.van?` → ${fmtD(v.tot)}`:''}
+                                                    {v.opmerking ? ` · ${v.opmerking}` : ''}
+                                                </div>
+                                            </div>
+                                            <div style={{ display:'flex', gap:'6px', flexShrink:0 }}>
+                                                <button onClick={() => setStatus(v.userId, v.id, 'Goedgekeurd')}
+                                                    style={{ padding:'5px 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.75rem', background: isGoed ? '#10b981' : '#f0fdf4', color: isGoed ? '#fff' : '#10b981' }}>
+                                                    <i className="fa-solid fa-check" style={{ marginRight:'4px' }} />Goed
+                                                </button>
+                                                <button onClick={() => setStatus(v.userId, v.id, 'Afgewezen')}
+                                                    style={{ padding:'5px 12px', borderRadius:'8px', border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.75rem', background: isAf ? '#ef4444' : '#fef2f2', color: isAf ? '#fff' : '#ef4444' }}>
+                                                    <i className="fa-solid fa-xmark" style={{ marginRight:'4px' }} />Afwijzen
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
+                </>
             )}
 
             {/* ═══════ PERSONEELSPLANNER TAB ═══════ */}

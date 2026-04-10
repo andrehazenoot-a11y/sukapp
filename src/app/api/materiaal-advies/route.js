@@ -35,11 +35,17 @@ export async function POST(request) {
                 : '';
 
             // Per-laag productbeperkingen meegeven aan Claude
+            const LAAG_VERTALING = {
+                bijgronden:    'grondlaag (bijwerken kale plekken)',
+                geheelGronden: 'grondlaag (geheel aanbrengen)',
+                voorlakken:    'voorlak',
+                aflakken:      'aflaklaag',
+            };
             const lagenRegel = ctx.bestekLagen
-                ? `\nToegestane producten per laag (gebruik ALLEEN deze producten voor de betreffende laag):\n` +
+                ? `\nDoor beheerder ingestelde producten per laag — gebruik UITSLUITEND deze producten, dit heeft VOORRANG op de systeemtabel:\n` +
                   Object.entries(ctx.bestekLagen)
                       .filter(([, ps]) => ps && ps.length > 0)
-                      .map(([l, ps]) => `- ${l}: ${ps.join(', ')}`)
+                      .map(([l, ps]) => `- ${LAAG_VERTALING[l] || l}: ${ps.join(', ')}`)
                       .join('\n') + '\n'
                 : '';
 
@@ -52,8 +58,8 @@ export async function POST(request) {
 
 Eindproduct (aflaklaag): ${product}
 Ondergrond: ${ctx.ondergrond || '?'} | Situering: ${ctx.situering || '?'} | Aard: ${ctx.aard || '?'} | Opbouw: ${ctx.opbouw || '?'}
-${bestekRegel}${lagenRegel}
-VASTE SYSTEEMTABEL — gebruik exact deze producten:
+${bestekRegel}
+VASTE SYSTEEMTABEL — gebruik deze producten ALLEEN als er geen beheerder-override is ingesteld:
 Hout buiten dekkend:     grondlaag=Rubbol Primer 1x | voorlak=Rubbol Primer Extra 1x | aflaklaag=${product} 1x
 Hout buiten transparant: grondlaag=Cetol BL Endurance Primer 1x | voorlak=Cetol HLS Plus 1x | aflaklaag=${product} 1x
 Hout binnen dekkend:     grondlaag=Rubbol BL Primer 1x | voorlak=Rubbol Primer Extra 1x | aflaklaag=${product} 1x
@@ -76,7 +82,7 @@ Uitzonderingen op opbouw:
 - S6 (2x dekkend sauzen): aflaklaag=${product} 2x
 - Opbouw bevat "bijgronden" of "geheel aflakken": grondlaag=Rubbol Primer bijgronden kale plekken 1x | aflaklaag=${product} 1x (geen voorlak)
 - Opbouw bevat "alleen aflakken": alleen aflaklaag=${product} 1x
-
+${lagenRegel ? `\n⚠️ BEHEERDER-OVERRIDE — de volgende producten zijn door de beheerder ingesteld en hebben ABSOLUTE VOORRANG op de VASTE SYSTEEMTABEL hierboven. Gebruik UITSLUITEND deze producten voor de aangegeven lagen:\n${lagenRegel}` : ''}
 REGELS: voorlak is NOOIT hetzelfde als aflaklaag. Bij steenachtig en vloeren geen voorlak.
 1-POT SYSTEMEN: Als aflaklaag "Redox BL Forte" of "Redox BL Metal Protect Satin" is, dan is dit een 1-pot systeem: grondverf, voorlak en aflak zijn hetzelfde product. Geef dan slechts 1 laag in systeem: laag="1-pot systeem", product=${product}, aantal_lagen="3x geheel", opmerking="grondverf, voorlak en aflak in één product".
 

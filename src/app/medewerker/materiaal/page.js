@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthContext';
 import { BESTEK } from '../../api/materiaal-advies/bestek.js';
 
@@ -8,6 +9,9 @@ const BTW = 0.21;
 
 function loadLS(key, fallback) {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+function saveLS(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
 }
 
 function fmt(n) {
@@ -112,6 +116,26 @@ function getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, rowIndex)
 
 export default function MateriaalBotPage() {
     const { user } = useAuth();
+    const router = useRouter();
+
+    function voegToeAanBestellijst({ product, aantal, eenheid, opmerking, prijs }) {
+        if (!user?.id) return;
+        const key = `schildersapp_bestellingen_${user.id}`;
+        const bestaand = loadLS(key, []);
+        const entry = {
+            id: Date.now(),
+            product: product || '',
+            aantal: aantal || 1,
+            eenheid: eenheid || 'stuk',
+            project: '',
+            opmerking: opmerking || '',
+            prijs: prijs || null,
+            ingediend: new Date().toISOString(),
+            status: 'Aangevraagd',
+        };
+        saveLS(key, [entry, ...bestaand]);
+        router.push('/medewerker/mijn-suk?tab=materialen');
+    }
     const [rows, setRows]               = useState([]);
     const [cols, setCols]               = useState({});
     const [verkoopprijzen, setVp]       = useState({});
@@ -129,7 +153,7 @@ export default function MateriaalBotPage() {
     const inputRef                      = useRef(null);
 
     // Trefwoorden die sauswerk/verfwerk aanduiden
-    const SAUSWERK_KEYS = ['saus','verf','primer','grond','muur','plafond','latex','muurverf','coating','beits','lak','stucco','spackle'];
+    const SAUSWERK_KEYS = ['saus','verf','primer','grond','muur','plafond','latex','muurverf','coating','beits','lak','stucco','spackle','mat','pure'];
     function isSauswerk(q) {
         const woorden = q.toLowerCase().split(/[\s,;]+/);
         return SAUSWERK_KEYS.some(k => woorden.includes(k));
@@ -189,17 +213,16 @@ export default function MateriaalBotPage() {
         setMessages(prev => [...prev, { id: Date.now() + Math.random(), from: 'bot', text, results, ...extra }]);
     }
 
-    function send() {
-        const q = input.trim();
+    function sendQuery(q) {
         if (!q) return;
         setInput('');
-
         const userMsg = { id: Date.now(), from: 'user', text: q };
         setMessages(prev => [...prev, userMsg]);
         setTyping(true);
+        setTimeout(() => { setTyping(false); processQuery(q); }, 600);
+    }
 
-        setTimeout(() => {
-            setTyping(false);
+    function processQuery(q) {
 
             // ── Flow: kleurkeuze verwacht ──
             if (flow?.type === 'kleur') {
@@ -212,8 +235,8 @@ export default function MateriaalBotPage() {
                     return;
                 }
                 const gefilterd = filterOpKleur(flow.allResults, keuze);
-                setFlow({ type: 'm2', results: gefilterd, query: flow.query });
-                addBot(`${keuze === 'donker' ? 'Donkere' : 'Lichte'} kleuren geselecteerd (${gefilterd.length} artikel${gefilterd.length !== 1 ? 'en' : ''}). Hoeveel m² gaat het om?`);
+                setFlow(null);
+                addBot(`${gefilterd.length} artikel${gefilterd.length !== 1 ? 'en' : ''} gevonden:`, gefilterd);
                 return;
             }
 
@@ -289,11 +312,12 @@ export default function MateriaalBotPage() {
                 text = 'Er is nog geen materiaallijst beschikbaar. Vraag de beheerder om de lijst in te laden.';
             } else if (results.length === 0) {
                 text = `Ik kon niets vinden voor "${q}". Probeer een andere zoekterm, zoals een deel van de productnaam of artikelcode.`;
-            } else if (isSauswerk(q) && results.length > 0) {
+            } else if (results.length > 0 && (() => { const k = detectKleurTypes(results); return [k.heeftDonker, k.heeftMidden, k.heeftLicht].filter(Boolean).length >= 2; })()) {
+                const { heeftDonker, heeftMidden, heeftLicht } = detectKleurTypes(results);
                 const kleurOpties = [
-                    { label: 'Donker (N00)', waarde: 'donker' },
-                    { label: 'Middel (M15)', waarde: 'midden' },
-                    { label: 'Licht (W05)',  waarde: 'licht'  },
+                    ...(heeftDonker ? [{ label: 'Donker (N00)', waarde: 'donker' }] : []),
+                    ...(heeftMidden ? [{ label: 'Middel (M15)', waarde: 'midden' }] : []),
+                    ...(heeftLicht  ? [{ label: 'Licht (W05)',  waarde: 'licht'  }] : []),
                 ];
                 setFlow({ type: 'kleur', allResults: results, query: q, knoppen: kleurOpties });
                 setMessages(prev => [...prev, { id: Date.now() + 1, from: 'bot', text: `Welk type kleur zoek je voor "${q}"?`, results: null, knoppen: kleurOpties }]);
@@ -326,10 +350,29 @@ export default function MateriaalBotPage() {
                 datum: new Date().toLocaleDateString('nl-NL'),
             } : null;
             setMessages(prev => [...prev, { id: Date.now() + 1, from: 'bot', text, results: botResults, opslaanData }]);
-        }, 600);
     }
 
-    const suggestions = ['primer', 'verf', 'kwast', 'roller', 'tape', 'kit', 'schuurpapier'];
+    function send() {
+        const q = input.trim();
+        if (!q) return;
+        sendQuery(q);
+    }
+
+    const suggestions = [
+        'Pure mat',
+        'Pure mat 5 liter W05',
+        'Pure mat 5 liter N00',
+        'Extreme mat plafond',
+        'XD',
+        'SB',
+        'Primer Extra',
+        'Primer',
+        'BL Uniprimer',
+        'BL Primer',
+        'BL Rezisto Primer',
+        'BL Rezisto Satin',
+        'BL Satura',
+    ];
 
     const WIZARD_STAPPEN = [
         { key: 'aard',       label: 'Aard van het werk',    opties: ['Bestaande ondergrond', 'Nieuwe ondergrond'] },
@@ -688,12 +731,17 @@ export default function MateriaalBotPage() {
                     <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         <i className="fa-solid fa-box-open" style={{ color: '#fff', fontSize: '1.1rem' }} />
                     </div>
-                    <div>
+                    <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Materiaalbot</div>
                         <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>
                             {rows.length > 0 ? `${rows.length} artikelen beschikbaar` : 'Geen materiaallijst geladen'}
                         </div>
                     </div>
+                    <button onClick={() => router.push('/medewerker/mijn-suk?tab=materialen')}
+                        style={{ display:'flex', alignItems:'center', gap:'6px', padding:'7px 12px', borderRadius:'10px', border:'1px solid rgba(255,255,255,0.3)', background:'rgba(255,255,255,0.15)', color:'#fff', fontSize:'0.75rem', fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+                        <i className="fa-solid fa-list-check" />
+                        Bestelijst prive
+                    </button>
                 </div>
             </div>
 
@@ -734,65 +782,57 @@ export default function MateriaalBotPage() {
                                         inhoud:    cols.inhoud ? (row[cols.inhoud] ?? '') : '',
                                     };
                                     return (
-                                        <div key={i} style={{ background: beste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${beste ? '#86efac' : '#f1f5f9'}`, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: '#fff8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                <i className="fa-solid fa-cube" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
-                                            </div>
+                                        <div key={i} style={{ background: beste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${beste ? '#86efac' : '#f1f5f9'}`, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                            {/* Naam + badges */}
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.35, flex: 1 }}>{naam}</div>
-                                                    {(() => {
-                                                        const entry = parseEntry(tdsLinks[getBasisNaam(naam)]);
-                                                        if (!entry.tds && !entry.msds && !entry.certs?.length && !entry.leaflet) return null;
-                                                        return (
-                                                            <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                                                                {entry.tds && <a href={entry.tds} target="_blank" rel="noreferrer" title="Technisch informatieblad (TDS)"
-                                                                    style={{ color: '#ef4444', fontSize: '0.85rem', padding: '2px 3px', borderRadius: '4px', lineHeight: 1, textDecoration: 'none' }}>
-                                                                    <i className="fa-solid fa-file-pdf" /></a>}
-                                                                {entry.msds && <a href={entry.msds} target="_blank" rel="noreferrer" title="Veiligheidsblad"
-                                                                    style={{ color: '#F5850A', fontSize: '0.85rem', padding: '2px 3px', borderRadius: '4px', lineHeight: 1, textDecoration: 'none' }}>
-                                                                    <i className="fa-solid fa-triangle-exclamation" /></a>}
-                                                                {entry.certs?.length > 0 && <a href={entry.certs[0]} target="_blank" rel="noreferrer" title="Certificaat"
-                                                                    style={{ color: '#10b981', fontSize: '0.85rem', padding: '2px 3px', borderRadius: '4px', lineHeight: 1, textDecoration: 'none' }}>
-                                                                    <i className="fa-solid fa-certificate" /></a>}
-                                                                {entry.leaflet && <a href={entry.leaflet} target="_blank" rel="noreferrer" title="Leaflet"
-                                                                    style={{ color: '#6366f1', fontSize: '0.85rem', padding: '2px 3px', borderRadius: '4px', lineHeight: 1, textDecoration: 'none' }}>
-                                                                    <i className="fa-solid fa-newspaper" /></a>}
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                </div>
-                                                <div style={{ display: 'flex', gap: '5px', marginTop: '3px', flexWrap: 'wrap' }}>
+                                                {beste && <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#10b981', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-crown" />BESTE PRIJS/EEN.</div>}
+                                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
+                                                <div style={{ display: 'flex', gap: '4px', marginTop: '3px', flexWrap: 'wrap', alignItems: 'center' }}>
                                                     {badgeFields.map(f => {
                                                         const val = fv[f]; if (!val) return null;
                                                         const { bg, clr } = badgeStyles[f] || { bg: '#f1f5f9', clr: '#64748b' };
                                                         const txt = f === 'eenheid' ? `per ${val}` : f === 'inhoud' ? `${val}L` : val;
-                                                        return <span key={f} style={{ fontSize: '0.65rem', color: clr, background: bg, borderRadius: '5px', padding: '1px 5px' }}>{txt}</span>;
+                                                        return <span key={f} style={{ fontSize: '0.62rem', color: clr, background: bg, borderRadius: '4px', padding: '1px 5px' }}>{txt}</span>;
                                                     })}
+                                                    {(() => {
+                                                        const entry = parseEntry(tdsLinks[getBasisNaam(naam)]);
+                                                        if (!entry.tds && !entry.msds && !entry.certs?.length && !entry.leaflet) return null;
+                                                        return <>
+                                                            {entry.tds && <a href={entry.tds} target="_blank" rel="noreferrer" title="TDS" style={{ color: '#ef4444', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-file-pdf" /></a>}
+                                                            {entry.msds && <a href={entry.msds} target="_blank" rel="noreferrer" title="Veiligheidsblad" style={{ color: '#F5850A', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-triangle-exclamation" /></a>}
+                                                            {entry.certs?.length > 0 && <a href={entry.certs[0]} target="_blank" rel="noreferrer" title="Certificaat" style={{ color: '#10b981', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-certificate" /></a>}
+                                                            {entry.leaflet && <a href={entry.leaflet} target="_blank" rel="noreferrer" title="Leaflet" style={{ color: '#6366f1', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-newspaper" /></a>}
+                                                        </>;
+                                                    })()}
                                                 </div>
                                             </div>
+                                            {/* Prijs */}
                                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                                {beste && <div style={{ fontSize: '0.6rem', fontWeight: 800, color: '#10b981', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '3px', justifyContent: 'flex-end' }}><i className="fa-solid fa-crown" />BESTE PRIJS/EEN.</div>}
                                                 {prijsInfo
                                                     ? <>
-                                                        <div style={{ fontWeight: 800, fontSize: '1rem', color: beste ? '#10b981' : '#F5850A' }}>{fmt(prijsInfo.prijs)}</div>
-                                                        {inhoud && perEenheid && (
-                                                            <div style={{ fontSize: '0.65rem', color: beste ? '#10b981' : '#F5850A', fontWeight: 600, opacity: 0.75 }}>
-                                                                {fmt(perEenheid)} / {eenheid || 'L'}
-                                                            </div>
-                                                        )}
-                                                        {!inhoud && <div style={{ fontSize: '0.62rem', color: '#F5850A', opacity: 0.7 }}>{eenheid ? `per ${eenheid}` : 'verkoopprijs'}</div>}
+                                                        <div style={{ fontWeight: 800, fontSize: '0.95rem', color: beste ? '#10b981' : '#F5850A' }}>{fmt(prijsInfo.prijs)}</div>
+                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>{eenheid ? `per ${eenheid}` : 'per stuk'}</div>
                                                       </>
-                                                    : <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>Op aanvraag</div>}
+                                                    : <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Op aanvraag</div>}
                                             </div>
-                                        </div>
-                                        {/* Systeemopbouw knop */}
-                                        <button onClick={() => laadSysteem(naam, wizard?.keuzes || {})}
-                                            style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#6366f1', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
-                                            <i className="fa-solid fa-layer-group" />
-                                            Systeemopbouw
-                                        </button>
+                                            {/* Actie-iconen */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                                                <button onClick={() => laadSysteem(naam, wizard?.keuzes || {})}
+                                                    title="Systeemopbouw"
+                                                    style={{ width: '28px', height: '28px', borderRadius: '7px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#6366f1', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fa-solid fa-layer-group" />
+                                                </button>
+                                                <button onClick={() => setOpslaanModal({ product: naam, verpakking: eenheid || 'stuk', aantalEmmers: null, totaalprijs: prijsInfo ? fmt(prijsInfo.prijs) : null, datum: new Date().toLocaleDateString('nl-NL') })}
+                                                    title="Extra materiaal project"
+                                                    style={{ width: '28px', height: '28px', borderRadius: '7px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#F5850A', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fa-solid fa-floppy-disk" />
+                                                </button>
+                                                <button onClick={() => voegToeAanBestellijst({ product: naam, aantal: 1, eenheid: eenheid || 'stuk', opmerking: prijsInfo ? `Prijs: ${fmt(prijsInfo.prijs)} per ${eenheid || 'stuk'}` : '', prijs: prijsInfo?.prijs || null })}
+                                                    title="Bestelijst prive"
+                                                    style={{ width: '28px', height: '28px', borderRadius: '7px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fa-solid fa-cart-plus" />
+                                                </button>
+                                            </div>
                                         </div>
                                     );
                                 })}
@@ -815,8 +855,8 @@ export default function MateriaalBotPage() {
                                                 const keuze = knop.waarde;
                                                 if (flow?.type === 'kleur') {
                                                     const gefilterd = filterOpKleur(flow.allResults, keuze);
-                                                    setFlow({ type: 'm2', results: gefilterd, query: flow.query });
-                                                    setMessages(prev => [...prev, { id: Date.now() + 1, from: 'bot', text: `${keuze === 'donker' ? 'Donkere' : 'Lichte'} kleuren geselecteerd (${gefilterd.length} artikel${gefilterd.length !== 1 ? 'en' : ''}). Hoeveel m² gaat het om?`, results: null }]);
+                                                    setFlow(null);
+                                                    setMessages(prev => [...prev, { id: Date.now() + 1, from: 'bot', text: `${gefilterd.length} artikel${gefilterd.length !== 1 ? 'en' : ''} gevonden:`, results: gefilterd }]);
                                                 }
                                             }, 500);
                                         }, 0);
@@ -839,7 +879,21 @@ export default function MateriaalBotPage() {
                                     return (
                                         <div key={i} style={{ background: isBeste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${isBeste ? '#86efac' : '#f1f5f9'}`, padding: '12px 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
                                             {isBeste && <div style={{ fontSize: '0.6rem', fontWeight: 800, color: '#10b981', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-crown" />BESTE DEAL</div>}
-                                            <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', gap: '8px' }}>
+                                                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{naam}</div>
+                                                <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+                                                    <button onClick={() => setOpslaanModal({ product: naam, verpakking: `${inhoud ?? msg.gekozenMaat}L`, aantalEmmers: aantal, totaalprijs: totaal ? fmt(totaal) : null, datum: new Date().toLocaleDateString('nl-NL') })}
+                                                        style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#475569', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        title="Opslaan bij project">
+                                                        <i className="fa-solid fa-floppy-disk" />
+                                                    </button>
+                                                    <button onClick={() => voegToeAanBestellijst({ product: naam, aantal, eenheid: `${inhoud ?? msg.gekozenMaat}L`, opmerking: totaal ? `Geschatte prijs: ${fmt(totaal)}` : '', prijs: totaal || null })}
+                                                        style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        title="Toevoegen aan bestellijst">
+                                                        <i className="fa-solid fa-cart-plus" />
+                                                    </button>
+                                                </div>
+                                            </div>
                                             <div style={{ display: 'flex', gap: '6px' }}>
                                                 <div style={{ flex: 1, background: '#f8fafc', borderRadius: '8px', padding: '7px 10px', textAlign: 'center' }}>
                                                     <div style={{ fontWeight: 800, fontSize: '1rem', color: '#475569' }}>{inhoud ?? msg.gekozenMaat}L</div>
@@ -877,6 +931,18 @@ export default function MateriaalBotPage() {
                                                     <i className="fa-solid fa-paint-roller" style={{ color: '#10b981', fontSize: '0.85rem' }} />
                                                 </div>
                                                 <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
+                                                <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+                                                    <button onClick={() => setOpslaanModal({ product: naam, verpakking: `${benodigdL} ${eenheid || 'L'}`, aantalEmmers: null, totaalprijs: totaal ? fmt(totaal) : null, datum: new Date().toLocaleDateString('nl-NL') })}
+                                                        style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#475569', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        title="Opslaan bij project">
+                                                        <i className="fa-solid fa-floppy-disk" />
+                                                    </button>
+                                                    <button onClick={() => voegToeAanBestellijst({ product: naam, aantal: benodigdL, eenheid: eenheid || 'L', opmerking: totaal ? `Geschatte prijs: ${fmt(totaal)}` : '', prijs: totaal || null })}
+                                                        style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        title="Toevoegen aan bestellijst">
+                                                        <i className="fa-solid fa-cart-plus" />
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 <div style={{ flex: 1, background: '#f0fdf4', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
@@ -919,13 +985,22 @@ export default function MateriaalBotPage() {
 
                         {/* Opslaan bij project knop */}
                         {msg.opslaanData && (
-                            <button
-                                onClick={() => setOpslaanModal(msg.opslaanData)}
-                                style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
-                            >
-                                <i className="fa-solid fa-floppy-disk" style={{ color: '#F5850A' }} />
-                                Opslaan bij project
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => setOpslaanModal(msg.opslaanData)}
+                                    style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                    <i className="fa-solid fa-floppy-disk" style={{ color: '#F5850A' }} />
+                                    Opslaan bij project
+                                </button>
+                                <button
+                                    onClick={() => voegToeAanBestellijst({ product: msg.opslaanData.product, aantal: msg.opslaanData.aantalEmmers || 1, eenheid: msg.opslaanData.verpakking || 'stuk', opmerking: msg.opslaanData.totaalprijs ? `Geschatte prijs: ${msg.opslaanData.totaalprijs}` : '', prijs: msg.opslaanData._totaalRaw || null })}
+                                    style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', borderRadius: '20px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 6px rgba(245,133,10,0.3)' }}
+                                >
+                                    <i className="fa-solid fa-list-check" />
+                                    Ga naar bestelijst prive
+                                </button>
+                            </div>
                         )}
                     </div>
                 ))}
@@ -954,7 +1029,7 @@ export default function MateriaalBotPage() {
                     </button>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {suggestions.map(s => (
-                            <button key={s} onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                            <button key={s} onClick={() => sendQuery(s)}
                                 style={{ padding: '5px 12px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
                                 {s}
                             </button>

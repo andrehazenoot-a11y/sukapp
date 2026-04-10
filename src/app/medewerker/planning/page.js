@@ -152,8 +152,35 @@ export default function MedewerkerPlanning() {
     const [showProjectChange, setShowProjectChange] = useState(false);
     const [projectSearch, setProjectSearch] = useState('');
     const [changeProject, setChangeProject] = useState(null);
+    const [werkbonnen, setWerkbonnen] = useState([]);
+    const [selectedWerkbon, setSelectedWerkbon] = useState(null);
+    const [showWerkbonPicker, setShowWerkbonPicker] = useState(false);
+    const [werkbonSearch, setWerkbonSearch] = useState('');
+    const [werkbonUren, setWerkbonUren] = useState('');
+    const [werkbonGeselecteerd, setWerkbonGeselecteerd] = useState(null);
+    const [werkbonZoek, setWerkbonZoek] = useState('');
+    const [werkbonSaved, setWerkbonSaved] = useState(false);
+    const [werkbonKoppelingOpgeslagen, setWerkbonKoppelingOpgeslagen] = useState(false);
+    const [materiaalPopup, setMateriaalPopup] = useState(null); // { dayIso, taskId }
     const [meerwerkUren, setMeerwerkUren] = useState('');
     const [ziekeNote, setZiekeNote] = useState('');
+    const [ziekEditEntry, setZiekEditEntry] = useState(null);
+    const [ziekEditNote, setZiekEditNote] = useState('');
+    const [meerwerkEditEntry, setMeerwerkEditEntry] = useState(null);
+    const [meerwerkEditText, setMeerwerkEditText] = useState('');
+    const [meerwerkEditUren, setMeerwerkEditUren] = useState('');
+    const [meerwerkMateriaal, setMeerwerkMateriaal] = useState([]);
+    const [meerwerkMatNaam, setMeerwerkMatNaam] = useState('');
+    const [meerwerkMatHoeveelheid, setMeerwerkMatHoeveelheid] = useState('1 stuk');
+    const [matRijen, setMatRijen] = useState([]);
+    const [matKolommen, setMatKolommen] = useState({});
+    const [matZoekResultaten, setMatZoekResultaten] = useState([]);
+    // Standalone materialen (los van meerwerk)
+    const [losMateriaalLijst, setLosMateriaalLijst] = useState([]);
+    const [losMatNaam, setLosMatNaam] = useState('');
+    const [losMatHoeveelheid, setLosMatHoeveelheid] = useState('1 stuk');
+    const [losMatZoek, setLosMatZoek] = useState([]);
+    const [weekLosMateriaal, setWeekLosMateriaal] = useState([]);
     const [andereOmschrijving, setAndereOmschrijving] = useState('');
     const [andereUren, setAndereUren] = useState('');
     const [localProgress, setLocalProgress] = useState(0);
@@ -199,6 +226,102 @@ export default function MedewerkerPlanning() {
             setWeekUren(all.filter(e => e.userId === user.id));
         } catch { setWeekUren([]); }
     }, [user, week, year, urenLijst]);
+
+    const [weekMeerwerk, setWeekMeerwerk] = useState([]);
+    useEffect(() => {
+        if (!user) return;
+        try {
+            const raw = localStorage.getItem('schildersapp_meerwerk');
+            const all = raw ? JSON.parse(raw) : [];
+            setWeekMeerwerk(all.filter(e => e.userId === user.id));
+        } catch { setWeekMeerwerk([]); }
+    }, [user, week, year, urenLijst]);
+
+    useEffect(() => {
+        if (!user) return;
+        try {
+            const raw = localStorage.getItem('schildersapp_dag_materialen');
+            const all = raw ? JSON.parse(raw) : [];
+            setWeekLosMateriaal(all.filter(e => e.userId === user.id));
+        } catch { setWeekLosMateriaal([]); }
+    }, [user, week, year, losMateriaalLijst]);
+
+    // Achtergrond-sync: stuur alle lokale materialen naar DB als ze nog niet gesynchroniseerd zijn
+    useEffect(() => {
+        if (!user?.id) return;
+        (async () => {
+            try {
+                const dagRaw = localStorage.getItem('schildersapp_dag_materialen');
+                const dagAll = dagRaw ? JSON.parse(dagRaw) : [];
+                const urenRaw = localStorage.getItem('schildersapp_uren_registraties');
+                const urenAll = urenRaw ? JSON.parse(urenRaw) : [];
+                // Haal werkbonnen op
+                const wbData = await fetch(`/api/werkbonnen?medewerker_id=${user.id}`).then(r => r.json()).catch(() => []);
+                if (!Array.isArray(wbData)) return;
+                // Groepeer lokale materialen per (taskId, date)
+                const groepen = {};
+                for (const m of dagAll) {
+                    if (m.userId !== user.id) continue;
+                    const key = `${m.taskId}||${m.date}`;
+                    if (!groepen[key]) groepen[key] = [];
+                    groepen[key].push(m);
+                }
+                let gewijzigd = false;
+                for (const key of Object.keys(groepen)) {
+                    const [taskId, date] = key.split('||');
+                    // Zoek werkbon voor deze dag
+                    const wbEntry = urenAll.find(e => e.type === 'werkbon' && String(e.taskId) === String(taskId) && e.date === date);
+                    if (!wbEntry) continue;
+                    let wbId = wbEntry.werkbonId;
+                    if (!wbId && wbEntry.werkbonNaam) {
+                        const match = wbData.find(w => w.naam === wbEntry.werkbonNaam);
+                        if (!match?.id) continue;
+                        wbId = match.id;
+                        // Backfill werkbonId
+                        for (const e of urenAll) {
+                            if (e.type === 'werkbon' && String(e.taskId) === String(taskId) && e.date === date) {
+                                e.werkbonId = wbId;
+                                gewijzigd = true;
+                            }
+                        }
+                    }
+                    if (!wbId) continue;
+                    // Haal bestaande DB-materialen op
+                    const dbRes = await fetch(`/api/werkbonnen/${wbId}/materialen`).then(r => r.json()).catch(() => null);
+                    const dbNamen = new Set((dbRes?.materialen || []).map(m => m.naam));
+                    // POST ontbrekende materialen
+                    for (const m of groepen[key]) {
+                        if (m.dbId || dbNamen.has(m.naam)) continue;
+                        const r = await fetch(`/api/werkbonnen/${wbId}/materialen`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ naam: m.naam, hoeveelheid: m.hoeveelheid }),
+                        }).then(r => r.json()).catch(() => null);
+                        if (r?.ok && r.id) {
+                            m.dbId = r.id;
+                            gewijzigd = true;
+                        }
+                    }
+                }
+                if (gewijzigd) {
+                    localStorage.setItem('schildersapp_dag_materialen', JSON.stringify(dagAll));
+                    // schildersapp_uren_registraties wordt NIET teruggeschreven hier —
+                    // de async API calls kunnen lang duren en intussen kunnen nieuwe uren
+                    // zijn opgeslagen via saveUren(). Terugschrijven zou die overschrijven.
+                }
+            } catch {}
+        })();
+    }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Materiaalbot productdata laden
+    useEffect(() => {
+        try {
+            const r = localStorage.getItem('schildersapp_materiaal_data');
+            const c = localStorage.getItem('schildersapp_materiaal_cols');
+            setMatRijen(r ? JSON.parse(r) : []);
+            setMatKolommen(c ? JSON.parse(c) : {});
+        } catch {}
+    }, []);
 
     // Vakantiedagen laden uit localStorage
     useEffect(() => {
@@ -322,7 +445,7 @@ export default function MedewerkerPlanning() {
         } catch { return []; }
     }
 
-    function saveUren() {
+    async function saveUren() {
         const h = parseFloat(urenAantal);
         if (!h || h <= 0 || !detail || !user) return;
         const entry = {
@@ -337,15 +460,60 @@ export default function MedewerkerPlanning() {
             hours: h,
             note: urenNote.trim(),
         };
+        let updatedList;
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
             all.push(entry);
             localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(all));
-        } catch {}
+            updatedList = all;
+        } catch { updatedList = [...urenLijst, entry]; }
         setUrenLijst(prev => [...prev, entry]);
         setUrenAantal('');
         setUrenNote('');
+        // PATCH werkbon uren als werkbon gekoppeld is aan deze dag
+        // Eerst via localStorage, daarna via selectedWerkbon state als fallback
+        let werkbonId = getWerkbonIdVoorDag(detail.taskId, detail.date);
+        if (!werkbonId && selectedWerkbon?.id) {
+            werkbonId = selectedWerkbon.id;
+            // Sla koppeling ook op in localStorage zodat volgende saves hem ook vinden
+            try {
+                const raw2 = localStorage.getItem('schildersapp_uren_registraties');
+                const all2 = raw2 ? JSON.parse(raw2) : [];
+                const datum = detail.date;
+                const filtered2 = all2.filter(e => !(e.type === 'werkbon' && String(e.taskId) === String(detail.taskId) && e.date === datum && !e.hours));
+                filtered2.push({
+                    id: Date.now() + 1,
+                    userId: user?.id,
+                    userName: user?.name,
+                    projectId: detail?.projectId || null,
+                    projectName: detail?.projectName || null,
+                    taskId: detail?.taskId || null,
+                    taskName: detail?.taskName || null,
+                    date: datum,
+                    hours: null,
+                    type: 'werkbon',
+                    werkbonNaam: selectedWerkbon.naam,
+                    werkbonId: selectedWerkbon.id,
+                });
+                localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(filtered2));
+            } catch {}
+        }
+        if (werkbonId) {
+            const dagEntries = updatedList.filter(e =>
+                String(e.taskId) === String(detail.taskId) &&
+                e.date === detail.date &&
+                e.type !== 'ziek' && e.type !== 'andere' && e.type !== 'werkbon'
+            );
+            const totaal = Math.round(dagEntries.reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
+            try {
+                await fetch(`/api/werkbonnen/${werkbonId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uren: totaal }),
+                });
+            } catch {}
+        }
     }
 
     function saveUrenEdit(id) {
@@ -362,12 +530,19 @@ export default function MedewerkerPlanning() {
     }
 
     function deleteUren(id) {
-        setUrenLijst(prev => prev.filter(e => e.id !== id));
+        const entry = urenLijst.find(e => e.id === id);
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
-            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(all.filter(e => e.id !== id)));
+            // If deleting a sick entry, remove all sick entries for this user+date
+            const updated = entry?.type === 'ziek'
+                ? all.filter(e => !(e.userId === user?.id && e.date === entry.date && e.type === 'ziek'))
+                : all.filter(e => e.id !== id);
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
         } catch {}
+        setUrenLijst(prev => entry?.type === 'ziek'
+            ? prev.filter(e => e.type !== 'ziek')
+            : prev.filter(e => e.id !== id));
         if (urenEditId === id) setUrenEditId(null);
     }
 
@@ -522,29 +697,41 @@ export default function MedewerkerPlanning() {
     }
 
     function saveMeerwerk() {
-        if (!meerwerkText.trim() && !meerwerkImage && !meerwerkVideoServerUrl) return;
+        if (!meerwerkText.trim() && !meerwerkImage && !meerwerkVideoServerUrl && meerwerkMateriaal.length === 0) return;
         if (!detail || !user) return;
         if (sttActive) stopSpeechToText();
-        const entry = {
-            id: Date.now(),
-            userId: user.id,
-            userName: user.name,
-            projectId: detail.projectId,
-            projectName: detail.projectName,
-            taskId: detail.taskId,
-            taskName: detail.taskName,
-            date: detail.date,
-            text: meerwerkText.trim(),
-            hours: parseFloat(meerwerkUren) || null,
-            image: meerwerkImage || null,
-            video: meerwerkVideoServerUrl || null,
-            status: 'ingediend',
-        };
         try {
             const raw = localStorage.getItem('schildersapp_meerwerk');
             const all = raw ? JSON.parse(raw) : [];
-            all.push(entry);
-            localStorage.setItem('schildersapp_meerwerk', JSON.stringify(all));
+            if (meerwerkEditEntry) {
+                // Update bestaande entry
+                const updated = all.map(e => String(e.id) === String(meerwerkEditEntry.id)
+                    ? { ...e, text: meerwerkText.trim(), hours: parseFloat(meerwerkUren) || e.hours, image: meerwerkImage || e.image, video: meerwerkVideoServerUrl || e.video, materiaal: meerwerkMateriaal }
+                    : e);
+                localStorage.setItem('schildersapp_meerwerk', JSON.stringify(updated));
+                setWeekMeerwerk(updated.filter(e => e.userId === user.id));
+            } else {
+                // Nieuwe entry aanmaken
+                const entry = {
+                    id: Date.now(),
+                    userId: user.id,
+                    userName: user.name,
+                    projectId: detail.projectId,
+                    projectName: detail.projectName,
+                    taskId: detail.taskId,
+                    taskName: detail.taskName,
+                    date: detail.date,
+                    text: meerwerkText.trim(),
+                    hours: parseFloat(meerwerkUren) || null,
+                    image: meerwerkImage || null,
+                    video: meerwerkVideoServerUrl || null,
+                    materiaal: meerwerkMateriaal,
+                    status: 'ingediend',
+                };
+                all.push(entry);
+                localStorage.setItem('schildersapp_meerwerk', JSON.stringify(all));
+                setWeekMeerwerk(all.filter(e => e.userId === user.id));
+            }
         } catch (err) {
             if (err.name === 'QuotaExceededError') {
                 alert('Opslag vol — de video is te groot om op te slaan. Probeer een kortere video.');
@@ -556,8 +743,12 @@ export default function MedewerkerPlanning() {
         setMeerwerkVideoServerUrl(null);
         setMeerwerkVideoUrl(null);
         setMeerwerkUren('');
+        setMeerwerkMateriaal([]);
+        setMeerwerkMatNaam('');
+        setMeerwerkMatHoeveelheid('1 stuk');
+        setMatZoekResultaten([]);
+        setMeerwerkEditEntry(null);
         setUrenSection(null);
-        alert('Meerwerk ingediend — de beheerder wordt op de hoogte gesteld.');
     }
 
     function saveSick() {
@@ -584,6 +775,58 @@ export default function MedewerkerPlanning() {
         alert('Ziekmelding opgeslagen.');
     }
 
+    function saveMeerwerkEdit() {
+        if (!meerwerkEditEntry) return;
+        try {
+            const raw = localStorage.getItem('schildersapp_meerwerk');
+            const all = raw ? JSON.parse(raw) : [];
+            const updated = all.map(e => String(e.id) === String(meerwerkEditEntry.id)
+                ? { ...e, text: meerwerkEditText.trim() || e.text, hours: parseFloat(meerwerkEditUren) || e.hours }
+                : e);
+            localStorage.setItem('schildersapp_meerwerk', JSON.stringify(updated));
+            setWeekMeerwerk(updated.filter(e => e.userId === user.id));
+        } catch {}
+        setMeerwerkEditEntry(null);
+    }
+
+    function deleteMeerwerkEntry(id) {
+        const targetId = id ?? meerwerkEditEntry?.id;
+        if (!targetId) return;
+        try {
+            const raw = localStorage.getItem('schildersapp_meerwerk');
+            const all = raw ? JSON.parse(raw) : [];
+            const updated = all.filter(e => String(e.id) !== String(targetId));
+            localStorage.setItem('schildersapp_meerwerk', JSON.stringify(updated));
+            setWeekMeerwerk(updated.filter(e => e.userId === user.id));
+        } catch {}
+        setMeerwerkEditEntry(null);
+    }
+
+    function saveZiekEdit() {
+        if (!ziekEditEntry) return;
+        try {
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const all = raw ? JSON.parse(raw) : [];
+            const updated = all.map(e => String(e.id) === String(ziekEditEntry.id) ? { ...e, note: ziekEditNote.trim() || 'Ziek gemeld' } : e);
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
+            setWeekUren(updated.filter(e => e.userId === user.id));
+        } catch {}
+        setZiekEditEntry(null);
+    }
+
+    function deleteZiekEntry() {
+        if (!ziekEditEntry) return;
+        try {
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const all = raw ? JSON.parse(raw) : [];
+            // Delete all sick entries for this user+date (prevents duplicate entries from re-appearing)
+            const updated = all.filter(e => !(e.userId === user.id && e.date === ziekEditEntry.date && e.type === 'ziek'));
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
+            setWeekUren(updated.filter(e => e.userId === user.id));
+        } catch {}
+        setZiekEditEntry(null);
+    }
+
     function saveAndereUren() {
         if (!detail || !andereOmschrijving.trim() || !parseFloat(andereUren)) return;
         const entry = {
@@ -607,6 +850,225 @@ export default function MedewerkerPlanning() {
         setAndereOmschrijving('');
         setAndereUren('');
         setUrenSection(null);
+    }
+
+    async function saveWerkbonUren() {
+        const uren = parseFloat(werkbonUren) || null;
+        const naam = werkbonGeselecteerd?.naam || werkbonZoek.trim();
+        if (!naam) return;
+        const datum = detail?.date || new Date().toISOString().slice(0, 10);
+        try {
+            let res;
+            if (werkbonGeselecteerd?.id) {
+                // Update bestaande werkbon: altijd datum opslaan, uren alleen als ingevuld
+                const body = { datum };
+                if (uren && uren > 0) body.uren = uren;
+                res = await fetch(`/api/werkbonnen/${werkbonGeselecteerd.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            } else {
+                // Nieuwe werkbon: uren verplicht
+                if (!uren || uren <= 0) return;
+                res = await fetch('/api/werkbonnen', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        medewerkerId: user?.id,
+                        medewerkerNaam: user?.name,
+                        naam,
+                        datum,
+                        uren,
+                        projectId: detail?.projectId || null,
+                        projectNaam: detail?.projectName || null,
+                    }),
+                });
+            }
+            const data = await res.json();
+            if (!data.ok) { alert('Opslaan mislukt: ' + (data.error || 'onbekende fout')); return; }
+        } catch (e) {
+            alert('Verbindingsfout: ' + e.message);
+            return;
+        }
+        // Ook lokaal opslaan zodat het zichtbaar is in de planningsweergave
+        const urenWaarde = uren && uren > 0 ? uren : null;
+        if (urenWaarde) {
+            const localEntry = {
+                id: Date.now(),
+                userId: user?.id,
+                userName: user?.name,
+                projectId: detail?.projectId || null,
+                projectName: detail?.projectName || null,
+                taskId: detail?.taskId || null,
+                taskName: detail?.taskName || null,
+                date: datum,
+                hours: urenWaarde,
+                type: 'werkbon',
+                werkbonNaam: naam,
+            };
+            try {
+                const raw = localStorage.getItem('schildersapp_uren_registraties');
+                const all = raw ? JSON.parse(raw) : [];
+                all.push(localEntry);
+                localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(all));
+            } catch {}
+            setUrenLijst(prev => [...prev, localEntry]);
+        }
+        setWerkbonSaved(true);
+        setWerkbonUren('');
+        setWerkbonGeselecteerd(null);
+        setWerkbonZoek('');
+        setUrenSection(null);
+        setTimeout(() => setWerkbonSaved(false), 2500);
+    }
+
+    async function saveWerkbonKoppeling() {
+        if (!selectedWerkbon?.id) return;
+        const datum = detail?.date || new Date().toISOString().slice(0, 10);
+        try {
+            const body = { datum };
+            const res = await fetch(`/api/werkbonnen/${selectedWerkbon.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!data.ok) { alert('Opslaan mislukt: ' + (data.error || 'onbekende fout')); return; }
+        } catch (e) {
+            alert('Verbindingsfout: ' + e.message);
+            return;
+        }
+        // Lokaal opslaan zodat het zichtbaar is in de planningsweergave
+        const localEntry = {
+            id: Date.now(),
+            userId: user?.id,
+            userName: user?.name,
+            projectId: detail?.projectId || null,
+            projectName: detail?.projectName || null,
+            taskId: detail?.taskId || null,
+            taskName: detail?.taskName || null,
+            date: datum,
+            hours: null,
+            type: 'werkbon',
+            werkbonNaam: selectedWerkbon.naam,
+            werkbonId: selectedWerkbon.id,
+        };
+        try {
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const all = raw ? JSON.parse(raw) : [];
+            // Verwijder ALLE eerdere werkbon-koppeling-entries voor deze taskId+dag (ongeacht naam)
+            const filtered = all.filter(e => !(e.type === 'werkbon' && String(e.taskId) === String(detail?.taskId) && e.date === datum && !e.hours));
+            filtered.push(localEntry);
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(filtered));
+        } catch {}
+        setUrenLijst(prev => {
+            const filtered = prev.filter(e => !(e.type === 'werkbon' && String(e.taskId) === String(detail?.taskId) && !e.hours));
+            return [...filtered, localEntry];
+        });
+        setWerkbonKoppelingOpgeslagen(true);
+        setShowWerkbonPicker(false);
+        setTimeout(() => {
+            setWerkbonKoppelingOpgeslagen(false);
+            setSelectedWerkbon(null);
+        }, 2000);
+    }
+
+    function getWerkbonIdVoorDag(taskId, dateIso) {
+        try {
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const all = raw ? JSON.parse(raw) : [];
+            const entry = all.find(e => e.type === 'werkbon' && String(e.taskId) === String(taskId) && e.date === dateIso);
+            if (!entry) return null;
+            if (entry.werkbonId) return entry.werkbonId;
+            // Fallback: zoek werkbonId op naam in de geladen werkbonnen-lijst
+            if (entry.werkbonNaam && werkbonnen.length > 0) {
+                const match = werkbonnen.find(w => w.naam === entry.werkbonNaam);
+                if (match?.id) {
+                    // Backfill werkbonId in localStorage zodat volgende aanroepen direct werken
+                    try {
+                        const updated = all.map(e2 =>
+                            e2.type === 'werkbon' && String(e2.taskId) === String(taskId) && e2.date === dateIso
+                                ? { ...e2, werkbonId: match.id }
+                                : e2
+                        );
+                        localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
+                    } catch {}
+                    return match.id;
+                }
+            }
+            return null;
+        } catch { return null; }
+    }
+
+    function loadLosMateriaal(taskId, dateIso) {
+        try {
+            const raw = localStorage.getItem('schildersapp_dag_materialen');
+            const all = raw ? JSON.parse(raw) : [];
+            return all.filter(e => e.taskId === taskId && e.date === dateIso && e.userId === user?.id);
+        } catch { return []; }
+    }
+
+    async function voegLosMateriaalToe(naam, hoeveelheid) {
+        if (!naam.trim() || !detail || !user) return;
+        const entry = {
+            id: Date.now(),
+            userId: user.id,
+            userName: user.name,
+            taskId: detail.taskId,
+            projectId: detail.projectId || null,
+            projectName: detail.projectName || null,
+            date: detail.date,
+            naam: naam.trim(),
+            hoeveelheid: hoeveelheid.trim() || '1 stuk',
+            aangemaakt_op: new Date().toISOString(),
+        };
+        // Probeer ook in DB op te slaan als werkbon gekoppeld is
+        const werkbonId = getWerkbonIdVoorDag(detail.taskId, detail.date);
+        if (werkbonId) {
+            try {
+                const res = await fetch(`/api/werkbonnen/${werkbonId}/materialen`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ naam: entry.naam, hoeveelheid: entry.hoeveelheid, medewerkerNaam: user?.name || null }),
+                });
+                const data = await res.json();
+                if (data.ok && data.id) entry.dbId = data.id;
+            } catch {}
+        }
+        try {
+            const raw = localStorage.getItem('schildersapp_dag_materialen');
+            const all = raw ? JSON.parse(raw) : [];
+            all.push(entry);
+            localStorage.setItem('schildersapp_dag_materialen', JSON.stringify(all));
+        } catch {}
+        setLosMateriaalLijst(prev => [...prev, entry]);
+        setLosMatNaam('');
+        setLosMatHoeveelheid('1 stuk');
+        setLosMatZoek([]);
+    }
+
+    async function verwijderLosMateriaal(id) {
+        const entry = losMateriaalLijst.find(e => e.id === id);
+        // Verwijder uit DB als werkbon gekoppeld en dbId bekend
+        if (entry?.dbId && detail) {
+            const werkbonId = getWerkbonIdVoorDag(detail.taskId, detail.date);
+            if (werkbonId) {
+                try {
+                    await fetch(`/api/werkbonnen/${werkbonId}/materialen`, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ matId: entry.dbId }),
+                    });
+                } catch {}
+            }
+        }
+        try {
+            const raw = localStorage.getItem('schildersapp_dag_materialen');
+            const all = raw ? JSON.parse(raw) : [];
+            localStorage.setItem('schildersapp_dag_materialen', JSON.stringify(all.filter(e => e.id !== id)));
+        } catch {}
+        setLosMateriaalLijst(prev => prev.filter(e => e.id !== id));
     }
 
     function saveProjectChange(newTask, newProject) {
@@ -849,6 +1311,111 @@ export default function MedewerkerPlanning() {
         setShowProjectChange(false);
         setProjectSearch('');
         setChangeProject(null);
+        setSelectedWerkbon(null);
+        setShowWerkbonPicker(false);
+        setWerkbonSearch('');
+        setWerkbonUren('');
+        setWerkbonGeselecteerd(null);
+        setWerkbonZoek('');
+        setWerkbonSaved(false);
+        setWerkbonKoppelingOpgeslagen(false);
+        const localMat = loadLosMateriaal(item.taskId, dateIso);
+        setLosMateriaalLijst(localMat);
+        setLosMatNaam('');
+        setLosMatHoeveelheid('1 stuk');
+        setLosMatZoek([]);
+        // Werkbonnen laden + daarna materialen DB sync
+        if (user?.id) {
+            fetch(`/api/werkbonnen?medewerker_id=${user.id}`)
+                .then(r => r.json())
+                .then(async data => {
+                    if (Array.isArray(data)) {
+                        setWerkbonnen(data);
+                        // Pre-selecteer werkbon die net aangemaakt is
+                        const pending = sessionStorage.getItem('pendingWerkbon');
+                        if (pending) {
+                            try {
+                                const wb = JSON.parse(pending);
+                                sessionStorage.removeItem('pendingWerkbon');
+                                setWerkbonGeselecteerd(wb);
+                                setUrenSection('werkbon');
+                            } catch {}
+                        }
+                        // Zoek werkbonId voor deze dag (via ID of naam-matching)
+                        const raw = localStorage.getItem('schildersapp_uren_registraties');
+                        const allUren = raw ? JSON.parse(raw) : [];
+                        const wbEntry = allUren.find(e => e.type === 'werkbon' && String(e.taskId) === String(item.taskId) && e.date === dateIso);
+                        let wbId = wbEntry?.werkbonId || null;
+                        if (!wbId && wbEntry?.werkbonNaam) {
+                            const match = data.find(w => w.naam === wbEntry.werkbonNaam);
+                            if (match?.id) {
+                                wbId = match.id;
+                                // Backfill in localStorage
+                                try {
+                                    const updated = allUren.map(e =>
+                                        e.type === 'werkbon' && String(e.taskId) === String(item.taskId) && e.date === dateIso
+                                            ? { ...e, werkbonId: wbId }
+                                            : e
+                                    );
+                                    localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
+                                } catch {}
+                            }
+                        }
+                        if (!wbId) return;
+                        // Haal DB-materialen op
+                        const matRes = await fetch(`/api/werkbonnen/${wbId}/materialen`).then(r => r.json()).catch(() => null);
+                        const dbMat = (matRes?.ok && Array.isArray(matRes.materialen)) ? matRes.materialen : [];
+                        const dbNamen = new Set(dbMat.map(m => m.naam));
+                        // Sync lokale materialen zonder dbId naar DB
+                        const localMatNu = loadLosMateriaal(item.taskId, dateIso);
+                        const nognietInDb = localMatNu.filter(m => !m.dbId && !dbNamen.has(m.naam));
+                        const syncedItems = [];
+                        for (const m of nognietInDb) {
+                            try {
+                                const r = await fetch(`/api/werkbonnen/${wbId}/materialen`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ naam: m.naam, hoeveelheid: m.hoeveelheid }),
+                                }).then(r => r.json());
+                                if (r.ok && r.id) {
+                                    syncedItems.push({ localId: m.id, dbId: r.id });
+                                    // Sla dbId op in localStorage
+                                    try {
+                                        const dagRaw = localStorage.getItem('schildersapp_dag_materialen');
+                                        const dagAll = dagRaw ? JSON.parse(dagRaw) : [];
+                                        localStorage.setItem('schildersapp_dag_materialen', JSON.stringify(
+                                            dagAll.map(e => e.id === m.id ? { ...e, dbId: r.id } : e)
+                                        ));
+                                    } catch {}
+                                }
+                            } catch {}
+                        }
+                        // Merge alles in state
+                        setLosMateriaalLijst(prev => {
+                            // Update dbId voor gesyncte items
+                            let updated = prev.map(e => {
+                                const synced = syncedItems.find(s => s.localId === e.id);
+                                return synced ? { ...e, dbId: synced.dbId } : e;
+                            });
+                            // Voeg DB-items toe die nog niet lokaal staan
+                            const lokaleNamen = new Set(updated.map(e => e.naam));
+                            const nieuweDbItems = dbMat
+                                .filter(m => !lokaleNamen.has(m.naam))
+                                .map(m => ({
+                                    id: m.id * -1,
+                                    dbId: m.id,
+                                    userId: user?.id,
+                                    taskId: item.taskId,
+                                    date: dateIso,
+                                    naam: m.naam,
+                                    hoeveelheid: m.hoeveelheid,
+                                }));
+                            return [...updated, ...nieuweDbItems];
+                        });
+                    }
+                })
+                .catch(() => {});
+        }
         setZiekeNote('');
         setAndereOmschrijving('');
         setAndereUren('');
@@ -868,9 +1435,15 @@ export default function MedewerkerPlanning() {
     }
 
     return (
-        <div style={{ padding: '16px' }}>
+        <div style={{ padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '4px', height: '22px', background: 'linear-gradient(180deg, #F5850A, #D96800)', borderRadius: '2px' }} />
+                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>Planning</h2>
+                </div>
+            </div>
             {/* Week navigatie — sticky */}
-            <div style={{ position: 'sticky', top: 0, zIndex: 50, marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', borderRadius: '16px', padding: '8px', boxShadow: '0 2px 12px rgba(0,0,0,0.10)', border: '1px solid #f1f5f9' }}>
+            <div style={{ position: 'sticky', top: 0, zIndex: 50, marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', borderRadius: '12px', padding: '6px', boxShadow: '0 2px 12px rgba(0,0,0,0.10)', border: '1px solid #f1f5f9' }}>
                 <button onClick={prevWeek} style={{ background: '#f8fafc', border: 'none', borderRadius: '10px', padding: '9px 14px', cursor: 'pointer', fontSize: '0.9rem', color: '#475569' }}>
                     <i className="fa-solid fa-chevron-left" />
                 </button>
@@ -883,82 +1456,150 @@ export default function MedewerkerPlanning() {
                 </button>
             </div>
 
-            {!hasAny && vacDays.size === 0 ? (
-                <div style={{ background: '#fff', borderRadius: '16px', padding: '40px 20px', textAlign: 'center', color: '#94a3b8', border: '1.5px dashed #e2e8f0' }}>
-                    <i className="fa-regular fa-calendar" style={{ fontSize: '2.5rem', marginBottom: '12px', display: 'block', opacity: 0.5 }} />
-                    <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '6px', color: '#64748b' }}>Niets gepland</div>
-                    <div style={{ fontSize: '0.85rem' }}>Je staat deze week niet ingepland op een project.</div>
-                </div>
-            ) : (
-                workDays.map((day, di) => {
+            {/* ── Week uren tracker ── */}
+            {(() => {
+                // Alle werkdagen (Ma-Vr) die geen feestdag of vakantie zijn
+                const werkDagen = workDays.filter(d => !HOLIDAYS[d.iso] && !vacDays.has(d.iso));
+                if (werkDagen.length === 0) return null;
+                const DAG_AFR_MAP = {1:'Ma',2:'Di',3:'Wo',4:'Do',5:'Vr'};
+                const dagTotalen = werkDagen.map(d => {
+                    const du = d.items.length === 0
+                        ? weekUren.filter(u => u.date === d.iso && String(u.taskId).startsWith('vrij-'))
+                        : weekUren.filter(u => u.date === d.iso);
+                    const mw = weekMeerwerk.filter(m => m.date === d.iso);
+                    const u  = Math.round((du.filter(e => e.type !== 'ziek').reduce((s, e) => s + (e.hours || 0), 0) + mw.reduce((s, m) => s + (m.hours || 0), 0)) * 10) / 10;
+                    const ziek = du.some(e => e.type === 'ziek');
+                    const dagNr = new Date(d.iso + 'T00:00:00').getDay();
+                    return { iso: d.iso, u, ziek, vol: ziek || u >= 7.5, label: DAG_AFR_MAP[dagNr] || '' };
+                });
+                const weekTotaal = Math.round(dagTotalen.reduce((s, d) => s + d.u, 0) * 10) / 10;
+                const dagenVol   = dagTotalen.filter(d => d.vol).length;
+                const volledig   = dagenVol === werkDagen.length;
+                return (
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '10px 14px', marginBottom: '10px', border: `1px solid ${volledig ? '#bbf7d0' : '#f1f5f9'}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            {/* Totaal links */}
+                            <div style={{ minWidth: '52px' }}>
+                                <div style={{ fontSize: '0.6rem', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1, marginBottom: '2px' }}>Deze week</div>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '2px' }}>
+                                    <span style={{ fontSize: '1.15rem', fontWeight: 900, lineHeight: 1, color: volledig ? '#10b981' : weekTotaal > 0 ? '#f97316' : '#cbd5e1' }}>{weekTotaal}</span>
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8' }}>u</span>
+                                </div>
+                                <div style={{ fontSize: '0.58rem', color: volledig ? '#10b981' : '#94a3b8', fontWeight: 600, marginTop: '1px' }}>
+                                    {volledig ? '✓ volledig' : `${dagenVol}/${werkDagen.length} dagen`}
+                                </div>
+                            </div>
+                            {/* Dag cirkels rechts */}
+                            <div style={{ flex: 1, display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
+                                {dagTotalen.map((d) => {
+                                    const vol = d.vol;
+                                    const deels = !vol && d.u > 0;
+                                    const ziek = d.ziek;
+                                    return (
+                                        <div key={d.iso} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                                            <span style={{ fontSize: '0.58rem', fontWeight: 700, color: '#94a3b8', lineHeight: 1 }}>{d.label}</span>
+                                            <div style={{
+                                                width: '32px', height: '32px', borderRadius: '50%',
+                                                background: vol ? '#10b981' : ziek ? '#fef2f2' : deels ? '#f97316' : '#f8fafc',
+                                                border: `2px solid ${vol ? '#10b981' : ziek ? '#fca5a5' : deels ? '#ea580c' : '#e2e8f0'}`,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                            }}>
+                                                {vol
+                                                    ? <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.65rem' }} />
+                                                    : ziek
+                                                        ? <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.6rem' }} />
+                                                        : deels
+                                                            ? <span style={{ fontSize: '0.52rem', fontWeight: 900, color: '#fff', lineHeight: 1 }}>{d.u}</span>
+                                                            : null}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {workDays.map((day, di) => {
                     const isToday = day.iso === todayIso;
                     const isPast = day.iso < todayIso;
                     const holiday = HOLIDAYS[day.iso];
                     const isVacation = vacDays.has(day.iso);
                     const isFree = holiday || isVacation;
-                    const dagTotaalU = Math.round(weekUren.filter(u => u.date === day.iso).reduce((s, u) => s + (u.hours || 0), 0) * 10) / 10;
+                    const ziekEntry = weekUren.find(u => u.date === day.iso && u.type === 'ziek');
+                    const vrijTaskId = `vrij-${day.iso}`;
+                    // Lege dagen krijgen een synthetisch item → zelfde kaart-rendering als echte taken
+                    const displayItems = day.items.length === 0
+                        ? [{ taskId: vrijTaskId, projectName: 'Vrije dag', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }]
+                        : day.items;
+
+                    const datumKleur = isToday ? '#F5850A' : '#64748b';
+                    const datumKolom = (
+                        <div style={{ width: '44px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1px', paddingRight: '8px', paddingTop: '4px', paddingBottom: '4px' }}>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: datumKleur, lineHeight: 1, textTransform: 'uppercase' }}>{DAY_NAMES_FULL[di].substring(0, 2)}</span>
+                            <span style={{ fontSize: '1.25rem', fontWeight: 900, lineHeight: 1, color: datumKleur }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
+                        </div>
+                    );
 
                     return (
-                        <div key={day.iso} style={{ marginBottom: '16px' }}>
-                            {/* Badges — alleen tonen als relevant */}
-                            {(isToday || holiday || isVacation) && (
-                                <div style={{ marginBottom: '4px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                    {isToday && <span style={{ fontSize: '0.7rem', fontWeight: 600, background: '#fff8f0', color: '#F5850A', padding: '1px 7px', borderRadius: '999px', border: '1px solid #fde8cc' }}>vandaag</span>}
-                                    {holiday && <span style={{ fontSize: '0.7rem', fontWeight: 600, background: '#fef9c3', color: '#854d0e', padding: '1px 7px', borderRadius: '999px' }}>⭐ {holiday}</span>}
-                                    {isVacation && !holiday && <span style={{ fontSize: '0.7rem', fontWeight: 600, background: '#f0fdf4', color: '#16a34a', padding: '1px 7px', borderRadius: '999px' }}>☂ Vakantie</span>}
-                                </div>
-                            )}
-
-                            {/* Items — datum-kolom links van de gekleurde streep */}
+                        <div key={day.iso} style={{ marginBottom: '6px' }}>
+                            {/* Items — datum-kolom links */}
                             {isFree ? (
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
-                                    <div style={{ width: '38px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', paddingRight: '6px' }}>
-                                        <span style={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', color: '#16a34a' }}>{DAY_NAMES[di]}</span>
-                                        <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#16a34a', lineHeight: 1 }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
-                                    </div>
-                                    <div style={{ flex: 1, padding: '10px 14px', background: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', fontSize: '0.82rem', color: '#16a34a', fontWeight: 600 }}>
+                                    {datumKolom}
+                                    <div style={{ flex: 1, padding: '10px 14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>
                                         {holiday ? `⭐ ${holiday} — vrije dag` : '☂ Vakantie — vrije dag'}
                                     </div>
                                 </div>
-                            ) : day.items.length === 0 ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
-                                    <div style={{ width: '38px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', paddingRight: '6px' }}>
-                                        <span style={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', color: isPast ? '#cbd5e1' : '#94a3b8' }}>{DAY_NAMES[di]}</span>
-                                        <span style={{ fontSize: '1.1rem', fontWeight: 900, color: isPast ? '#94a3b8' : '#1e293b', lineHeight: 1 }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
+                            ) : ziekEntry && day.items.length === 0 ? (
+                                <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
+                                    {datumKolom}
+                                    <div onClick={() => { setZiekEditEntry(ziekEntry); setZiekEditNote(ziekEntry.note || ''); }}
+                                        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#fef2f2', borderRadius: '12px', border: '1px solid #fca5a5', cursor: 'pointer' }}>
+                                        <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.85rem', flexShrink: 0 }} />
+                                        <span style={{ fontSize: '0.82rem', color: '#ef4444', fontWeight: 700, flex: 1 }}>{ziekEntry.note && ziekEntry.note !== 'Ziek gemeld' ? ziekEntry.note : 'Ziek gemeld'}</span>
+                                        <i className="fa-solid fa-pen" style={{ color: '#fca5a5', fontSize: '0.7rem' }} />
                                     </div>
-                                    <span style={{ fontSize: '0.78rem', color: '#cbd5e1', fontStyle: 'italic' }}>Geen projecten ingepland</span>
                                 </div>
                             ) : (
                             <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
-                                <div style={{ width: '44px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', paddingRight: '8px', paddingTop: '8px', paddingBottom: '8px' }}>
-                                    <span style={{ fontSize: '0.6rem', fontWeight: 600, color: isToday ? '#F5850A' : isPast ? '#cbd5e1' : '#94a3b8', lineHeight: 1 }}>{DAY_NAMES_FULL[di].substring(0, 2)}</span>
-                                    <span style={{ fontSize: '1.25rem', fontWeight: 900, lineHeight: 1, color: isToday ? '#F5850A' : isPast ? '#94a3b8' : '#1e293b' }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
-                                    {dagTotaalU > 0 ? (
-                                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: dagTotaalU >= 7.5 ? '#10b981' : '#f97316', lineHeight: 1 }}>{dagTotaalU}u</span>
-                                    ) : <span />}
-                                </div>
+                                {datumKolom}
                                 <div style={{ flex: 1 }}>
-                                {day.items.map((item, ii) => {
-                                const dagUren = weekUren.filter(u => u.taskId === item.taskId && u.date === day.iso);
+                                {displayItems.map((item, ii) => {
+                                const dagUren = weekUren.filter(u => String(u.taskId) === String(item.taskId) && u.date === day.iso);
+                                const dagMeerwerk = weekMeerwerk.filter(m => String(m.taskId) === String(item.taskId) && m.date === day.iso);
+                                const werkbonEntry = dagUren.find(u => u.type === 'werkbon');
                                 const totaalU = Math.round(dagUren.reduce((s, u) => s + (u.hours || 0), 0) * 10) / 10;
-                                const urenVol = totaalU >= 7.5;
-                                const urenDeels = totaalU > 0 && !urenVol;
+                                const urenIngevuld = totaalU > 0;
                                 return (
                                 <div key={ii} onClick={() => openDetail(item, day.iso)} style={{
-                                    marginBottom: '7px',
-                                    background: urenVol ? '#f0fdf4' : urenDeels ? '#fff8f0' : item.completed ? '#fafafa' : '#fff',
-                                    borderRadius: '13px', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                                    boxShadow: item.completed ? 'none' : '0 2px 10px rgba(0,0,0,0.07)',
-                                    border: `1px solid ${urenVol ? '#86efac' : urenDeels ? '#fed7aa' : '#f1f5f9'}`,
+                                    marginBottom: '4px',
+                                    background: item.completed ? '#fafafa' : '#fff',
+                                    borderRadius: '14px', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                                    boxShadow: item.completed ? 'none' : '0 2px 8px rgba(0,0,0,0.07)',
+                                    border: `1px solid #f1f5f9`,
                                     cursor: 'pointer', opacity: item.completed ? 0.6 : 1,
                                 }}>
+                                    <div style={{ height: '3px', background: urenIngevuld ? '#10b981' : '#F5850A', borderRadius: '12px 12px 0 0' }} />
                                     <div style={{ display: 'flex', alignItems: 'stretch' }}>
-                                        <div style={{ width: '5px', background: item.color, flexShrink: 0 }} />
-                                        <div style={{ flex: 1, padding: '11px 12px', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                        <div style={{ flex: 1, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ fontWeight: 700, fontSize: '0.87rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.projectName}</div>
-                                                <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.taskName}</div>
-                                                {item.client && <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>{item.client}</div>}
+                                                {werkbonEntry ? (
+                                                    <>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.87rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{werkbonEntry.werkbonNaam}</div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                                            <i className="fa-solid fa-file-pen" style={{ fontSize: '0.62rem', color: '#F5850A' }} />
+                                                            <span style={{ fontSize: '0.73rem', color: '#F5850A', fontWeight: 600 }}>Werkbon</span>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.87rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.projectName}</div>
+                                                        <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.taskName}</div>
+                                                        {item.client && <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>{item.client}</div>}
+                                                    </>
+                                                )}
                                                 {item.notes && item.notes.length > 0 && (
                                                     <div style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                         <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.62rem', color: '#f59e0b' }} />
@@ -966,30 +1607,148 @@ export default function MedewerkerPlanning() {
                                                     </div>
                                                 )}
                                             </div>
-                                            {item.completed
-                                                ? <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.9rem', flexShrink: 0 }} />
-                                                : item.progress > 0
-                                                    ? <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.color, flexShrink: 0 }}>{item.progress}%</span>
-                                                    : <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.65rem', flexShrink: 0 }} />
-                                            }
+                                            {(() => {
+                                                const dagLosMat = weekLosMateriaal.filter(e => String(e.taskId) === String(item.taskId) && e.date === day.iso);
+                                                const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0);
+                                                if (matEntries.length === 0 && dagLosMat.length === 0) return (
+                                                    item.completed
+                                                        ? <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.9rem', flexShrink: 0 }} />
+                                                        : item.progress > 0
+                                                            ? <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.color, flexShrink: 0 }}>{item.progress}%</span>
+                                                            : <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.65rem', flexShrink: 0 }} />
+                                                );
+                                                const totaalItems = matEntries.reduce((s, m) => s + m.materiaal.length, 0) + dagLosMat.length;
+                                                const popupOpen = materiaalPopup?.dayIso === day.iso && materiaalPopup?.taskId === item.taskId;
+                                                return (
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); setMateriaalPopup(popupOpen ? null : { dayIso: day.iso, taskId: item.taskId }); }}
+                                                        style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', background: popupOpen ? '#fff8f0' : '#fef3c7', border: `1.5px solid ${popupOpen ? '#F5850A' : '#fcd34d'}`, borderRadius: '8px', cursor: 'pointer' }}>
+                                                        <i className="fa-solid fa-box-open" style={{ color: '#f59e0b', fontSize: '0.65rem' }} />
+                                                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#b45309' }}>{totaalItems}</span>
+                                                    </button>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
+                                    {/* Materiaal popup */}
+                                    {materiaalPopup?.dayIso === day.iso && materiaalPopup?.taskId === item.taskId && (() => {
+                                        const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0);
+                                        const dagLosMat = weekLosMateriaal.filter(e => String(e.taskId) === String(item.taskId) && e.date === day.iso);
+                                        return (
+                                            <div style={{ padding: '10px 12px', background: '#fffbeb', borderTop: '1px solid #fcd34d' }}>
+                                                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '7px' }}>
+                                                    <i className="fa-solid fa-box-open" style={{ marginRight: '5px' }} />Gebruikte materialen
+                                                </div>
+                                                {dagLosMat.map((mat, i) => (
+                                                    <div key={'los_' + i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0' }}>
+                                                        <i className="fa-solid fa-circle" style={{ color: '#f59e0b', fontSize: '0.3rem', flexShrink: 0 }} />
+                                                        <span style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, flex: 1 }}>{mat.naam}</span>
+                                                        {mat.hoeveelheid && <span style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>}
+                                                    </div>
+                                                ))}
+                                                {dagLosMat.length > 0 && matEntries.length > 0 && <hr style={{ border: 'none', borderTop: '1px solid #fde68a', margin: '6px 0' }} />}
+                                                {matEntries.map((m, mi) => (
+                                                    <div key={mi}>
+                                                        {matEntries.length > 1 && m.text && (
+                                                            <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: 600, marginBottom: '3px', marginTop: mi > 0 ? '6px' : 0 }}>{m.text}</div>
+                                                        )}
+                                                        {m.materiaal.map((mat, i) => (
+                                                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0' }}>
+                                                                <i className="fa-solid fa-circle" style={{ color: '#f59e0b', fontSize: '0.3rem', flexShrink: 0 }} />
+                                                                <span style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, flex: 1 }}>{mat.naam}</span>
+                                                                {mat.hoeveelheid && <span style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
                                     {/* Voortgangsbalk onderaan kaart */}
                                     {(item.progress > 0 || item.completed) && (
                                         <div style={{ height: '3px', background: '#f1f5f9' }}>
                                             <div style={{ height: '100%', width: `${item.completed ? 100 : item.progress}%`, background: item.completed ? '#10b981' : item.color, transition: 'width 0.3s' }} />
                                         </div>
                                     )}
+                                    {/* Uren balken onderaan kaart */}
+                                    {(() => {
+                                        const STIJL = {
+                                            ziek:     { bg: '#fef2f2', border: '#fca5a5', color: '#ef4444', icon: 'fa-bed-pulse' },
+                                            andere:   { bg: '#f5f3ff', border: '#c4b5fd', color: '#7c3aed', icon: 'fa-circle-info' },
+                                            meerwerk: { bg: '#fff8f0', border: '#fdba74', color: '#ea580c', icon: 'fa-triangle-exclamation' },
+                                            werkbon:  { bg: '#fff8f0', border: '#fdba74', color: '#F5850A', icon: 'fa-file-pen' },
+                                            default:  { bg: '#f0fdf4', border: '#86efac', color: '#10b981', icon: 'fa-clock' },
+                                        };
+                                        const rijen = [
+                                            ...dagUren.filter(e => e.type !== 'werkbon').map(e => ({
+                                                key: e.id,
+                                                entry: e,
+                                                // Als er een werkbon gekoppeld is, toon de werkbon naam i.p.v. "Projecturen"
+                                                stijl: (werkbonEntry && !e.type) ? STIJL.werkbon : (STIJL[e.type] || STIJL.default),
+                                                label: e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || (werkbonEntry ? werkbonEntry.werkbonNaam : 'Projecturen')),
+                                                uren: e.hours || null,
+                                            })),
+                                            ...(dagMeerwerk.length > 0 ? [{
+                                                key: 'mw_combined',
+                                                entry: { ...dagMeerwerk[0], _type: 'meerwerk' },
+                                                stijl: STIJL.meerwerk,
+                                                label: 'Meerwerk',
+                                                note: dagMeerwerk.length > 1 ? dagMeerwerk.filter(m => m.text).map(m => m.text).join(' · ') : (dagMeerwerk[0].text || null),
+                                                uren: (() => { const t = Math.round(dagMeerwerk.reduce((s, m) => s + (m.hours || 0), 0) * 10) / 10; return t > 0 ? t : null; })(),
+                                            }] : []),
+                                            ...(ziekEntry && !dagUren.some(e => e.type === 'ziek') ? [{
+                                                key: 'ziek-dag',
+                                                entry: ziekEntry,
+                                                stijl: STIJL.ziek,
+                                                label: ziekEntry.note && ziekEntry.note !== 'Ziek gemeld' ? ziekEntry.note : 'Ziek gemeld',
+                                                uren: null,
+                                            }] : []),
+                                        ];
+                                        return rijen.map(r => (
+                                            <div key={r.key}
+                                                onClick={r.entry?.type === 'ziek' ? (e) => { e.stopPropagation(); setZiekEditEntry(r.entry); setZiekEditNote(r.entry.note || ''); } : r.entry?._type === 'meerwerk' ? (e) => { e.stopPropagation(); setMeerwerkEditEntry(r.entry); setMeerwerkText(r.entry.text || ''); setMeerwerkUren(r.entry.hours ? String(r.entry.hours) : ''); setMeerwerkImage(r.entry.image || null); setMeerwerkVideoUrl(r.entry.video || null); setMeerwerkVideoServerUrl(r.entry.video || null); openDetail(item, day.iso); setUrenSection('meerwerk'); } : undefined}
+                                                style={{ borderTop: `1px solid ${r.stijl.border}`, background: r.stijl.bg, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '6px', cursor: (r.entry?.type === 'ziek' || r.entry?._type === 'meerwerk') ? 'pointer' : 'default' }}>
+                                                <i className={`fa-solid ${r.stijl.icon}`} style={{ color: r.stijl.color, fontSize: '0.72rem', flexShrink: 0, alignSelf: 'flex-start', marginTop: '2px' }} />
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: r.stijl.color }}>{r.label}</div>
+                                                    {r.note && <div style={{ fontSize: '0.68rem', color: r.stijl.color, opacity: 0.7, marginTop: '1px' }}>{r.note}</div>}
+                                                </div>
+                                                {r.uren && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: r.stijl.color }}>{r.uren}u</span>}
+                                            </div>
+                                        ));
+                                    })()}
                                 </div>
                                 );
                             })}
                                 </div>
                             </div>
                             )}
+
+                            {/* ── Dag uren tracker ── */}
+                            {day.items.length > 0 && (() => {
+                                const dayUren = weekUren.filter(u => u.date === day.iso);
+                                const dayMW   = weekMeerwerk.filter(m => m.date === day.iso);
+                                const isZiek  = dayUren.some(u => u.type === 'ziek');
+                                const totaal  = Math.round((dayUren.filter(u => u.type !== 'ziek').reduce((s, u) => s + (u.hours || 0), 0) + dayMW.reduce((s, m) => s + (m.hours || 0), 0)) * 10) / 10;
+                                const volledig = totaal >= 7.5;
+                                const niets    = !totaal && !isZiek;
+                                if (niets || isZiek || volledig) return null;
+                                return (
+                                    <div style={{ marginTop: '2px', marginLeft: '44px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', flexShrink: 0,
+                                            background: volledig ? '#f0fdf4' : '#fff8f0',
+                                            border: `1px solid ${volledig ? '#86efac' : '#fdba74'}` }}>
+                                            <i className={`fa-solid ${volledig ? 'fa-check' : 'fa-clock'}`}
+                                                style={{ color: volledig ? '#10b981' : '#f97316', fontSize: '0.6rem' }} />
+                                            {!volledig && <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#f97316' }}>{totaal}u</span>}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     );
                 })
-            )}
+            }
 
 
             {/* Detail modal */}
@@ -1000,16 +1759,104 @@ export default function MedewerkerPlanning() {
                         {/* Header */}
                         <div style={{ padding: '16px 20px 0', flexShrink: 0 }}>
                             <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '0 auto 14px' }} />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                                 <div style={{ width: '6px', height: '44px', background: detail.color, borderRadius: '3px', flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.projectName}</div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.taskName}</div>
                                 </div>
-                                <button onClick={() => { setDetailTab('info'); setShowProjectChange(true); setProjectSearch(''); setChangeProject(null); }}
-                                    style={{ padding: '5px 11px', background: '#f1f5f9', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer', flexShrink: 0 }}>
-                                    Wijzigen
+                                <button onClick={() => { setShowProjectChange(v => !v); setShowWerkbonPicker(false); setChangeProject(null); setProjectSearch(''); }}
+                                    style={{ background: showProjectChange ? '#fff8f0' : '#f8fafc', border: `1.5px solid ${showProjectChange ? '#F5850A' : '#e2e8f0'}`, borderRadius: '10px', padding: '7px 10px', cursor: 'pointer', color: showProjectChange ? '#F5850A' : '#94a3b8', flexShrink: 0 }}>
+                                    <i className="fa-solid fa-pencil" style={{ fontSize: '0.82rem' }} />
                                 </button>
+                            </div>
+
+                            {/* Project wisselen — inline panel */}
+                            {showProjectChange && (() => {
+                                const allProjects = (() => { try { return JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); } catch { return []; } })();
+                                const filtered = allProjects.filter(p => p.name?.toLowerCase().includes(projectSearch.toLowerCase()));
+                                return (
+                                    <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '10px', marginBottom: '10px' }}>
+                                        <input autoFocus value={projectSearch}
+                                            onChange={e => { setProjectSearch(e.target.value); setChangeProject(null); }}
+                                            placeholder="Zoek project..."
+                                            style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
+                                        {!changeProject && filtered.slice(0, 5).map(p => (
+                                            <div key={p.id} onClick={() => setChangeProject(p)}
+                                                style={{ padding: '8px 10px', borderRadius: '9px', border: '1px solid #e2e8f0', marginBottom: '5px', cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: p.color || '#F5850A', flexShrink: 0, display: 'inline-block' }} />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                                    {p.client && <div style={{ fontSize: '0.71rem', color: '#94a3b8' }}>{p.client}</div>}
+                                                </div>
+                                                <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.65rem' }} />
+                                            </div>
+                                        ))}
+                                        {changeProject && (
+                                            <div>
+                                                <button onClick={() => setChangeProject(null)}
+                                                    style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', marginBottom: '8px', padding: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fa-solid fa-chevron-left" style={{ fontSize: '0.65rem' }} />{changeProject.name}
+                                                </button>
+                                                {(changeProject.tasks || []).filter(t => t.startDate && t.endDate).map(t => (
+                                                    <div key={t.id} onClick={() => { saveProjectChange(t, changeProject); setShowProjectChange(false); }}
+                                                        style={{ padding: '8px 10px', borderRadius: '9px', border: '1px solid #e2e8f0', marginBottom: '5px', cursor: 'pointer', background: '#fff' }}>
+                                                        <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{t.name}</div>
+                                                        <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate} – {t.endDate}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Werkbon selector */}
+                            <div style={{ marginBottom: '10px' }}>
+                                <button onClick={() => { setShowWerkbonPicker(v => !v); setShowProjectChange(false); setWerkbonSearch(''); }}
+                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: selectedWerkbon ? '#fff8f0' : '#f8fafc', border: `1.5px solid ${selectedWerkbon ? '#F5850A' : '#e2e8f0'}`, borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+                                    <i className="fa-solid fa-file-pen" style={{ color: selectedWerkbon ? '#F5850A' : '#94a3b8', fontSize: '0.85rem' }} />
+                                    <span style={{ flex: 1, fontSize: '0.84rem', fontWeight: selectedWerkbon ? 700 : 500, color: selectedWerkbon ? '#F5850A' : '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {selectedWerkbon ? selectedWerkbon.naam : 'Werkbon koppelen of aanmaken...'}
+                                    </span>
+                                    <i className={`fa-solid fa-chevron-${showWerkbonPicker ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.7rem' }} />
+                                </button>
+
+                                {showWerkbonPicker && (
+                                    <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '10px', marginTop: '6px' }}>
+                                        <input value={werkbonSearch} onChange={e => setWerkbonSearch(e.target.value)}
+                                            placeholder="Zoek werkbon..."
+                                            autoFocus
+                                            style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
+                                        {werkbonnen
+                                            .filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase()) || w.projectNaam?.toLowerCase().includes(werkbonSearch.toLowerCase()))
+                                            .slice(0, 6)
+                                            .map(w => (
+                                                <div key={w.id} onClick={() => { setSelectedWerkbon(w); setShowWerkbonPicker(false); }}
+                                                    style={{ padding: '8px 10px', borderRadius: '9px', border: `1.5px solid ${selectedWerkbon?.id === w.id ? '#F5850A' : '#e2e8f0'}`, marginBottom: '5px', cursor: 'pointer', background: selectedWerkbon?.id === w.id ? '#fff8f0' : '#fff' }}>
+                                                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{w.naam}</div>
+                                                    {w.projectNaam && <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginTop: '1px' }}>{w.projectNaam}</div>}
+                                                </div>
+                                            ))}
+                                        {werkbonnen.filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase()) || w.projectNaam?.toLowerCase().includes(werkbonSearch.toLowerCase())).length === 0 && (
+                                            <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '8px 0' }}>Geen werkbonnen gevonden</div>
+                                        )}
+                                        <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '8px' }}>
+                                            <button onClick={() => { window.location.href = '/medewerker/werkbonnen?nieuw=1'; }}
+                                                style={{ width: '100%', padding: '9px', background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                                <i className="fa-solid fa-plus" /> Nieuwe werkbon aanmaken
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                {/* Wijziging opslaan knop — zichtbaar als werkbon geselecteerd */}
+                                {selectedWerkbon && (
+                                    <button onClick={saveWerkbonKoppeling}
+                                        style={{ width: '100%', marginTop: '6px', padding: '10px 14px', background: werkbonKoppelingOpgeslagen ? '#10b981' : 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', transition: 'background 0.2s' }}>
+                                        <i className={`fa-solid ${werkbonKoppelingOpgeslagen ? 'fa-check' : 'fa-floppy-disk'}`} style={{ fontSize: '0.82rem' }} />
+                                        {werkbonKoppelingOpgeslagen ? 'Opgeslagen!' : `Wijziging opslaan — ${selectedWerkbon.naam}`}
+                                    </button>
+                                )}
                             </div>
                             {/* Tabs */}
                             <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '12px', padding: '4px', marginBottom: '0' }}>
@@ -1091,50 +1938,6 @@ export default function MedewerkerPlanning() {
                                         </button>
                                     </div>
 
-                                    {/* ── Project/taak wijzigen ── */}
-                                    <div style={{ borderTop: '1px solid #f1f5f9' }}>
-                                        {showProjectChange && (() => {
-                                            const allProjects = (() => { try { return JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); } catch { return []; } })();
-                                            const filtered = allProjects.filter(p => p.name?.toLowerCase().includes(projectSearch.toLowerCase()));
-                                            return (
-                                                <div style={{ paddingBottom: '8px' }}>
-                                                    <input autoFocus value={projectSearch}
-                                                        onChange={e => { setProjectSearch(e.target.value); setChangeProject(null); }}
-                                                        placeholder="Zoek project..."
-                                                        style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
-                                                            fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
-                                                    {!changeProject && filtered.slice(0, 6).map(p => (
-                                                        <div key={p.id} onClick={() => setChangeProject(p)}
-                                                            style={{ padding: '9px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '6px',
-                                                                cursor: 'pointer', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: p.color || '#F5850A', flexShrink: 0, display: 'inline-block' }} />
-                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                                                                {p.client && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{p.client}</div>}
-                                                            </div>
-                                                            <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.65rem' }} />
-                                                        </div>
-                                                    ))}
-                                                    {changeProject && (
-                                                        <div>
-                                                            <button onClick={() => setChangeProject(null)}
-                                                                style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', marginBottom: '8px', padding: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                <i className="fa-solid fa-chevron-left" style={{ fontSize: '0.65rem' }} />{changeProject.name}
-                                                            </button>
-                                                            {(changeProject.tasks || []).filter(t => t.startDate && t.endDate).map(t => (
-                                                                <div key={t.id} onClick={() => saveProjectChange(t, changeProject)}
-                                                                    style={{ padding: '9px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '6px',
-                                                                        cursor: 'pointer', background: '#f8fafc' }}>
-                                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{t.name}</div>
-                                                                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate} – {t.endDate}</div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
 
                                     {false && (() => { return ( /* REMOVED */
                                             <div>
@@ -1424,7 +2227,7 @@ export default function MedewerkerPlanning() {
                             {detailTab === 'uren' && (() => {
                                 const totalVandaag = urenLijst.reduce((s, e) => s + (e.hours || 0), 0);
                                 const canSaveUren = parseFloat(urenAantal) > 0;
-                                const canSaveMeerwerk = (meerwerkText.trim() || meerwerkImage || meerwerkVideoServerUrl) && !videoUploading;
+                                const canSaveMeerwerk = (meerwerkText.trim() || meerwerkImage || meerwerkVideoServerUrl || meerwerkMateriaal.length > 0) && !videoUploading;
                                 const fmtSec = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
                                 const detailDayObj = new Date(detail.date + 'T00:00:00');
                                 const detailDayName = DAY_NAMES_FULL[detailDayObj.getDay() === 0 ? 6 : detailDayObj.getDay() - 1];
@@ -1527,79 +2330,213 @@ export default function MedewerkerPlanning() {
                                                             </div>
                                                         ) : (
                                                             /* Weergave modus */
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background: '#f8fafc', cursor: e.type === 'ziek' ? 'default' : 'pointer' }}
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background: e.type === 'ziek' ? '#fef2f2' : '#f8fafc', cursor: e.type === 'ziek' ? 'default' : 'pointer' }}
                                                                 onClick={() => { if (e.type === 'ziek') return; setUrenEditId(e.id); setUrenEditVal(String(e.hours)); setUrenEditNote(e.note || ''); }}>
                                                                 <i className={`fa-solid ${e.type === 'ziek' ? 'fa-bed-pulse' : e.type === 'andere' ? 'fa-stethoscope' : 'fa-clock'}`}
                                                                     style={{ color: e.type === 'ziek' ? '#ef4444' : e.type === 'andere' ? '#6366f1' : '#10b981', fontSize: '0.8rem', flexShrink: 0 }} />
-                                                                <span style={{ fontSize: '0.85rem', color: '#475569', flex: 1 }}>
-                                                                    {e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || 'Daguren')}
+                                                                <span style={{ fontSize: '0.85rem', color: e.type === 'ziek' ? '#ef4444' : '#475569', fontWeight: e.type === 'ziek' ? 700 : 400, flex: 1 }}>
+                                                                    {e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || 'Projecturen')}
                                                                 </span>
-                                                                {e.hours ? <span style={{ fontWeight: 700, color: '#F5850A', fontSize: '0.95rem' }}>{e.hours}u</span> : <span style={{ fontSize: '0.78rem', color: '#ef4444', fontWeight: 600 }}>Ziek</span>}
-                                                                {e.type !== 'ziek' && <i className="fa-solid fa-pen" style={{ color: '#cbd5e1', fontSize: '0.68rem' }} />}
+                                                                {e.hours ? <span style={{ fontWeight: 700, color: '#F5850A', fontSize: '0.95rem' }}>{e.hours}u</span> : null}
+                                                                {e.type === 'ziek'
+                                                                    ? <button onClick={ev => { ev.stopPropagation(); deleteUren(e.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px 4px', fontSize: '0.8rem' }}><i className="fa-solid fa-trash" /></button>
+                                                                    : <i className="fa-solid fa-pen" style={{ color: '#cbd5e1', fontSize: '0.68rem' }} />
+                                                                }
                                                             </div>
                                                         )}
                                                     </div>
                                                 ))}
-                                        </div>
-
-                                        {/* Uren invoer — simpel */}
-                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '10px' }}>
-                                            <div style={{ flex: 1 }}>
-                                                <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
-                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                    <button onClick={() => setUrenAantal('7.5')}
-                                                        style={{ padding: '10px 20px', borderRadius: '10px', border: `1.5px solid ${urenAantal === '7.5' ? '#F5850A' : '#e2e8f0'}`,
-                                                            background: urenAantal === '7.5' ? '#fff8f0' : '#f8fafc',
-                                                            color: urenAantal === '7.5' ? '#F5850A' : '#64748b',
-                                                            fontWeight: urenAantal === '7.5' ? 700 : 500, fontSize: '0.95rem', cursor: 'pointer' }}>
-                                                        7.5u
-                                                    </button>
-                                                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>of</span>
-                                                    <input type="number" min="0.5" max="24" step="0.5"
-                                                        value={urenAantal === '7.5' ? '' : urenAantal}
-                                                        onChange={e => setUrenAantal(e.target.value)}
-                                                        placeholder="Aantal uren"
-                                                        style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
-                                                            fontSize: '0.95rem', fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <input value={urenNote} onChange={e => setUrenNote(e.target.value)}
-                                            placeholder="Opmerking (optioneel)"
-                                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
-                                                fontSize: '0.87rem', fontFamily: 'inherit', color: '#1e293b', boxSizing: 'border-box', outline: 'none', marginBottom: '10px' }} />
-                                        {(() => {
-                                            const invoer = parseFloat(urenAantal) || 0;
-                                            if (invoer <= 7.5) return null;
-                                            const overwerk = Math.round((invoer - 7.5) * 10) / 10;
-                                            return (
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 14px', background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '12px', marginBottom: '10px' }}>
-                                                    <i className="fa-solid fa-circle-info" style={{ color: '#3b82f6', fontSize: '1rem', flexShrink: 0, marginTop: '1px' }} />
-                                                    <div>
-                                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e40af', marginBottom: '2px' }}>Overwerkuren</div>
-                                                        <div style={{ fontSize: '0.78rem', color: '#1e3a8a', lineHeight: 1.45 }}>
-                                                            <strong>7,5u</strong> normale uren + <strong>{overwerk}u</strong> overwerkuren worden geregistreerd.
+                                            {(() => {
+                                                const mwLijst = weekMeerwerk.filter(m => String(m.taskId) === String(detail.taskId) && m.date === detail.date);
+                                                return mwLijst.map(m => (
+                                                    <div key={m.id} style={{ marginBottom: '6px', border: '1.5px solid #fdba74', borderRadius: '10px', overflow: 'hidden' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background: '#fff8f0' }}>
+                                                            <i className="fa-solid fa-triangle-exclamation" style={{ color: '#ea580c', fontSize: '0.8rem', flexShrink: 0 }} />
+                                                            <div style={{ flex: 1 }}>
+                                                                <div style={{ fontSize: '0.85rem', color: '#ea580c', fontWeight: 700 }}>Meerwerk</div>
+                                                                {m.text && <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>{m.text}</div>}
+                                                            </div>
+                                                            {m.hours && <span style={{ fontWeight: 700, color: '#ea580c', fontSize: '0.95rem' }}>{m.hours}u</span>}
+                                                            <button onClick={() => { setMeerwerkEditEntry(m); setMeerwerkText(m.text || ''); setMeerwerkUren(m.hours ? String(m.hours) : ''); setMeerwerkImage(m.image || null); setMeerwerkVideoUrl(m.video || null); setMeerwerkVideoServerUrl(m.video || null); setMeerwerkMateriaal(Array.isArray(m.materiaal) ? m.materiaal : []); setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setUrenSection('meerwerk'); }}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ea580c', padding: '2px 4px', fontSize: '0.8rem' }}>
+                                                                <i className="fa-solid fa-pen" />
+                                                            </button>
+                                                            <button onClick={() => deleteMeerwerkEntry(m.id)}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ea580c', padding: '2px 4px', fontSize: '0.8rem' }}>
+                                                                <i className="fa-solid fa-trash" />
+                                                            </button>
                                                         </div>
+                                                        {m.materiaal && m.materiaal.length > 0 && (
+                                                            <div style={{ padding: '7px 12px 8px', borderTop: '1px solid #fde8cc', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                {m.materiaal.map((mat, i) => (
+                                                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem' }}>
+                                                                        <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.65rem', flexShrink: 0 }} />
+                                                                        <span style={{ flex: 1, color: '#78716c', fontWeight: 600 }}>{mat.naam}</span>
+                                                                        {mat.hoeveelheid && <span style={{ color: '#a8a29e' }}>{mat.hoeveelheid}</span>}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                </div>
-                                            );
-                                        })()}
-                                        <button onClick={saveUren} disabled={!canSaveUren}
-                                            style={{ width: '100%', padding: '12px',
-                                                background: canSaveUren ? '#F5850A' : '#f1f5f9',
-                                                border: 'none', borderRadius: '12px', fontWeight: 700, fontSize: '0.92rem',
-                                                cursor: canSaveUren ? 'pointer' : 'default',
-                                                color: canSaveUren ? '#fff' : '#94a3b8', marginBottom: '24px' }}>
-                                            <i className="fa-solid fa-floppy-disk" style={{ marginRight: '7px' }} />
-                                            {canSaveUren
-                                                ? parseFloat(urenAantal) > 7.5
-                                                    ? `Opslaan (7,5u normaal + ${Math.round((parseFloat(urenAantal)-7.5)*10)/10}u overwerk)`
-                                                    : `${urenAantal}u opslaan`
-                                                : 'Kies aantal uren'}
-                                        </button>
+                                                ));
+                                            })()}
+                                        </div>
 
                                         {/* ── Accordion secties ── */}
-                                        <div style={{ borderTop: '2px solid #f1f5f9', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+
+                                            {/* ── Projecturen ── */}
+                                            <div style={{ borderRadius: '12px', border: `1.5px solid ${!urenSection ? '#F5850A' : '#e2e8f0'}`, overflow: 'hidden' }}>
+                                                <button onClick={() => setUrenSection(null)}
+                                                    style={{ width: '100%', padding: '13px 16px', background: !urenSection ? '#fff8f0' : '#f8fafc',
+                                                        border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
+                                                    <i className="fa-solid fa-clock" style={{ color: '#F5850A', fontSize: '1rem' }} />
+                                                    <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Projecturen</span>
+                                                    <i className={`fa-solid fa-chevron-${!urenSection ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                                                </button>
+                                                {!urenSection && (
+                                                    <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde8cc' }}>
+                                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '10px' }}>
+                                                            <div style={{ flex: 1 }}>
+                                                                <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
+                                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                                    <button onClick={() => setUrenAantal('7.5')}
+                                                                        style={{ padding: '10px 20px', borderRadius: '10px', border: `1.5px solid ${urenAantal === '7.5' ? '#F5850A' : '#e2e8f0'}`,
+                                                                            background: urenAantal === '7.5' ? '#fff8f0' : '#f8fafc',
+                                                                            color: urenAantal === '7.5' ? '#F5850A' : '#64748b',
+                                                                            fontWeight: urenAantal === '7.5' ? 700 : 500, fontSize: '0.95rem', cursor: 'pointer' }}>
+                                                                        7.5u
+                                                                    </button>
+                                                                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>of</span>
+                                                                    <input type="number" min="0.5" max="24" step="0.5"
+                                                                        value={urenAantal === '7.5' ? '' : urenAantal}
+                                                                        onChange={e => setUrenAantal(e.target.value)}
+                                                                        placeholder="Aantal uren"
+                                                                        style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
+                                                                            fontSize: '0.95rem', fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <input value={urenNote} onChange={e => setUrenNote(e.target.value)}
+                                                            placeholder="Opmerking (optioneel)"
+                                                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
+                                                                fontSize: '0.87rem', fontFamily: 'inherit', color: '#1e293b', boxSizing: 'border-box', outline: 'none', marginBottom: '10px' }} />
+
+                                                        {/* ── Materialen bij projecturen ── */}
+                                                        <div style={{ marginBottom: '10px' }}>
+                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', marginBottom: '7px' }}>
+                                                                <i className="fa-solid fa-box-open" style={{ marginRight: '5px', color: '#F5850A' }} />Materiaal toevoegen
+                                                            </div>
+                                                            {/* Lijst */}
+                                                            {losMateriaalLijst.length > 0 && (
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
+                                                                    {losMateriaalLijst.map(m => (
+                                                                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#fff8f0', border: '1px solid #fde8cc', borderRadius: '8px' }}>
+                                                                            <i className="fa-solid fa-box" style={{ color: '#F5850A', fontSize: '0.72rem', flexShrink: 0 }} />
+                                                                            <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{m.naam}</span>
+                                                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{m.hoeveelheid}</span>
+                                                                            <button onClick={() => verwijderLosMateriaal(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '0 2px', fontSize: '0.85rem' }}>
+                                                                                <i className="fa-solid fa-xmark" />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            {/* Zoekbalk */}
+                                                            <div style={{ position: 'relative', marginBottom: '6px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={losMatNaam}
+                                                                    onChange={e => {
+                                                                        const q = e.target.value;
+                                                                        setLosMatNaam(q);
+                                                                        if (q.length >= 2 && matRijen.length > 0 && matKolommen.naam) {
+                                                                            const ql = q.toLowerCase();
+                                                                            setLosMatZoek(matRijen.filter(r => String(r[matKolommen.naam] ?? '').toLowerCase().includes(ql)).slice(0, 8));
+                                                                        } else {
+                                                                            setLosMatZoek([]);
+                                                                        }
+                                                                    }}
+                                                                    onKeyDown={e => {
+                                                                        if (e.key === 'Enter' && losMatNaam.trim()) {
+                                                                            voegLosMateriaalToe(losMatNaam.trim(), losMatHoeveelheid.trim() || '1 stuk');
+                                                                        }
+                                                                    }}
+                                                                    placeholder="Zoek product..."
+                                                                    style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #fde8cc', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box', background: '#fff8f0' }}
+                                                                />
+                                                                <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#F5850A', fontSize: '0.8rem', pointerEvents: 'none' }} />
+                                                                {losMatZoek.length > 0 && (
+                                                                    <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #fde8cc', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '220px', overflowY: 'auto' }}>
+                                                                        {losMatZoek.map((r, i) => {
+                                                                            const naam = String(r[matKolommen.naam] ?? '');
+                                                                            const eenheid = matKolommen.eenheid ? String(r[matKolommen.eenheid] ?? '') : '';
+                                                                            const code = matKolommen.code ? String(r[matKolommen.code] ?? '') : '';
+                                                                            return (
+                                                                                <button key={i}
+                                                                                    onClick={() => { voegLosMateriaalToe(naam, losMatHoeveelheid.trim() || eenheid || '1 stuk'); }}
+                                                                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #fde8cc' : 'none', cursor: 'pointer', textAlign: 'left' }}
+                                                                                    onMouseOver={e => e.currentTarget.style.background = '#fff8f0'}
+                                                                                    onMouseOut={e => e.currentTarget.style.background = 'none'}
+                                                                                >
+                                                                                    <i className="fa-solid fa-box" style={{ color: '#F5850A', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                                                    <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, whiteSpace: 'nowrap' }}>{naam}</span>
+                                                                                    {(eenheid || code) && <span style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>{eenheid || code}</span>}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {/* Hoeveelheid + toevoegen */}
+                                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={losMatHoeveelheid}
+                                                                    onChange={e => setLosMatHoeveelheid(e.target.value)}
+                                                                    placeholder="Hoeveelheid"
+                                                                    style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }}
+                                                                />
+                                                                <button
+                                                                    onClick={() => { if (!losMatNaam.trim()) return; voegLosMateriaalToe(losMatNaam.trim(), losMatHoeveelheid.trim() || '1 stuk'); }}
+                                                                    style={{ padding: '0 14px', background: '#F5850A', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', flexShrink: 0 }}>
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {(() => {
+                                                            const invoer = parseFloat(urenAantal) || 0;
+                                                            if (invoer <= 7.5) return null;
+                                                            const overwerk = Math.round((invoer - 7.5) * 10) / 10;
+                                                            return (
+                                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 14px', background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '12px', marginBottom: '10px' }}>
+                                                                    <i className="fa-solid fa-circle-info" style={{ color: '#3b82f6', fontSize: '1rem', flexShrink: 0, marginTop: '1px' }} />
+                                                                    <div>
+                                                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e40af', marginBottom: '2px' }}>Overwerkuren</div>
+                                                                        <div style={{ fontSize: '0.78rem', color: '#1e3a8a', lineHeight: 1.45 }}>
+                                                                            <strong>7,5u</strong> normale uren + <strong>{overwerk}u</strong> overwerkuren worden geregistreerd.
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                        <button onClick={saveUren} disabled={!canSaveUren}
+                                                            style={{ width: '100%', padding: '12px',
+                                                                background: canSaveUren ? '#F5850A' : '#f1f5f9',
+                                                                border: 'none', borderRadius: '12px', fontWeight: 700, fontSize: '0.92rem',
+                                                                cursor: canSaveUren ? 'pointer' : 'default',
+                                                                color: canSaveUren ? '#fff' : '#94a3b8' }}>
+                                                            <i className="fa-solid fa-floppy-disk" style={{ marginRight: '7px' }} />
+                                                            {canSaveUren
+                                                                ? parseFloat(urenAantal) > 7.5
+                                                                    ? `Opslaan (7,5u normaal + ${Math.round((parseFloat(urenAantal)-7.5)*10)/10}u overwerk)`
+                                                                    : `${urenAantal}u opslaan`
+                                                                : 'Kies aantal uren'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
 
                                             {/* ── Meerwerk ── */}
                                             <div style={{ borderRadius: '12px', border: `1.5px solid ${urenSection === 'meerwerk' ? '#f59e0b' : '#e2e8f0'}`, overflow: 'hidden' }}>
@@ -1607,7 +2544,7 @@ export default function MedewerkerPlanning() {
                                                     style={{ width: '100%', padding: '13px 16px', background: urenSection === 'meerwerk' ? '#fffbeb' : '#f8fafc',
                                                         border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
                                                     <i className="fa-solid fa-circle-plus" style={{ color: '#f59e0b', fontSize: '1rem' }} />
-                                                    <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Meerwerk melden</span>
+                                                    <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{meerwerkEditEntry ? 'Meerwerk uren' : 'Meerwerk uren melden'}</span>
                                                     <i className={`fa-solid fa-chevron-${urenSection === 'meerwerk' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
                                                 </button>
                                                 {urenSection === 'meerwerk' && (
@@ -1630,6 +2567,97 @@ export default function MedewerkerPlanning() {
                                                                 fontSize: '0.87rem', resize: 'none', fontFamily: 'inherit', outline: 'none',
                                                                 boxSizing: 'border-box', color: '#1e293b', marginBottom: '10px' }}
                                                         />
+
+                                                        {/* ── Materiaal ── */}
+                                                        <div style={{ marginBottom: '10px' }}>
+                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', marginBottom: '7px' }}>
+                                                                <i className="fa-solid fa-box" style={{ marginRight: '5px', color: '#f59e0b' }} />Materiaal toevoegen
+                                                            </div>
+                                                            {/* Zoekveld */}
+                                                            <div style={{ position: 'relative', marginBottom: '6px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={meerwerkMatNaam}
+                                                                    onChange={e => {
+                                                                        const q = e.target.value;
+                                                                        setMeerwerkMatNaam(q);
+                                                                        if (q.length >= 2 && matRijen.length > 0 && matKolommen.naam) {
+                                                                            const ql = q.toLowerCase();
+                                                                            setMatZoekResultaten(
+                                                                                matRijen.filter(r => String(r[matKolommen.naam] ?? '').toLowerCase().includes(ql)).slice(0, 8)
+                                                                            );
+                                                                        } else {
+                                                                            setMatZoekResultaten([]);
+                                                                        }
+                                                                    }}
+                                                                    onKeyDown={e => {
+                                                                        if (e.key === 'Enter' && meerwerkMatNaam.trim()) {
+                                                                            setMeerwerkMateriaal(prev => [...prev, { naam: meerwerkMatNaam.trim(), hoeveelheid: meerwerkMatHoeveelheid.trim() }]);
+                                                                            setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]);
+                                                                        }
+                                                                    }}
+                                                                    placeholder="Zoek product..."
+                                                                    style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #fde68a', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box', background: '#fffbeb' }}
+                                                                />
+                                                                <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#d97706', fontSize: '0.8rem', pointerEvents: 'none' }} />
+                                                                {/* Dropdown */}
+                                                                {matZoekResultaten.length > 0 && (
+                                                                    <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #fde68a', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '220px', overflowY: 'auto', overflowX: 'auto' }}>
+                                                                        {matZoekResultaten.map((r, i) => {
+                                                                            const naam = String(r[matKolommen.naam] ?? '');
+                                                                            const eenheid = matKolommen.eenheid ? String(r[matKolommen.eenheid] ?? '') : '';
+                                                                            const code = matKolommen.code ? String(r[matKolommen.code] ?? '') : '';
+                                                                            return (
+                                                                                <button key={i}
+                                                                                    onClick={() => {
+                                                                                        setMeerwerkMateriaal(prev => [...prev, { naam, hoeveelheid: meerwerkMatHoeveelheid.trim() || eenheid }]);
+                                                                                        setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]);
+                                                                                    }}
+                                                                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < matZoekResultaten.length - 1 ? '1px solid #fef3c7' : 'none', cursor: 'pointer', textAlign: 'left' }}
+                                                                                    onMouseOver={e => e.currentTarget.style.background = '#fffbeb'}
+                                                                                    onMouseOut={e => e.currentTarget.style.background = 'none'}
+                                                                                >
+                                                                                    <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                                                    <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, whiteSpace: 'nowrap' }}>{naam}</span>
+                                                                                    {(eenheid || code) && <span style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>{eenheid || code}</span>}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {/* Hoeveelheid + toevoegen */}
+                                                            <div style={{ display: 'flex', gap: '6px', marginBottom: '7px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={meerwerkMatHoeveelheid}
+                                                                    onChange={e => setMeerwerkMatHoeveelheid(e.target.value)}
+                                                                    placeholder="Hoeveelheid"
+                                                                    style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }}
+                                                                />
+                                                                <button
+                                                                    onClick={() => { if (!meerwerkMatNaam.trim()) return; setMeerwerkMateriaal(prev => [...prev, { naam: meerwerkMatNaam.trim(), hoeveelheid: meerwerkMatHoeveelheid.trim() }]); setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]); }}
+                                                                    style={{ padding: '0 14px', background: '#f59e0b', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', flexShrink: 0 }}>
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                            {/* Toegevoegde items */}
+                                                            {meerwerkMateriaal.length > 0 && (
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                                                    {meerwerkMateriaal.map((mat, i) => (
+                                                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                                                                            <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.72rem', flexShrink: 0 }} />
+                                                                            <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{mat.naam}</span>
+                                                                            {mat.hoeveelheid && <span style={{ fontSize: '0.78rem', color: '#78716c', fontWeight: 500 }}>{mat.hoeveelheid}</span>}
+                                                                            <button onClick={() => setMeerwerkMateriaal(prev => prev.filter((_, j) => j !== i))}
+                                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', padding: '2px 4px', fontSize: '0.75rem' }}>
+                                                                                <i className="fa-solid fa-xmark" />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
 
                                                         {/* Luisteren indicator */}
                                                         {sttActive && (
@@ -1752,7 +2780,9 @@ export default function MedewerkerPlanning() {
                                                                 color: canSaveMeerwerk ? '#fff' : '#94a3b8' }}>
                                                             {videoUploading
                                                                 ? <><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: '7px' }} />Video uploaden...</>
-                                                                : <><i className="fa-solid fa-paper-plane" style={{ marginRight: '7px' }} />Meerwerk indienen</>
+                                                                : meerwerkEditEntry
+                                                                    ? <><i className="fa-solid fa-floppy-disk" style={{ marginRight: '7px' }} />Wijzigingen opslaan</>
+                                                                    : <><i className="fa-solid fa-paper-plane" style={{ marginRight: '7px' }} />Meerwerk indienen</>
                                                             }
                                                         </button>
                                                     </div>
@@ -1831,11 +2861,118 @@ export default function MedewerkerPlanning() {
                                                 )}
                                             </div>
 
+
                                         </div>
+
+                                            {/* ── Materialen ── */}
+                                            <div style={{ borderRadius: '12px', border: `1.5px solid ${urenSection === 'materialen' ? '#f59e0b' : '#e2e8f0'}`, overflow: 'hidden' }}>
+                                                <button onClick={() => setUrenSection(s => s === 'materialen' ? null : 'materialen')}
+                                                    style={{ width: '100%', padding: '13px 16px', background: urenSection === 'materialen' ? '#fffbeb' : '#f8fafc',
+                                                        border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
+                                                    <i className="fa-solid fa-box-open" style={{ color: '#f59e0b', fontSize: '1rem' }} />
+                                                    <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Materialen</span>
+                                                    {losMateriaalLijst.length > 0 && <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700 }}>{losMateriaalLijst.length} item{losMateriaalLijst.length !== 1 ? 's' : ''}</span>}
+                                                    <i className={`fa-solid fa-chevron-${urenSection === 'materialen' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                                                </button>
+                                                {urenSection === 'materialen' && (
+                                                    <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde68a' }}>
+                                                        {/* Toegevoegde items */}
+                                                        {losMateriaalLijst.length > 0 && (
+                                                            <div style={{ marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                                                {losMateriaalLijst.map(mat => (
+                                                                    <div key={mat.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '9px' }}>
+                                                                        <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.72rem', flexShrink: 0 }} />
+                                                                        <span style={{ flex: 1, fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{mat.naam}</span>
+                                                                        <span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>
+                                                                        <button onClick={() => verwijderLosMateriaal(mat.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', padding: '0 2px' }}>
+                                                                            <i className="fa-solid fa-xmark" style={{ fontSize: '0.8rem' }} />
+                                                                        </button>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {/* Zoek/typ naam */}
+                                                        <div style={{ position: 'relative', marginBottom: '6px' }}>
+                                                            <input type="text" value={losMatNaam}
+                                                                onChange={e => {
+                                                                    const q = e.target.value;
+                                                                    setLosMatNaam(q);
+                                                                    if (q.length >= 2 && matRijen.length > 0 && matKolommen.naam) {
+                                                                        const ql = q.toLowerCase();
+                                                                        setLosMatZoek(matRijen.filter(r => String(r[matKolommen.naam] ?? '').toLowerCase().includes(ql)).slice(0, 8));
+                                                                    } else { setLosMatZoek([]); }
+                                                                }}
+                                                                onKeyDown={e => { if (e.key === 'Enter' && losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); } }}
+                                                                placeholder="Zoek of typ materiaal..."
+                                                                style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #fde68a', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box', background: '#fffbeb' }} />
+                                                            <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#d97706', fontSize: '0.8rem', pointerEvents: 'none' }} />
+                                                            {losMatZoek.length > 0 && (
+                                                                <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #fde68a', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '200px', overflowY: 'auto' }}>
+                                                                    {losMatZoek.map((r, i) => {
+                                                                        const naam = String(r[matKolommen.naam] ?? '');
+                                                                        const eenheid = matKolommen.eenheid ? String(r[matKolommen.eenheid] ?? '') : '';
+                                                                        return (
+                                                                            <button key={i} onClick={() => voegLosMateriaalToe(naam, losMatHoeveelheid || eenheid)}
+                                                                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #fef3c7' : 'none', cursor: 'pointer', textAlign: 'left' }}>
+                                                                                <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                                                <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{naam}</span>
+                                                                                {eenheid && <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{eenheid}</span>}
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div style={{ display: 'flex', gap: '6px' }}>
+                                                            <input type="text" value={losMatHoeveelheid} onChange={e => setLosMatHoeveelheid(e.target.value)}
+                                                                placeholder="Hoeveelheid"
+                                                                style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
+                                                            <button onClick={() => { if (losMatNaam.trim()) voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); }}
+                                                                style={{ padding: '0 14px', background: '#f59e0b', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', flexShrink: 0 }}>
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                        {/* ── Urentotaal ── */}
+                                        {(() => {
+                                            return null;
+                                        })()}
                                     </div>
                                 );
                             })()}
                         </div>
+                    </div>
+                </>
+            )}
+
+
+            {/* Ziek bewerken modal */}
+            {ziekEditEntry && (
+                <>
+                    <div onClick={() => setZiekEditEntry(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 400 }} />
+                    <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', padding: '20px 20px 32px', zIndex: 410 }}>
+                        <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '0 auto 18px' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                            <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '1rem' }} />
+                            <span style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>Ziekmelding wijzigen</span>
+                        </div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Reden</label>
+                        <input
+                            type="text"
+                            value={ziekEditNote}
+                            onChange={e => setZiekEditNote(e.target.value)}
+                            placeholder="Bijv. griep, rugklachten..."
+                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', boxSizing: 'border-box', marginBottom: '14px', outline: 'none' }}
+                        />
+                        <button onClick={saveZiekEdit} style={{ width: '100%', padding: '13px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', marginBottom: '10px' }}>
+                            <i className="fa-solid fa-floppy-disk" style={{ marginRight: '8px' }} />Opslaan
+                        </button>
+                        <button onClick={deleteZiekEntry} style={{ width: '100%', padding: '13px', background: '#fff', color: '#ef4444', border: '1.5px solid #fca5a5', borderRadius: '12px', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}>
+                            <i className="fa-solid fa-trash" style={{ marginRight: '8px' }} />Ziekmelding verwijderen
+                        </button>
                     </div>
                 </>
             )}
