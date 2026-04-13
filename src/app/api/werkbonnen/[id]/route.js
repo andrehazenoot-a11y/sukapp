@@ -20,6 +20,8 @@ export async function PATCH(req, { params }) {
         if ('uren' in body)           { fields.push('uren = ?');            values.push(body.uren || null); }
         if ('datum' in body)          { fields.push('datum = ?');           values.push(body.datum || null); }
         if ('uurloon' in body)        { fields.push('uurloon = ?');         values.push(body.uurloon ?? null); }
+        if ('taskId' in body)         { fields.push('task_id = ?');         values.push(body.taskId || null); }
+        if ('taskNaam' in body)       { fields.push('task_naam = ?');       values.push(body.taskNaam || null); }
 
         if (fields.length === 0) return NextResponse.json({ ok: true });
 

@@ -267,14 +267,6 @@ export default function MedewerkerFormulieren() {
                 );
             })()}
 
-            {/* Toolbox meeting */}
-            <Section icon="fa-screwdriver-wrench" title="Toolbox Meeting" color="#6366f1" defaultOpen={false}>
-                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '0 0 12px' }}>Vul een toolbox meeting formulier in.</p>
-                <button onClick={() => router.push('/medewerker/toolbox')} style={btnPrimary}>
-                    <i className="fa-solid fa-arrow-right" style={{ marginRight: '8px' }} />Naar Toolbox Meeting
-                </button>
-            </Section>
-
             {/* Document & foto upload */}
             <Section icon="fa-upload" title="Bestanden uploaden" color="#0891b2" defaultOpen={true}>
                 <div style={{ marginBottom: '12px' }}>

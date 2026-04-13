@@ -15,7 +15,7 @@ export default function MedewerkerWerkbonnen() {
     const { user } = useAuth();
     const [view, setView] = useState(() => {
         if (typeof window !== 'undefined') {
-            return new URLSearchParams(window.location.search).get('nieuw') === '1' ? 'nieuw' : 'lijst';
+            return new URLSearchParams(window.location.search).get('nieuw') === '1' ? 'nieuw' : 'snel';
         }
         return 'lijst';
     });
@@ -25,6 +25,12 @@ export default function MedewerkerWerkbonnen() {
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [fout, setFout] = useState(null);
+    const [snelNaam, setSnelNaam] = useState('');
+    const [snelUren, setSnelUren] = useState('');
+    const [snelDatum, setSnelDatum] = useState(new Date().toISOString().slice(0, 10));
+    const [snelSaving, setSnelSaving] = useState(false);
+    const [snelSaved, setSnelSaved] = useState(false);
+    const [snelFout, setSnelFout] = useState(null);
     const [form, setForm] = useState({
         naam: '',
         uren: '',
@@ -100,6 +106,39 @@ export default function MedewerkerWerkbonnen() {
             setFout('Verbindingsfout: ' + e.message);
         }
         setSaving(false);
+    }
+
+    async function snelOpslaan() {
+        if (!snelNaam.trim()) return;
+        setSnelSaving(true);
+        setSnelFout(null);
+        try {
+            const res = await fetch('/api/werkbonnen', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    medewerkerId: user?.id,
+                    medewerkerNaam: user?.name,
+                    naam: snelNaam.trim(),
+                    datum: snelDatum,
+                    uren: snelUren ? parseFloat(snelUren) : null,
+                }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setSnelSaved(true);
+                setSnelNaam('');
+                setSnelUren('');
+                setSnelDatum(new Date().toISOString().slice(0, 10));
+                setBonnen(prev => [{ id: data.id, naam: snelNaam.trim(), datum: snelDatum, uren: snelUren ? parseFloat(snelUren) : null, medewerkerNaam: user?.name }, ...prev]);
+                setTimeout(() => setSnelSaved(false), 2500);
+            } else {
+                setSnelFout(data.error || 'Opslaan mislukt');
+            }
+        } catch (e) {
+            setSnelFout('Verbindingsfout');
+        }
+        setSnelSaving(false);
     }
 
     if (view === 'nieuw') return (
@@ -210,19 +249,93 @@ export default function MedewerkerWerkbonnen() {
     // Lijst view
     return (
         <div style={{ padding: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                    <h2 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Werkbonnen</h2>
-                </div>
-                <button onClick={() => setView('nieuw')} style={{
-                    background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', color: '#fff', border: 'none',
-                    borderRadius: '10px', padding: '9px 16px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700,
-                    boxShadow: '0 4px 12px rgba(245,133,10,0.35)', display: 'flex', alignItems: 'center', gap: '6px',
-                }}>
-                    <i className="fa-solid fa-plus" /> Nieuwe werkbon
-                </button>
+            {/* Tab switcher */}
+            <div style={{ display: 'flex', gap: '0', marginBottom: '18px', background: '#f1f5f9', borderRadius: '12px', padding: '4px' }}>
+                {[
+                    { key: 'snel', label: 'Snel aanmaken', icon: 'fa-bolt' },
+                    { key: 'lijst', label: 'Mijn bonnen', icon: 'fa-list' },
+                ].map(tab => (
+                    <button key={tab.key} onClick={() => setView(tab.key)} style={{
+                        flex: 1, padding: '9px 12px', border: 'none', borderRadius: '9px', cursor: 'pointer',
+                        background: view === tab.key ? '#fff' : 'transparent',
+                        color: view === tab.key ? '#F5850A' : '#64748b',
+                        fontWeight: view === tab.key ? 800 : 600,
+                        fontSize: '0.82rem',
+                        boxShadow: view === tab.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                        transition: 'all 0.15s',
+                    }}>
+                        <i className={`fa-solid ${tab.icon}`} style={{ fontSize: '0.78rem' }} />
+                        {tab.label}
+                    </button>
+                ))}
             </div>
+
+            {/* ─── SNEL AANMAKEN TAB ─── */}
+            {view === 'snel' && (
+                <div>
+                    {snelSaved && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '12px', padding: '12px 16px', marginBottom: '16px', color: '#16a34a', fontWeight: 700, fontSize: '0.88rem' }}>
+                            <i className="fa-solid fa-circle-check" style={{ fontSize: '1.1rem' }} />
+                            Werkbon opgeslagen! Je baas koppelt hem later aan het juiste project.
+                        </div>
+                    )}
+                    <div style={{ background: '#fff', borderRadius: '18px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', border: '1.5px solid #f1f5f9' }}>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '16px' }}>
+                            Snel een werkbon aanmaken
+                        </div>
+                        <div style={{ marginBottom: '14px' }}>
+                            <label style={labelStyle}>Wat heb je gedaan? *</label>
+                            <input type="text" value={snelNaam} onChange={e => setSnelNaam(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter' && snelNaam.trim()) snelOpslaan(); }}
+                                placeholder="Bijv. Spoedklus schilderen kozijnen" style={inputStyle} autoFocus />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                            <div>
+                                <label style={labelStyle}>Aantal uur</label>
+                                <input type="number" min="0" step="0.5" value={snelUren}
+                                    onChange={e => setSnelUren(e.target.value)} placeholder="bijv. 3.5" style={inputStyle} />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Datum</label>
+                                <input type="date" value={snelDatum} onChange={e => setSnelDatum(e.target.value)} style={inputStyle} />
+                            </div>
+                        </div>
+                        {snelFout && (
+                            <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: '10px', padding: '10px 14px', marginBottom: '14px', fontSize: '0.84rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fa-solid fa-circle-exclamation" /> {snelFout}
+                            </div>
+                        )}
+                        <button onClick={snelOpslaan} disabled={!snelNaam.trim() || snelSaving} style={{
+                            width: '100%', padding: '15px', borderRadius: '14px', border: 'none',
+                            cursor: snelNaam.trim() && !snelSaving ? 'pointer' : 'not-allowed',
+                            background: snelNaam.trim() ? 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)' : '#e2e8f0',
+                            color: snelNaam.trim() ? '#fff' : '#94a3b8',
+                            fontWeight: 800, fontSize: '1rem',
+                            boxShadow: snelNaam.trim() ? '0 6px 20px rgba(245,133,10,0.35)' : 'none',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                        }}>
+                            {snelSaving ? <><i className="fa-solid fa-spinner fa-spin" /> Opslaan...</> : <><i className="fa-solid fa-bolt" /> Snel opslaan</>}
+                        </button>
+                        <div style={{ marginTop: '12px', fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center' }}>
+                            Project wordt later door je baas gekoppeld
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── LIJST TAB ─── */}
+            {view === 'lijst' && (<>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#94a3b8' }}>{bonnen.length} werkbon{bonnen.length !== 1 ? 'nen' : ''}</span>
+                    <button onClick={() => setView('nieuw')} style={{
+                        background: '#fff8f0', color: '#F5850A', border: '1.5px solid #F5850A',
+                        borderRadius: '10px', padding: '7px 14px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>
+                        <i className="fa-solid fa-plus" /> Uitgebreid aanmaken
+                    </button>
+                </div>
 
             {loading ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
@@ -263,6 +376,7 @@ export default function MedewerkerWerkbonnen() {
                     </div>
                 </div>
             ))}
+            </>)}
         </div>
     );
 }

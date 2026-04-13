@@ -699,6 +699,9 @@ export default function ProjectDossierPage() {
     const [projTaakDrag, setProjTaakDrag] = useState(null);    // { groepKey, taakId }
     const [projTaakDragOver, setProjTaakDragOver] = useState(null); // { groepKey, taakId? }
     const [projTaakPlannerBezig, setProjTaakPlannerBezig] = useState(new Set());
+    const [projWerkbonnen, setProjWerkbonnen] = useState([]);
+    const [projWbMat, setProjWbMat] = useState({});
+    const [projWbLoading, setProjWbLoading] = useState(false);
     const [plannerPaletSjabloon, setPlannerPaletSjabloon] = useState(null);
     const [plannerPaletBezig, setPlannerPaletBezig] = useState({});
     const [plannerPaletKaartOpen, setPlannerPaletKaartOpen] = useState({});
@@ -1495,6 +1498,26 @@ export default function ProjectDossierPage() {
         return () => { window.removeEventListener('storage', handleStorage); clearInterval(poll); };
     }, [id]);
 
+
+    // Werkbonnen laden als bewaking tab actief wordt
+    useEffect(() => {
+        if (activeTab !== 'bewaking' || !id) return;
+        setProjWbLoading(true);
+        fetch(`/api/werkbonnen?project_id=${id}`)
+            .then(r => r.json())
+            .then(async bons => {
+                if (!Array.isArray(bons)) return;
+                setProjWerkbonnen(bons);
+                const matResults = await Promise.all(
+                    bons.map(b => fetch(`/api/werkbonnen/${b.id}/materialen`).then(r => r.json()).catch(() => ({ materialen: [] })))
+                );
+                const matMap = {};
+                bons.forEach((b, i) => { matMap[b.id] = matResults[i]?.materialen || []; });
+                setProjWbMat(matMap);
+            })
+            .catch(() => {})
+            .finally(() => setProjWbLoading(false));
+    }, [activeTab, id]);
 
     // Selectie helpers (na meerwerk state, zodat meerwerk beschikbaar is)
     const toggleMeerwerkSelectie = (id) => setMeerwerkSelectie(prev =>
@@ -5252,6 +5275,92 @@ export default function ProjectDossierPage() {
                                 </div>
                             </div>
                         </div>
+
+                    {/* ── Werkbonnen per taak ── */}
+                    {(() => {
+                        const medUurlonen = (() => { try { return JSON.parse(localStorage.getItem('schildersapp_uurloon_medewerker') || '{}'); } catch { return {}; } })();
+                        const bonMetKosten = projWerkbonnen.map(bon => {
+                            const uurloon = bon.uurloon ?? medUurlonen[bon.medewerkerId] ?? medUurlonen[bon.medewerkerNaam] ?? null;
+                            const uren = parseFloat(bon.uren) || 0;
+                            const arbeid = uurloon && uren ? Math.round(uurloon * uren * 100) / 100 : null;
+                            const mat = (projWbMat[bon.id] || []).reduce((s, m) => s + (m.prijs ? m.prijs * (parseFloat(m.hoeveelheid) || 1) : 0), 0);
+                            const totaal = (arbeid !== null || mat > 0) ? Math.round(((arbeid || 0) + mat) * 100) / 100 : null;
+                            return { ...bon, uurloon, arbeid, mat: Math.round(mat * 100) / 100, totaal };
+                        });
+
+                        // Groeperen per taak
+                        const groepen = [];
+                        const taken = project?.tasks || [];
+                        for (const taak of taken) {
+                            const bons = bonMetKosten.filter(b => String(b.taskId) === String(taak.id));
+                            groepen.push({ label: taak.name, completed: taak.completed, bons });
+                        }
+                        const zonderTaak = bonMetKosten.filter(b => !b.taskId || !taken.find(t => String(t.id) === String(b.taskId)));
+                        if (zonderTaak.length > 0) groepen.push({ label: 'Zonder taak', completed: false, bons: zonderTaak, losGekoppeld: true });
+
+                        const totaalUren = bonMetKosten.reduce((s, b) => s + (parseFloat(b.uren) || 0), 0);
+                        const totaalArbeid = bonMetKosten.reduce((s, b) => s + (b.arbeid || 0), 0);
+                        const totaalMat = bonMetKosten.reduce((s, b) => s + (b.mat || 0), 0);
+                        const totaalKosten = Math.round((totaalArbeid + totaalMat) * 100) / 100;
+
+                        const MONTHS = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+                        const fmtDate = iso => { if (!iso) return ''; const d = new Date(iso); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+
+                        return (
+                        <div style={{ background: '#fff', borderRadius: '14px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #f1f5f9', background: '#fff8f0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fa-solid fa-file-lines" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
+                                    <span style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>Werkbonnen per taak</span>
+                                    {projWbLoading && <i className="fa-solid fa-spinner fa-spin" style={{ color: '#F5850A', fontSize: '0.8rem' }} />}
+                                    {!projWbLoading && <span style={{ background: '#fff7ed', color: '#F5850A', fontWeight: 700, fontSize: '0.7rem', padding: '2px 8px', borderRadius: '20px' }}>{projWerkbonnen.length} bonnen</span>}
+                                </div>
+                                {totaalKosten > 0 && <span style={{ fontWeight: 800, color: '#F5850A', fontSize: '0.9rem' }}>€ {totaalKosten.toLocaleString('nl-NL', { minimumFractionDigits: 2 })}</span>}
+                            </div>
+
+                            {projWerkbonnen.length === 0 && !projWbLoading && (
+                                <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                                    Geen werkbonnen gekoppeld aan dit project
+                                </div>
+                            )}
+
+                            {groepen.filter(g => g.bons.length > 0).map((groep, gi) => (
+                                <div key={gi} style={{ borderBottom: gi < groepen.filter(g => g.bons.length > 0).length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                    {/* Taak header */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 18px', background: groep.losGekoppeld ? '#f8fafc' : '#f0f9ff', borderBottom: '1px solid #e2e8f0' }}>
+                                        <i className={`fa-solid ${groep.completed ? 'fa-circle-check' : groep.losGekoppeld ? 'fa-folder' : 'fa-circle-half-stroke'}`}
+                                           style={{ color: groep.completed ? '#10b981' : groep.losGekoppeld ? '#94a3b8' : '#3b82f6', fontSize: '0.75rem' }} />
+                                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: groep.losGekoppeld ? '#94a3b8' : '#1e40af' }}>{groep.label}</span>
+                                        <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>· {groep.bons.length} bon{groep.bons.length !== 1 ? 'nen' : ''}</span>
+                                    </div>
+                                    {/* Werkbonnen in deze taak */}
+                                    {groep.bons.map((bon, bi) => (
+                                        <div key={bon.id} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 80px 80px 90px', gap: '8px', alignItems: 'center', padding: '8px 18px 8px 32px', borderBottom: bi < groep.bons.length - 1 ? '1px solid #f8fafc' : 'none', background: bi % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}>{bon.naam || 'Nader in te vullen'}</div>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{bon.medewerkerNaam} · {fmtDate(bon.datum)}</div>
+                                            </div>
+                                            <div style={{ fontSize: '0.8rem', color: '#1d4ed8', fontWeight: 700, textAlign: 'right' }}>{bon.uren ? `${bon.uren}u` : '—'}</div>
+                                            <div style={{ fontSize: '0.8rem', color: bon.arbeid ? '#1e293b' : '#94a3b8', textAlign: 'right' }}>{bon.arbeid ? `€ ${bon.arbeid.toFixed(2)}` : '—'}</div>
+                                            <div style={{ fontSize: '0.8rem', color: bon.mat > 0 ? '#1e293b' : '#94a3b8', textAlign: 'right' }}>{bon.mat > 0 ? `€ ${bon.mat.toFixed(2)}` : '—'}</div>
+                                            <div style={{ fontSize: '0.82rem', fontWeight: 800, color: bon.totaal ? '#7c3aed' : '#94a3b8', textAlign: 'right' }}>{bon.totaal ? `€ ${bon.totaal.toFixed(2)}` : '—'}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+
+                            {projWerkbonnen.length > 0 && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 80px 80px 90px', gap: '8px', alignItems: 'center', padding: '10px 18px', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', borderTop: '2px solid #e2e8f0' }}>
+                                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase' }}>Totaal</span>
+                                    <span style={{ fontSize: '0.82rem', color: '#1d4ed8', fontWeight: 800, textAlign: 'right' }}>{Math.round(totaalUren * 10) / 10}u</span>
+                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', textAlign: 'right' }}>€ {totaalArbeid.toFixed(2)}</span>
+                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', textAlign: 'right' }}>€ {totaalMat.toFixed(2)}</span>
+                                    <span style={{ fontSize: '0.88rem', fontWeight: 900, color: '#7c3aed', textAlign: 'right' }}>€ {totaalKosten.toFixed(2)}</span>
+                                </div>
+                            )}
+                        </div>
+                        );
+                    })()}
 
                     </div>
                 </div>

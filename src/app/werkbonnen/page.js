@@ -61,6 +61,7 @@ export default function WerkbonnenBeheer() {
     const [loading, setLoading] = useState(true);
     const [koppelId, setKoppelId] = useState(null);
     const [koppelZoek, setKoppelZoek] = useState('');
+    const [koppelProject, setKoppelProject] = useState(null);
     const [openBon, setOpenBon] = useState(null);
     const [bonMateriaal, setBonMateriaal] = useState({});
     const [bonUrenPerDag, setBonUrenPerDag] = useState({});
@@ -171,6 +172,7 @@ export default function WerkbonnenBeheer() {
     function toggleKoppel(id) {
         setKoppelId(prev => prev === id ? null : id);
         setKoppelZoek('');
+        setKoppelProject(null);
     }
 
     function selectBon(id) {
@@ -251,7 +253,7 @@ export default function WerkbonnenBeheer() {
         setWerkbonnen(prev => prev.map(b => b.id === id ? { ...b, naam } : b));
     }
 
-    async function koppelAanProject(werkbonId, project) {
+    async function koppelAanProject(werkbonId, project, taak) {
         await fetch(`/api/werkbonnen/${werkbonId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -262,14 +264,17 @@ export default function WerkbonnenBeheer() {
                 werkadres: project.address || null,
                 telefoon: project.phone || null,
                 projectActief: project.status === 'active',
+                taskId: taak?.id || null,
+                taskNaam: taak?.name || null,
             }),
         }).catch(() => {});
         setWerkbonnen(prev => prev.map(w => w.id === werkbonId
-            ? { ...w, projectId: String(project.id), projectNaam: project.name, opdrachtgever: project.client || null }
+            ? { ...w, projectId: String(project.id), projectNaam: project.name, opdrachtgever: project.client || null, taskId: taak?.id || null, taskNaam: taak?.name || null }
             : w
         ));
         setKoppelId(null);
-        router.push(`/projecten/${project.id}?tab=financien`);
+        setKoppelProject(null);
+        router.push(`/projecten/${project.id}?tab=bewaking`);
     }
 
     const totaalUren = Math.round(werkbonnen.reduce((s, w) => s + (parseFloat(w.uren) || 0), 0) * 10) / 10;
@@ -379,30 +384,30 @@ export default function WerkbonnenBeheer() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
                                     {bon.projectId ? (
-                                        <Link href={`/projecten/${bon.projectId}?tab=financien`}
+                                        <Link href={`/projecten/${bon.projectId}?tab=bewaking`}
                                             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '9px', fontSize: '0.78rem', fontWeight: 700, color: '#16a34a', textDecoration: 'none' }}>
                                             <i className="fa-solid fa-arrow-right" style={{ fontSize: '0.7rem' }} />
-                                            Bekijk in financiën
+                                            Bekijk in bewaking
                                         </Link>
                                     ) : null}
                                     <button onClick={() => toggleKoppel(bon.id)}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', background: koppelId === bon.id ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${koppelId === bon.id ? '#e2e8f0' : '#F5850A'}`, borderRadius: '9px', fontSize: '0.78rem', fontWeight: 700, color: koppelId === bon.id ? '#64748b' : '#F5850A', cursor: 'pointer' }}>
                                         <i className={`fa-solid ${koppelId === bon.id ? 'fa-xmark' : 'fa-folder-open'}`} style={{ fontSize: '0.7rem' }} />
-                                        {koppelId === bon.id ? 'Annuleren' : bon.projectId ? 'Project wijzigen' : 'Zet in financiën'}
+                                        {koppelId === bon.id ? 'Annuleren' : bon.projectId ? 'Project/taak wijzigen' : 'Koppel aan taak'}
                                     </button>
                                 </div>
                             </div>
 
 
-                            {/* Koppel panel */}
-                            {koppelId === bon.id && (
+                            {/* Koppel panel — stap 1: project kiezen */}
+                            {koppelId === bon.id && !koppelProject && (
                                 <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px' }}>
-                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>Koppel aan project</div>
+                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>Stap 1 — Kies project</div>
                                     <input value={koppelZoek} onChange={e => setKoppelZoek(e.target.value)} placeholder="Zoek project of opdrachtgever..." autoFocus
                                         style={{ width: '100%', maxWidth: '400px', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '10px' }} />
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
                                         {gefilterd.slice(0, 16).map(p => (
-                                            <button key={p.id} onClick={() => koppelAanProject(bon.id, p)}
+                                            <button key={p.id} onClick={() => { setKoppelProject(p); setKoppelZoek(''); }}
                                                 style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '9px', cursor: 'pointer', textAlign: 'left' }}>
                                                 <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: p.color || '#F5850A', flexShrink: 0, display: 'inline-block' }} />
                                                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -412,6 +417,38 @@ export default function WerkbonnenBeheer() {
                                             </button>
                                         ))}
                                         {gefilterd.length === 0 && <div style={{ fontSize: '0.82rem', color: '#94a3b8', fontStyle: 'italic' }}>Geen projecten gevonden</div>}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Koppel panel — stap 2: taak kiezen */}
+                            {koppelId === bon.id && koppelProject && (
+                                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                                        <button onClick={() => setKoppelProject(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '0', fontSize: '0.8rem' }}>
+                                            <i className="fa-solid fa-chevron-left" /> Terug
+                                        </button>
+                                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Stap 2 — Kies taak in <strong style={{ color: '#1e293b' }}>{koppelProject.name}</strong></span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
+                                        {(koppelProject.tasks || []).map(t => (
+                                            <button key={t.id} onClick={() => koppelAanProject(bon.id, koppelProject, t)}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 14px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '9px', cursor: 'pointer', textAlign: 'left' }}>
+                                                <i className={`fa-solid ${t.completed ? 'fa-circle-check' : 'fa-circle'}`} style={{ color: t.completed ? '#10b981' : '#cbd5e1', fontSize: '0.85rem', flexShrink: 0 }} />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                                                    {(t.startDate || t.endDate) && <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{t.startDate} → {t.endDate}</div>}
+                                                </div>
+                                            </button>
+                                        ))}
+                                        {(!koppelProject.tasks || koppelProject.tasks.length === 0) && (
+                                            <div style={{ fontSize: '0.82rem', color: '#94a3b8', fontStyle: 'italic' }}>Geen taken in dit project</div>
+                                        )}
+                                        <button onClick={() => koppelAanProject(bon.id, koppelProject, null)}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px', background: '#fff', border: '1.5px dashed #e2e8f0', borderRadius: '9px', cursor: 'pointer', textAlign: 'left', color: '#94a3b8', fontSize: '0.78rem' }}>
+                                            <i className="fa-solid fa-folder" />
+                                            Koppel alleen aan project (geen specifieke taak)
+                                        </button>
                                     </div>
                                 </div>
                             )}

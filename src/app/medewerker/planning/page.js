@@ -161,6 +161,13 @@ export default function MedewerkerPlanning() {
     const [werkbonZoek, setWerkbonZoek] = useState('');
     const [werkbonSaved, setWerkbonSaved] = useState(false);
     const [werkbonKoppelingOpgeslagen, setWerkbonKoppelingOpgeslagen] = useState(false);
+    const [showNieuwWerkbon, setShowNieuwWerkbon] = useState(false);
+    const [wbDetailUren, setWbDetailUren] = useState('');
+    const [wbDetailUrenSaved, setWbDetailUrenSaved] = useState(false);
+    const [wbMaterialen, setWbMaterialen] = useState([]);
+    const [wbMatNaam, setWbMatNaam] = useState('');
+    const [wbMatHoeveelheid, setWbMatHoeveelheid] = useState('1 stuk');
+    const [wbMatSaving, setWbMatSaving] = useState(false);
     const [materiaalPopup, setMateriaalPopup] = useState(null); // { dayIso, taskId }
     const [meerwerkUren, setMeerwerkUren] = useState('');
     const [ziekeNote, setZiekeNote] = useState('');
@@ -212,9 +219,24 @@ export default function MedewerkerPlanning() {
     const videoChunksRef = useRef([]);
     const timerRef = useRef(null);
 
+    // Haal projecten op van server zodat planning altijd up-to-date is
     useEffect(() => {
         if (!user) return;
-        setPlanning(getMyPlanningForWeek(user.id, week, year));
+        const uid = user.id;
+        const w = week;
+        const y = year;
+        // Direct tonen vanuit localStorage (snel)
+        setPlanning(getMyPlanningForWeek(uid, w, y));
+        // Daarna server ophalen en bijwerken
+        fetch('/api/projecten')
+            .then(r => r.json())
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    localStorage.setItem('schildersapp_projecten', JSON.stringify(data));
+                    setPlanning(getMyPlanningForWeek(uid, w, y));
+                }
+            })
+            .catch(() => {});
     }, [user, week, year]);
 
     const [weekUren, setWeekUren] = useState([]);
@@ -503,6 +525,7 @@ export default function MedewerkerPlanning() {
             const dagEntries = updatedList.filter(e =>
                 String(e.taskId) === String(detail.taskId) &&
                 e.date === detail.date &&
+                e.userId === user?.id &&
                 e.type !== 'ziek' && e.type !== 'andere' && e.type !== 'werkbon'
             );
             const totaal = Math.round(dagEntries.reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
@@ -857,10 +880,11 @@ export default function MedewerkerPlanning() {
         const naam = werkbonGeselecteerd?.naam || werkbonZoek.trim();
         if (!naam) return;
         const datum = detail?.date || new Date().toISOString().slice(0, 10);
+        let newWerkbonId = null;
         try {
             let res;
             if (werkbonGeselecteerd?.id) {
-                // Update bestaande werkbon: altijd datum opslaan, uren alleen als ingevuld
+                // Update bestaande werkbon
                 const body = { datum };
                 if (uren && uren > 0) body.uren = uren;
                 res = await fetch(`/api/werkbonnen/${werkbonGeselecteerd.id}`, {
@@ -869,8 +893,7 @@ export default function MedewerkerPlanning() {
                     body: JSON.stringify(body),
                 });
             } else {
-                // Nieuwe werkbon: uren verplicht
-                if (!uren || uren <= 0) return;
+                // Nieuwe werkbon aanmaken (uren is optioneel)
                 res = await fetch('/api/werkbonnen', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -879,21 +902,32 @@ export default function MedewerkerPlanning() {
                         medewerkerNaam: user?.name,
                         naam,
                         datum,
-                        uren,
-                        projectId: detail?.projectId || null,
-                        projectNaam: detail?.projectName || null,
+                        uren: uren || null,
+                        taskId: detail?.taskId || null,
+                        taskNaam: detail?.taskName || null,
                     }),
                 });
             }
             const data = await res.json();
             if (!data.ok) { alert('Opslaan mislukt: ' + (data.error || 'onbekende fout')); return; }
+            newWerkbonId = data.id || werkbonGeselecteerd?.id || null;
         } catch (e) {
             alert('Verbindingsfout: ' + e.message);
             return;
         }
-        // Ook lokaal opslaan zodat het zichtbaar is in de planningsweergave
-        const urenWaarde = uren && uren > 0 ? uren : null;
-        if (urenWaarde) {
+        // Zet selectedWerkbon zodat de bon zichtbaar blijft na opslaan
+        const wb = {
+            id: newWerkbonId,
+            naam,
+            datum,
+            uren: uren || null,
+            taskId: detail?.taskId || null,
+            taskNaam: detail?.taskName || null,
+        };
+        setSelectedWerkbon(wb);
+        setWbDetailUren(uren ? String(uren) : '');
+        // Lokaal opslaan voor de urenlijst weergave
+        if (uren && uren > 0) {
             const localEntry = {
                 id: Date.now(),
                 userId: user?.id,
@@ -903,9 +937,10 @@ export default function MedewerkerPlanning() {
                 taskId: detail?.taskId || null,
                 taskName: detail?.taskName || null,
                 date: datum,
-                hours: urenWaarde,
+                hours: uren,
                 type: 'werkbon',
                 werkbonNaam: naam,
+                werkbonId: newWerkbonId,
             };
             try {
                 const raw = localStorage.getItem('schildersapp_uren_registraties');
@@ -920,15 +955,21 @@ export default function MedewerkerPlanning() {
         setWerkbonGeselecteerd(null);
         setWerkbonZoek('');
         setUrenSection(null);
-        setTimeout(() => setWerkbonSaved(false), 2500);
+        setShowNieuwWerkbon(false);
+        setTimeout(() => setWerkbonSaved(false), 2000);
     }
 
-    async function saveWerkbonKoppeling() {
-        if (!selectedWerkbon?.id) return;
+    async function saveWerkbonKoppeling(werkbonOverride) {
+        const bon = werkbonOverride || selectedWerkbon;
+        if (!bon?.id) return;
         const datum = detail?.date || new Date().toISOString().slice(0, 10);
         try {
-            const body = { datum };
-            const res = await fetch(`/api/werkbonnen/${selectedWerkbon.id}`, {
+            const body = {
+                datum,
+                taskId: detail?.taskId || null,
+                taskNaam: detail?.taskName || null,
+            };
+            const res = await fetch(`/api/werkbonnen/${bon.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -951,8 +992,8 @@ export default function MedewerkerPlanning() {
             date: datum,
             hours: null,
             type: 'werkbon',
-            werkbonNaam: selectedWerkbon.naam,
-            werkbonId: selectedWerkbon.id,
+            werkbonNaam: bon.naam,
+            werkbonId: bon.id,
         };
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
@@ -970,8 +1011,91 @@ export default function MedewerkerPlanning() {
         setShowWerkbonPicker(false);
         setTimeout(() => {
             setWerkbonKoppelingOpgeslagen(false);
-            setSelectedWerkbon(null);
+            // selectedWerkbon blijft staan — bon blijft zichtbaar na koppelen
         }, 2000);
+    }
+
+    // Laad materialen als selectedWerkbon verandert
+    useEffect(() => {
+        if (!selectedWerkbon?.id) { setWbMaterialen([]); setWbDetailUren(''); return; }
+        fetch(`/api/werkbonnen/${selectedWerkbon.id}/materialen`)
+            .then(r => r.json())
+            .then(d => setWbMaterialen(d.materialen || []))
+            .catch(() => {});
+    }, [selectedWerkbon?.id]);
+
+    // Sync uren input met urenLijst voor vandaag (niet het DB-totaal van de werkbon)
+    useEffect(() => {
+        if (!selectedWerkbon?.id) return;
+        const dagUren = urenLijst
+            .filter(e => e.type !== 'werkbon' && e.type !== 'werkbon_uren' && e.type !== 'ziek' && e.type !== 'andere')
+            .reduce((s, e) => s + (e.hours || 0), 0);
+        setWbDetailUren(dagUren > 0 ? String(Math.round(dagUren * 10) / 10) : '');
+    }, [selectedWerkbon?.id, urenLijst]);
+
+    async function saveWbDetailUren() {
+        if (!selectedWerkbon?.id || !detail) return;
+        const uren = parseFloat(wbDetailUren);
+        if (!uren || uren <= 0) return;
+        const datum = detail.date || new Date().toISOString().slice(0, 10);
+        // Vervang bestaande werkbon_uren entry voor vandaag
+        const entry = {
+            id: Date.now(),
+            userId: user?.id,
+            userName: user?.name,
+            taskId: detail.taskId || null,
+            taskName: detail.taskName || null,
+            date: datum,
+            hours: uren,
+            type: 'werkbon_uren',
+            werkbonId: selectedWerkbon.id,
+            werkbonNaam: selectedWerkbon.naam,
+        };
+        setUrenLijst(prev => [...prev.filter(e => e.type !== 'werkbon_uren'), entry]);
+        try {
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const all = raw ? JSON.parse(raw) : [];
+            const gefilterd = all.filter(e => !(e.type === 'werkbon_uren' && String(e.taskId) === String(detail.taskId) && e.date === datum && e.userId === user?.id));
+            gefilterd.push(entry);
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(gefilterd));
+        } catch {}
+        // Patch ook de werkbon met het dag-totaal
+        try {
+            await fetch(`/api/werkbonnen/${selectedWerkbon.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uren }),
+            });
+        } catch {}
+        setWbDetailUrenSaved(true);
+        setTimeout(() => setWbDetailUrenSaved(false), 2000);
+    }
+
+    async function addWbMateriaal() {
+        if (!selectedWerkbon?.id || !wbMatNaam.trim()) return;
+        setWbMatSaving(true);
+        const res = await fetch(`/api/werkbonnen/${selectedWerkbon.id}/materialen`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ naam: wbMatNaam.trim(), hoeveelheid: wbMatHoeveelheid || '1 stuk', medewerkerNaam: user?.name || null }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            setWbMaterialen(prev => [...prev, { id: data.id, naam: wbMatNaam.trim(), hoeveelheid: wbMatHoeveelheid || '1 stuk' }]);
+            setWbMatNaam('');
+            setWbMatHoeveelheid('1 stuk');
+        }
+        setWbMatSaving(false);
+    }
+
+    async function deleteWbMateriaal(matId) {
+        if (!selectedWerkbon?.id) return;
+        await fetch(`/api/werkbonnen/${selectedWerkbon.id}/materialen`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ matId }),
+        });
+        setWbMaterialen(prev => prev.filter(m => m.id !== matId));
     }
 
     function getWerkbonIdVoorDag(taskId, dateIso) {
@@ -1341,26 +1465,28 @@ export default function MedewerkerPlanning() {
                                 setUrenSection('werkbon');
                             } catch {}
                         }
-                        // Zoek werkbonId voor deze dag (via ID of naam-matching)
-                        const raw = localStorage.getItem('schildersapp_uren_registraties');
-                        const allUren = raw ? JSON.parse(raw) : [];
-                        const wbEntry = allUren.find(e => e.type === 'werkbon' && String(e.taskId) === String(item.taskId) && e.date === dateIso);
-                        let wbId = wbEntry?.werkbonId || null;
-                        if (!wbId && wbEntry?.werkbonNaam) {
-                            const match = data.find(w => w.naam === wbEntry.werkbonNaam);
-                            if (match?.id) {
-                                wbId = match.id;
-                                // Backfill in localStorage
-                                try {
-                                    const updated = allUren.map(e =>
-                                        e.type === 'werkbon' && String(e.taskId) === String(item.taskId) && e.date === dateIso
-                                            ? { ...e, werkbonId: wbId }
-                                            : e
-                                    );
-                                    localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
-                                } catch {}
-                            }
+                        // Zoek gekoppelde werkbon: eerst via DB (taskId + datum), dan fallback localStorage
+                        let foundWb = null;
+                        if (item.taskId) {
+                            foundWb = data.find(w =>
+                                String(w.taskId) === String(item.taskId) &&
+                                w.datum && w.datum.slice(0, 10) === dateIso
+                            );
                         }
+                        if (!foundWb) {
+                            // Fallback: zoek via localStorage
+                            const raw = localStorage.getItem('schildersapp_uren_registraties');
+                            const allUren = raw ? JSON.parse(raw) : [];
+                            const wbEntry = allUren.find(e => e.type === 'werkbon' && String(e.taskId) === String(item.taskId) && e.date === dateIso);
+                            let wbId = wbEntry?.werkbonId || null;
+                            if (!wbId && wbEntry?.werkbonNaam) {
+                                const match = data.find(w => w.naam === wbEntry.werkbonNaam);
+                                if (match?.id) wbId = match.id;
+                            }
+                            if (wbId) foundWb = data.find(w => String(w.id) === String(wbId));
+                        }
+                        if (foundWb) setSelectedWerkbon(foundWb);
+                        const wbId = foundWb?.id || null;
                         if (!wbId) return;
                         // Haal DB-materialen op
                         const matRes = await fetch(`/api/werkbonnen/${wbId}/materialen`).then(r => r.json()).catch(() => null);
@@ -1811,65 +1937,25 @@ export default function MedewerkerPlanning() {
                                 );
                             })()}
 
-                            {/* Werkbon selector */}
-                            <div style={{ marginBottom: '10px' }}>
-                                <button onClick={() => { setShowWerkbonPicker(v => !v); setShowProjectChange(false); setWerkbonSearch(''); }}
-                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: selectedWerkbon ? '#fff8f0' : '#f8fafc', border: `1.5px solid ${selectedWerkbon ? '#F5850A' : '#e2e8f0'}`, borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
-                                    <i className="fa-solid fa-file-pen" style={{ color: selectedWerkbon ? '#F5850A' : '#94a3b8', fontSize: '0.85rem' }} />
-                                    <span style={{ flex: 1, fontSize: '0.84rem', fontWeight: selectedWerkbon ? 700 : 500, color: selectedWerkbon ? '#F5850A' : '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {selectedWerkbon ? selectedWerkbon.naam : 'Werkbon koppelen of aanmaken...'}
-                                    </span>
-                                    <i className={`fa-solid fa-chevron-${showWerkbonPicker ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.7rem' }} />
-                                </button>
-
-                                {showWerkbonPicker && (
-                                    <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '10px', marginTop: '6px' }}>
-                                        <input value={werkbonSearch} onChange={e => setWerkbonSearch(e.target.value)}
-                                            placeholder="Zoek werkbon..."
-                                            autoFocus
-                                            style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
-                                        {werkbonnen
-                                            .filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase()) || w.projectNaam?.toLowerCase().includes(werkbonSearch.toLowerCase()))
-                                            .slice(0, 6)
-                                            .map(w => (
-                                                <div key={w.id} onClick={() => { setSelectedWerkbon(w); setShowWerkbonPicker(false); }}
-                                                    style={{ padding: '8px 10px', borderRadius: '9px', border: `1.5px solid ${selectedWerkbon?.id === w.id ? '#F5850A' : '#e2e8f0'}`, marginBottom: '5px', cursor: 'pointer', background: selectedWerkbon?.id === w.id ? '#fff8f0' : '#fff' }}>
-                                                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{w.naam}</div>
-                                                    {w.projectNaam && <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginTop: '1px' }}>{w.projectNaam}</div>}
-                                                </div>
-                                            ))}
-                                        {werkbonnen.filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase()) || w.projectNaam?.toLowerCase().includes(werkbonSearch.toLowerCase())).length === 0 && (
-                                            <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '8px 0' }}>Geen werkbonnen gevonden</div>
-                                        )}
-                                        <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '8px' }}>
-                                            <button onClick={() => { window.location.href = '/medewerker/werkbonnen?nieuw=1'; }}
-                                                style={{ width: '100%', padding: '9px', background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                                <i className="fa-solid fa-plus" /> Nieuwe werkbon aanmaken
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                                {/* Wijziging opslaan knop — zichtbaar als werkbon geselecteerd */}
-                                {selectedWerkbon && (
-                                    <button onClick={saveWerkbonKoppeling}
-                                        style={{ width: '100%', marginTop: '6px', padding: '10px 14px', background: werkbonKoppelingOpgeslagen ? '#10b981' : 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', transition: 'background 0.2s' }}>
-                                        <i className={`fa-solid ${werkbonKoppelingOpgeslagen ? 'fa-check' : 'fa-floppy-disk'}`} style={{ fontSize: '0.82rem' }} />
-                                        {werkbonKoppelingOpgeslagen ? 'Opgeslagen!' : `Wijziging opslaan — ${selectedWerkbon.naam}`}
-                                    </button>
-                                )}
-                            </div>
                             {/* Tabs */}
-                            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '12px', padding: '4px', marginBottom: '0' }}>
-                                {[['info','fa-circle-info','Info'],['checklist','fa-list-check','Checklist'],['uren','fa-clock','Uren']].map(([t, ic, l]) => (
+                            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '12px', padding: '4px', marginBottom: '0', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                                {[['info','fa-circle-info','Info'],['checklist','fa-list-check','Checklist'],['uren','fa-clock','Uren'],['werkbon','fa-file-pen','Werkbon'],['materialen','fa-box-open','Materiaal']].map(([t, ic, l]) => (
                                     <button key={t} onClick={() => setDetailTab(t)}
-                                        style={{ flex: 1, padding: '8px 4px', borderRadius: '9px', border: 'none',
+                                        style={{ flexShrink: 0, padding: '8px 10px', borderRadius: '9px', border: 'none',
                                             background: detailTab === t ? '#fff' : 'transparent',
                                             color: detailTab === t ? '#F5850A' : '#64748b',
                                             fontWeight: detailTab === t ? 700 : 500, fontSize: '0.75rem', cursor: 'pointer',
                                             boxShadow: detailTab === t ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s' }}>
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s',
+                                            position: 'relative' }}>
                                         <i className={`fa-solid ${ic}`} style={{ fontSize: '0.7rem' }} />
                                         {l}
+                                        {t === 'werkbon' && selectedWerkbon && (
+                                            <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#F5850A' }} />
+                                        )}
+                                        {t === 'materialen' && wbMaterialen.length > 0 && (
+                                            <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }} />
+                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -2943,6 +3029,195 @@ export default function MedewerkerPlanning() {
                                     </div>
                                 );
                             })()}
+
+                            {/* ===== WERKBON TAB ===== */}
+                            {detailTab === 'werkbon' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+                                    {/* Succes feedback */}
+                                    {(werkbonSaved || werkbonKoppelingOpgeslagen) && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '12px', padding: '10px 14px', color: '#16a34a', fontWeight: 700, fontSize: '0.85rem' }}>
+                                            <i className="fa-solid fa-circle-check" />
+                                            {werkbonSaved ? 'Werkbon aangemaakt!' : 'Werkbon gekoppeld!'}
+                                        </div>
+                                    )}
+
+                                    {/* Gekoppelde werkbon: header + uren + materialen */}
+                                    {selectedWerkbon && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+
+                                            {/* Naam header */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fff8f0', border: '1.5px solid #F5850A', borderRadius: '12px', padding: '12px 14px' }}>
+                                                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <i className="fa-solid fa-file-pen" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedWerkbon.naam}</div>
+                                                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Werkbon gekoppeld aan deze dag</div>
+                                                </div>
+                                                <button onClick={() => setSelectedWerkbon(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px', fontSize: '0.8rem' }}>
+                                                    <i className="fa-solid fa-xmark" />
+                                                </button>
+                                            </div>
+
+                                            {/* Uren */}
+                                            <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
+                                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Uren</div>
+                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                    <input type="number" min="0" step="0.5" value={wbDetailUren} onChange={e => setWbDetailUren(e.target.value)}
+                                                        placeholder="0"
+                                                        style={{ flex: 1, padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.95rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>uur</span>
+                                                    <button onClick={saveWbDetailUren}
+                                                        style={{ padding: '9px 16px', borderRadius: '9px', border: 'none', background: wbDetailUrenSaved ? '#16a34a' : 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                                        {wbDetailUrenSaved ? <><i className="fa-solid fa-check" /> Opgeslagen</> : 'Opslaan'}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    )}
+
+                                    {/* Geen werkbon: toon acties */}
+                                    {!selectedWerkbon && !showNieuwWerkbon && !showWerkbonPicker && (
+                                        <div style={{ textAlign: 'center', padding: '20px 0 8px' }}>
+                                            <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: '#fff8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
+                                                <i className="fa-solid fa-file-pen" style={{ color: '#F5850A', fontSize: '1.2rem' }} />
+                                            </div>
+                                            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>Nog geen werkbon</div>
+                                            <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '20px' }}>Maak een nieuwe aan of koppel een bestaande</div>
+                                        </div>
+                                    )}
+
+                                    {/* Actieknoppen als geen bon gekoppeld en geen formulier open */}
+                                    {!selectedWerkbon && !showNieuwWerkbon && !showWerkbonPicker && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <button onClick={() => { setShowNieuwWerkbon(true); setShowWerkbonPicker(false); }}
+                                                style={{ width: '100%', padding: '13px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', color: '#fff', fontWeight: 800, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(245,133,10,0.35)' }}>
+                                                <i className="fa-solid fa-plus" /> Nieuwe werkbon aanmaken
+                                            </button>
+                                            <button onClick={() => { setShowWerkbonPicker(true); setShowNieuwWerkbon(false); setWerkbonSearch(''); }}
+                                                style={{ width: '100%', padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 700, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                <i className="fa-solid fa-link" /> Koppel bestaande werkbon
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Formulier: nieuwe werkbon */}
+                                    {showNieuwWerkbon && (
+                                        <div style={{ background: '#fff', borderRadius: '14px', padding: '16px', border: '1.5px solid #f1f5f9', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+                                            <div style={{ marginBottom: '10px' }}>
+                                                <input type="text" value={werkbonZoek} onChange={e => setWerkbonZoek(e.target.value)}
+                                                    placeholder="Wat heb je gedaan?" autoFocus
+                                                    style={{ width: '100%', padding: '11px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                                                <input type="number" min="0" step="0.5" value={werkbonUren} onChange={e => setWerkbonUren(e.target.value)}
+                                                    placeholder="Uur"
+                                                    style={{ padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                                                <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.82rem', color: '#475569', fontWeight: 600 }}>
+                                                    {detail?.date ? new Date(detail.date + 'T00:00:00').toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Vandaag'}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                                <button onClick={() => saveWerkbonUren()} disabled={!werkbonZoek.trim()}
+                                                    style={{ padding: '11px', borderRadius: '10px', border: 'none', cursor: werkbonZoek.trim() ? 'pointer' : 'not-allowed', background: werkbonZoek.trim() ? 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)' : '#e2e8f0', color: werkbonZoek.trim() ? '#fff' : '#94a3b8', fontWeight: 800, fontSize: '0.88rem' }}>
+                                                    Opslaan
+                                                </button>
+                                                <button onClick={() => { setShowNieuwWerkbon(false); setWerkbonZoek(''); setWerkbonUren(''); }}
+                                                    style={{ padding: '11px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer' }}>
+                                                    Annuleren
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Zoeklijst: bestaande werkbon koppelen */}
+                                    {showWerkbonPicker && (
+                                        <div style={{ background: '#fff', borderRadius: '14px', padding: '14px', border: '1.5px solid #f1f5f9', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+                                            <input value={werkbonSearch} onChange={e => setWerkbonSearch(e.target.value)}
+                                                placeholder="Zoek werkbon..." autoFocus
+                                                style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '200px', overflowY: 'auto' }}>
+                                                {werkbonnen.filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase())).slice(0, 8).map(w => (
+                                                    <div key={w.id} onClick={() => { setSelectedWerkbon(w); setShowWerkbonPicker(false); saveWerkbonKoppeling(w); }}
+                                                        style={{ padding: '9px 12px', borderRadius: '9px', border: '1.5px solid #e2e8f0', cursor: 'pointer', background: '#fafafa' }}>
+                                                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{w.naam}</div>
+                                                        <div style={{ fontSize: '0.71rem', color: '#94a3b8' }}>{w.datum ? new Date(w.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}</div>
+                                                    </div>
+                                                ))}
+                                                {werkbonnen.filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase())).length === 0 && (
+                                                    <div style={{ fontSize: '0.82rem', color: '#94a3b8', textAlign: 'center', padding: '12px 0' }}>Geen werkbonnen gevonden</div>
+                                                )}
+                                            </div>
+                                            <button onClick={() => setShowWerkbonPicker(false)}
+                                                style={{ width: '100%', marginTop: '10px', padding: '9px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                                Annuleren
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Onderaan: andere werkbon koppelen als er al een is */}
+                                    {selectedWerkbon && !showNieuwWerkbon && !showWerkbonPicker && (
+                                        <button onClick={() => { setSelectedWerkbon(null); setShowWerkbonPicker(false); setShowNieuwWerkbon(false); setWbMaterialen([]); setWbDetailUren(''); }}
+                                            style={{ width: '100%', padding: '9px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#94a3b8', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                            Andere werkbon kiezen
+                                        </button>
+                                    )}
+
+                                </div>
+                            )}
+
+                            {/* ── Materialen tab ── */}
+                            {detailTab === 'materialen' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+                                    {/* Bestaande materialen */}
+                                    {wbMaterialen.length > 0 ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            {wbMaterialen.map(m => (
+                                                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '10px' }}>
+                                                    <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.78rem', flexShrink: 0 }} />
+                                                    <span style={{ flex: 1, fontSize: '0.88rem', color: '#1e293b', fontWeight: 600 }}>{m.naam}</span>
+                                                    <span style={{ fontSize: '0.78rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', padding: '2px 8px' }}>{m.hoeveelheid}</span>
+                                                    <button onClick={() => deleteWbMateriaal(m.id)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px 6px', fontSize: '0.78rem' }}>
+                                                        <i className="fa-solid fa-xmark" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div style={{ textAlign: 'center', padding: '24px 0 8px' }}>
+                                            <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
+                                                <i className="fa-solid fa-box-open" style={{ color: '#10b981', fontSize: '1.2rem' }} />
+                                            </div>
+                                            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>Nog geen materiaal</div>
+                                            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Voeg materialen toe die je hebt gebruikt</div>
+                                        </div>
+                                    )}
+
+                                    {/* Nieuw materiaal toevoegen */}
+                                    <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
+                                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Materiaal toevoegen</div>
+                                        <div style={{ display: 'flex', gap: '6px' }}>
+                                            <input type="text" value={wbMatNaam} onChange={e => setWbMatNaam(e.target.value)}
+                                                placeholder="Materiaal toevoegen..."
+                                                onKeyDown={e => { if (e.key === 'Enter' && wbMatNaam.trim()) addWbMateriaal(); }}
+                                                style={{ flex: 1, padding: '9px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                            <input type="text" value={wbMatHoeveelheid} onChange={e => setWbMatHoeveelheid(e.target.value)}
+                                                placeholder="Aantal"
+                                                style={{ width: '70px', padding: '9px 8px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                            <button onClick={addWbMateriaal} disabled={!wbMatNaam.trim() || wbMatSaving}
+                                                style={{ padding: '9px 14px', borderRadius: '8px', border: 'none', background: wbMatNaam.trim() ? '#10b981' : '#e2e8f0', color: wbMatNaam.trim() ? '#fff' : '#94a3b8', cursor: wbMatNaam.trim() ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.9rem' }}>
+                                                <i className="fa-solid fa-plus" />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            )}
+
                         </div>
                     </div>
                 </>

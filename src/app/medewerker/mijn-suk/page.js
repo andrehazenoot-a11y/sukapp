@@ -173,7 +173,12 @@ export default function MijnSuk() {
         setNotities(loadLS(`schildersapp_notities_${user.id}`, []));
         setBestellingen(loadLS(`schildersapp_bestellingen_${user.id}`, []));
         setProjecten((loadLS('schildersapp_projecten', [])).map(p => p.name));
+        // Laad eerst lokale meetings, daarna admin-meetings van de server
         setTbMeetings(loadTbMeetings());
+        fetch('/api/medewerker-toolbox')
+            .then(r => r.json())
+            .then(data => { if (Array.isArray(data) && data.length > 0) setTbMeetings(data); })
+            .catch(() => {});
         const h = getEnabledHolidays();
         setHolidays(h);
         // Sync bestaande verlofaanvragen direct naar dashboard bij laden
@@ -816,28 +821,44 @@ export default function MijnSuk() {
                                         <i className="fa-solid fa-toolbox" style={{ color:'#F5850A', fontSize:'1.1rem' }} />
                                     </div>
                                     <div>
-                                        <div style={{ fontWeight:800, fontSize:'1rem', color:'#1e293b' }}>{tbSelected.onderwerp}</div>
-                                        <div style={{ fontSize:'0.78rem', color:'#64748b' }}>{tbSelected.datum} · {tbSelected.project}</div>
+                                        <div style={{ fontWeight:800, fontSize:'1rem', color:'#1e293b' }}>{tbSelected.titel || tbSelected.onderwerp}</div>
+                                        <div style={{ fontSize:'0.78rem', color:'#64748b' }}>{tbSelected.datum}{tbSelected.project ? ` · ${tbSelected.project}` : ''}</div>
                                     </div>
                                 </div>
-                                <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'4px' }}>Aangemaakt door</div>
-                                <div style={{ fontSize:'0.9rem', color:'#1e293b', marginBottom:'16px' }}>{tbSelected.aangemaaktDoor}</div>
-                                {tbSelected.notities && <>
-                                    <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'4px' }}>Notities</div>
-                                    <div style={{ fontSize:'0.88rem', color:'#334155', background:'#f8fafc', borderRadius:'8px', padding:'10px 12px', marginBottom:'16px', whiteSpace:'pre-wrap' }}>{tbSelected.notities}</div>
+                                {(tbSelected.aangemaaktDoor || tbSelected.aangemaakt_op) && <>
+                                    <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'4px' }}>Aangemaakt door</div>
+                                    <div style={{ fontSize:'0.9rem', color:'#1e293b', marginBottom:'16px' }}>{tbSelected.aangemaaktDoor || fmtDate(tbSelected.aangemaakt_op?.slice(0,10))}</div>
                                 </>}
-                                <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'8px' }}>Aanwezig ({tbSelected.aanwezig.length})</div>
-                                {tbSelected.aanwezig.length === 0 && <div style={{ color:'#94a3b8', fontSize:'0.85rem' }}>Geen aanwezigen geregistreerd</div>}
-                                {tbSelected.aanwezig.map((h,i) => (
+                                {(tbSelected.beschrijving || tbSelected.notities) && <>
+                                    <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'4px' }}>Omschrijving</div>
+                                    <div style={{ fontSize:'0.88rem', color:'#334155', background:'#f8fafc', borderRadius:'8px', padding:'10px 12px', marginBottom:'16px', whiteSpace:'pre-wrap' }}>{tbSelected.beschrijving || tbSelected.notities}</div>
+                                </>}
+                                {tbSelected.bestanden?.length > 0 && <>
+                                    <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'8px' }}>Bestanden ({tbSelected.bestanden.length})</div>
+                                    {tbSelected.bestanden.map(b => (
+                                        <a key={b.bestand_id} href={`/api/medewerker-toolbox/bestand/${b.bestand_id}`} target="_blank" rel="noreferrer"
+                                            style={{ display:'flex', alignItems:'center', gap:'10px', padding:'10px 12px', background:'#f8fafc', borderRadius:'9px', marginBottom:'6px', textDecoration:'none', color:'#1e293b' }}>
+                                            <i className="fa-solid fa-file" style={{ color:'#F5850A' }} />
+                                            <span style={{ fontSize:'0.88rem', fontWeight:600 }}>{b.originele_naam || b.bestandsnaam}</span>
+                                            <i className="fa-solid fa-arrow-down-to-line" style={{ marginLeft:'auto', color:'#94a3b8', fontSize:'0.8rem' }} />
+                                        </a>
+                                    ))}
+                                    <div style={{ marginBottom:'10px' }} />
+                                </>}
+                                <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'8px' }}>Aanwezig ({tbSelected.aanwezig?.length ?? 0})</div>
+                                {!tbSelected.aanwezig?.length && <div style={{ color:'#94a3b8', fontSize:'0.85rem' }}>Geen aanwezigen geregistreerd</div>}
+                                {tbSelected.aanwezig?.map((h,i) => (
                                     <div key={i} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 0', borderBottom:'1px solid #f1f5f9' }}>
                                         <i className={`fa-solid ${h.getekend?'fa-circle-check':'fa-circle-xmark'}`} style={{ color:h.getekend?'#22c55e':'#94a3b8' }} />
                                         <span style={{ fontSize:'0.9rem', color:'#1e293b' }}>{h.naam}</span>
                                         {h.getekend && <span style={{ marginLeft:'auto', fontSize:'0.72rem', color:'#22c55e', fontWeight:600 }}>Getekend</span>}
                                     </div>
                                 ))}
-                                <button onClick={() => tbVerwijder(tbSelected.id)} style={{ marginTop:'20px', width:'100%', padding:'11px', borderRadius:'10px', border:'1px solid #fee2e2', background:'#fff5f5', color:'#ef4444', fontWeight:700, cursor:'pointer', fontSize:'0.9rem' }}>
-                                    <i className="fa-solid fa-trash" style={{ marginRight:'8px' }} />Verwijderen
-                                </button>
+                                {!tbSelected.aangemaakt_op && (
+                                    <button onClick={() => tbVerwijder(tbSelected.id)} style={{ marginTop:'20px', width:'100%', padding:'11px', borderRadius:'10px', border:'1px solid #fee2e2', background:'#fff5f5', color:'#ef4444', fontWeight:700, cursor:'pointer', fontSize:'0.9rem' }}>
+                                        <i className="fa-solid fa-trash" style={{ marginRight:'8px' }} />Verwijderen
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ) : tbView === 'nieuw' ? (
@@ -912,8 +933,8 @@ export default function MijnSuk() {
                                         <i className="fa-solid fa-toolbox" style={{ color:'#F5850A', fontSize:'1rem' }} />
                                     </div>
                                     <div style={{ flex:1, minWidth:0 }}>
-                                        <div style={{ fontWeight:700, fontSize:'0.9rem', color:'#1e293b', marginBottom:'2px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.onderwerp}</div>
-                                        <div style={{ fontSize:'0.82rem', color:'#64748b' }}>{m.datum} · {m.project}</div>
+                                        <div style={{ fontWeight:700, fontSize:'0.9rem', color:'#1e293b', marginBottom:'2px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.titel || m.onderwerp}</div>
+                                        <div style={{ fontSize:'0.82rem', color:'#64748b' }}>{m.datum}{m.project ? ` · ${m.project}` : ''}</div>
                                     </div>
                                     <div style={{ textAlign:'right', flexShrink:0 }}>
                                         <div style={{ fontSize:'0.72rem', color: m.aanwezig.filter(a=>a.getekend).length===m.aanwezig.length&&m.aanwezig.length>0?'#22c55e':'#94a3b8', fontWeight:600 }}>

@@ -208,31 +208,15 @@ export default function MedewerkerHome() {
         setWeekUren(getWeekHours(user.id));
         setOpenTaken(getMyOpenTasks(user.id));
 
-        // Verjaardagen laden
-        try {
-            const users = getAllUsers();
-            const nu = new Date(); nu.setHours(0,0,0,0);
-            const lijst = [];
-            for (const u of users) {
-                if (u.id === user.id) continue;
-                const p = JSON.parse(localStorage.getItem(`schildersapp_profiel_${u.id}`) || '{}');
-                if (!p.geboortedatum) continue;
-                const geb = new Date(p.geboortedatum + 'T00:00:00');
-                const ditJaar = new Date(nu.getFullYear(), geb.getMonth(), geb.getDate());
-                let diff = Math.round((ditJaar - nu) / 86400000);
-                if (diff < 0) diff += 365;
-                if (diff <= 7) {
-                    lijst.push({ naam: u.name.split(' ')[0], daysUntil: diff, leeftijd: nu.getFullYear() - geb.getFullYear() });
-                }
-            }
-            setVerjaardagen(lijst.sort((a, b) => a.daysUntil - b.daysUntil));
-        } catch {}
+        // Verjaardagen worden geladen via API hieronder
 
-        // Nieuws laden
-        try {
-            const raw = localStorage.getItem('schildersapp_nieuws');
-            setNieuws(raw ? JSON.parse(raw) : []);
-        } catch {}
+        // Nieuws laden via API
+        fetch('/api/nieuws').then(r => r.json()).then(data => { if (Array.isArray(data)) setNieuws(data); }).catch(() => {});
+
+        // Verjaardagen laden via API (alleen komende 14 dagen tonen)
+        fetch('/api/verjaardagen').then(r => r.json()).then(data => {
+            if (Array.isArray(data)) setVerjaardagen(data.filter(v => v.dagenTot <= 14));
+        }).catch(() => {});
 
         // Toolbox meetings laden
         try {
@@ -295,13 +279,18 @@ export default function MedewerkerHome() {
     const TARGET = 37.5;
     const pct = Math.min(100, Math.round((weekUren / TARGET) * 100));
 
-    function handleNieuwsOpslaan() {
+    async function handleNieuwsOpslaan() {
         if (!nieuwsTitel.trim()) return;
-        const item = { id: Date.now(), titel: nieuwsTitel.trim(), bericht: nieuwsBericht.trim(), foto: nieuwsFoto, auteur: user.name, datum: new Date().toISOString() };
-        const updated = [item, ...nieuws];
-        setNieuws(updated);
-        localStorage.setItem('schildersapp_nieuws', JSON.stringify(updated));
-        setNieuwsTitel(''); setNieuwsBericht(''); setNieuwsFoto(null); setNieuwsFormOpen(false);
+        try {
+            const res = await fetch('/api/nieuws', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ titel: nieuwsTitel, bericht: nieuwsBericht, foto: nieuwsFoto, auteur: user.name, auteur_id: user.id }),
+            });
+            const item = await res.json();
+            setNieuws(prev => [item, ...prev]);
+            setNieuwsTitel(''); setNieuwsBericht(''); setNieuwsFoto(null); setNieuwsFormOpen(false);
+        } catch {}
     }
 
     function handleNieuwsFoto(e) {
@@ -312,10 +301,9 @@ export default function MedewerkerHome() {
         reader.readAsDataURL(file);
     }
 
-    function handleNieuwsVerwijder(id) {
-        const updated = nieuws.filter(n => n.id !== id);
-        setNieuws(updated);
-        localStorage.setItem('schildersapp_nieuws', JSON.stringify(updated));
+    async function handleNieuwsVerwijder(id) {
+        setNieuws(prev => prev.filter(n => n.id !== id));
+        await fetch(`/api/nieuws/${id}`, { method: 'DELETE' }).catch(() => {});
     }
 
     const TOOLBOX_ONDERWERPEN = ['Veilig werken op hoogte','Gevaarlijke stoffen / CMR','PBM gebruik','Valbeveiliging','Gereedschap & machines','LMRA (Laatste Minuut Risico Analyse)','Orde & netheid op de bouwplaats','Incident/bijna-incident melden','Ergonomie & tillen','Anders'];
@@ -436,23 +424,23 @@ export default function MedewerkerHome() {
             {/* Verjaardagen */}
             {verjaardagen.length > 0 && (
                 <div style={{ marginBottom: '22px' }}>
-                    <SectionHeader title="Collega's" />
-                    {verjaardagen.map((v, i) => (
-                        <div key={i} style={{
-                            background: v.daysUntil === 0 ? '#f0fdf4' : '#fff8f0',
+                    <SectionHeader title="Verjaardagen" />
+                    {verjaardagen.map((v) => (
+                        <div key={v.id} style={{
+                            background: v.dagenTot === 0 ? '#f0fdf4' : '#fff8f0',
                             borderRadius: '12px',
-                            border: `1px solid ${v.daysUntil === 0 ? '#86efac' : '#fde8cc'}`,
+                            border: `1px solid ${v.dagenTot === 0 ? '#86efac' : '#fde8cc'}`,
                             padding: '11px 14px', display: 'flex', alignItems: 'center', gap: '12px',
-                            marginBottom: i < verjaardagen.length - 1 ? '8px' : 0,
+                            marginBottom: '8px',
                         }}>
                             <span style={{ fontSize: '1.5rem', lineHeight: 1 }}>🎂</span>
                             <div style={{ flex: 1 }}>
                                 <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b' }}>
-                                    {v.daysUntil === 0
+                                    {v.dagenTot === 0
                                         ? `${v.naam} is vandaag jarig! 🎉`
-                                        : `${v.naam} is over ${v.daysUntil} dag${v.daysUntil === 1 ? '' : 'en'} jarig`}
+                                        : `${v.naam} is over ${v.dagenTot} dag${v.dagenTot === 1 ? '' : 'en'} jarig`}
                                 </div>
-                                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>{v.leeftijd} jaar</div>
+                                {v.notitie && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>{v.notitie}</div>}
                             </div>
                         </div>
                     ))}

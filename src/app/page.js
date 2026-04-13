@@ -18,6 +18,28 @@ export default function Home() {
   const [docFout, setDocFout]         = useState(null);
   const [werkbonnen, setWerkbonnen]   = useState([]);
   const [werkbonOpen, setWerkbonOpen] = useState({});
+  const [nieuws, setNieuws] = useState([]);
+  const [nieuwsFormOpen, setNieuwsFormOpen] = useState(false);
+  const [nieuwsTitel, setNieuwsTitel] = useState('');
+  const [nieuwsBericht, setNieuwsBericht] = useState('');
+  const [nieuwsFoto, setNieuwsFoto] = useState(null);
+  const [nieuwsSaving, setNieuwsSaving] = useState(false);
+  const nieuwsFotoRef = useRef();
+  const [verjaardagen, setVerjaardagen] = useState([]);
+  const [vjFormOpen, setVjFormOpen] = useState(false);
+  const [vjNaam, setVjNaam] = useState('');
+  const [vjDatum, setVjDatum] = useState('');
+  const [vjNotitie, setVjNotitie] = useState('');
+  const [vjSyncing, setVjSyncing] = useState(false);
+  const [vjSyncResult, setVjSyncResult] = useState(null);
+  const [tbMeetings, setTbMeetings] = useState([]);
+  const [tbFormOpen, setTbFormOpen] = useState(false);
+  const [tbTitel, setTbTitel] = useState('');
+  const [tbDatum, setTbDatum] = useState('');
+  const [tbBeschrijving, setTbBeschrijving] = useState('');
+  const [tbSaving, setTbSaving] = useState(false);
+  const [tbUploading, setTbUploading] = useState({});
+  const tbBestandRef = useRef({});
 const docInputRef                   = useRef();
 
   // Live stats uit localStorage
@@ -43,7 +65,131 @@ const docInputRef                   = useRef();
   useEffect(() => {
     fetch('/api/documenten?alle=1').then(r => r.json()).then(data => { if (Array.isArray(data)) setDocs(data); }).catch(() => {});
     fetch('/api/werkbonnen').then(r => r.json()).then(data => { if (Array.isArray(data)) setWerkbonnen(data); }).catch(() => {});
+    fetch('/api/nieuws').then(r => r.json()).then(data => { if (Array.isArray(data)) setNieuws(data); }).catch(() => {});
+    fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(data)) setVerjaardagen(data); }).catch(() => {});
+    fetch('/api/beheerder-toolbox').then(r => r.json()).then(data => { if (Array.isArray(data)) setTbMeetings(data); }).catch(() => {});
   }, []);
+
+  async function handleNieuwsOpslaan() {
+    if (!nieuwsTitel.trim() || nieuwsSaving) return;
+    setNieuwsSaving(true);
+    try {
+      const res = await fetch('/api/nieuws', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titel: nieuwsTitel, bericht: nieuwsBericht, foto: nieuwsFoto, auteur: user?.name, auteur_id: user?.id }),
+      });
+      const item = await res.json();
+      setNieuws(prev => [item, ...prev]);
+      setNieuwsTitel(''); setNieuwsBericht(''); setNieuwsFoto(null); setNieuwsFormOpen(false);
+    } catch {}
+    setNieuwsSaving(false);
+  }
+
+  async function handleNieuwsVerwijder(id) {
+    setNieuws(prev => prev.filter(n => n.id !== id));
+    await fetch(`/api/nieuws/${id}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  function handleNieuwsFoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setNieuwsFoto(ev.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleVjOpslaan() {
+    if (!vjNaam.trim() || !vjDatum) return;
+    // datum is full date (YYYY-MM-DD) → bewaar als MM-DD
+    const mmdd = vjDatum.slice(5); // '2000-03-15' → '03-15'
+    try {
+      const res = await fetch('/api/verjaardagen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ naam: vjNaam, datum: mmdd, notitie: vjNotitie }),
+      });
+      const item = await res.json();
+      setVerjaardagen(prev => [...prev, item].sort((a, b) => a.dagenTot - b.dagenTot));
+      setVjNaam(''); setVjDatum(''); setVjNotitie(''); setVjFormOpen(false);
+    } catch {}
+  }
+
+  async function handleVjVerwijder(id) {
+    setVerjaardagen(prev => prev.filter(v => v.id !== id));
+    await fetch(`/api/verjaardagen/${id}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  async function handleTbOpslaan() {
+    if (!tbTitel.trim() || !tbDatum || tbSaving) return;
+    setTbSaving(true);
+    try {
+      const res = await fetch('/api/beheerder-toolbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titel: tbTitel, datum: tbDatum, beschrijving: tbBeschrijving }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        fetch('/api/beheerder-toolbox').then(r => r.json()).then(d => { if (Array.isArray(d)) setTbMeetings(d); }).catch(() => {});
+        setTbTitel(''); setTbDatum(''); setTbBeschrijving(''); setTbFormOpen(false);
+      }
+    } catch {}
+    setTbSaving(false);
+  }
+
+  async function handleTbVerwijder(id) {
+    if (!window.confirm('Meeting verwijderen?')) return;
+    setTbMeetings(prev => prev.filter(m => m.id !== id));
+    await fetch(`/api/beheerder-toolbox/${id}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  async function handleTbBestandUpload(meetingId, e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTbUploading(prev => ({ ...prev, [meetingId]: true }));
+    const fd = new FormData();
+    fd.append('bestand', file);
+    try {
+      const res = await fetch(`/api/beheerder-toolbox/${meetingId}/bestanden`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        setTbMeetings(prev => prev.map(m => m.id === meetingId
+          ? { ...m, bestanden: [...(m.bestanden || []), { bestand_id: data.bestand_id, originele_naam: data.originele_naam }] }
+          : m));
+      }
+    } catch {}
+    setTbUploading(prev => ({ ...prev, [meetingId]: false }));
+    e.target.value = '';
+  }
+
+  async function handleTbBestandVerwijder(meetingId, bestandId) {
+    setTbMeetings(prev => prev.map(m => m.id === meetingId
+      ? { ...m, bestanden: (m.bestanden || []).filter(b => b.bestand_id !== bestandId) }
+      : m));
+    await fetch(`/api/beheerder-toolbox/${meetingId}/bestanden?bestand_id=${bestandId}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  async function handleVjSync() {
+    setVjSyncing(true); setVjSyncResult(null);
+    try {
+      const raw = localStorage.getItem('wa_medewerkers');
+      const medewerkers = raw ? JSON.parse(raw) : [];
+      const metDatum = medewerkers
+        .filter(m => m.geboortedatum)
+        .map(m => ({ naam: [m.voornaam, m.achternaam].filter(Boolean).join(' ') || m.naam || m.bedrijfsnaam || 'Onbekend', geboortedatum: m.geboortedatum }));
+      const res = await fetch('/api/verjaardagen/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ medewerkers: metDatum }),
+      });
+      const data = await res.json();
+      setVjSyncResult(data.ingevoegd ?? 0);
+      // Herlaad de lijst
+      fetch('/api/verjaardagen').then(r => r.json()).then(d => { if (Array.isArray(d)) setVerjaardagen(d); }).catch(() => {});
+    } catch { setVjSyncResult(-1); }
+    setVjSyncing(false);
+  }
 
   const mijnMeldingen = meldingen.filter(m => m.aan === currentUser);
   const ongelezen = mijnMeldingen.filter(m => !m.gelezen).length;
@@ -573,6 +719,220 @@ const docInputRef                   = useRef();
           </div>
         );
       })()}
+
+      {/* === NIEUWS === */}
+      <div className="panel" style={{ marginTop: '16px' }}>
+        <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="fa-solid fa-newspaper" style={{ color: '#F5850A' }} /> Nieuws
+          </h2>
+          <button onClick={() => setNieuwsFormOpen(v => !v)}
+            style={{ background: nieuwsFormOpen ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${nieuwsFormOpen ? '#e2e8f0' : '#fde8cc'}`, borderRadius: '8px', cursor: 'pointer', color: nieuwsFormOpen ? '#64748b' : '#F5850A', fontSize: '0.82rem', fontWeight: 700, padding: '6px 14px' }}>
+            {nieuwsFormOpen ? 'Annuleren' : '+ Nieuw bericht'}
+          </button>
+        </div>
+
+        {nieuwsFormOpen && (
+          <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9' }}>
+            <input type="text" placeholder="Titel..." value={nieuwsTitel} onChange={e => setNieuwsTitel(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.92rem', color: '#1e293b', boxSizing: 'border-box', marginBottom: '10px', fontFamily: 'inherit', outline: 'none' }} />
+            <textarea placeholder="Bericht (optioneel)..." value={nieuwsBericht} onChange={e => setNieuwsBericht(e.target.value)} rows={3}
+              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.88rem', color: '#1e293b', boxSizing: 'border-box', marginBottom: '10px', resize: 'vertical', fontFamily: 'inherit', outline: 'none' }} />
+            <input ref={nieuwsFotoRef} type="file" accept="image/*" onChange={handleNieuwsFoto} style={{ display: 'none' }} />
+            {nieuwsFoto ? (
+              <div style={{ position: 'relative', marginBottom: '10px' }}>
+                <img src={nieuwsFoto} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '9px', display: 'block' }} />
+                <button onClick={() => setNieuwsFoto(null)} style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="fa-solid fa-xmark" />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => nieuwsFotoRef.current?.click()}
+                style={{ width: '100%', padding: '10px', borderRadius: '9px', border: '1.5px dashed #e2e8f0', background: '#f8fafc', color: '#94a3b8', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <i className="fa-solid fa-camera" /> Foto toevoegen
+              </button>
+            )}
+            <button onClick={handleNieuwsOpslaan} disabled={!nieuwsTitel.trim() || nieuwsSaving}
+              style={{ padding: '10px 24px', borderRadius: '9px', border: 'none', background: nieuwsTitel.trim() ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: nieuwsTitel.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.9rem', cursor: nieuwsTitel.trim() ? 'pointer' : 'default' }}>
+              {nieuwsSaving ? 'Publiceren...' : 'Publiceren'}
+            </button>
+          </div>
+        )}
+
+        <div style={{ padding: '0 16px' }}>
+          {nieuws.length === 0 ? (
+            <div style={{ padding: '24px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
+              <i className="fa-solid fa-newspaper" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
+              Nog geen berichten gepubliceerd
+            </div>
+          ) : nieuws.map(n => (
+            <div key={n.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '14px 0', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              {n.foto && <img src={n.foto} alt="" style={{ width: '72px', height: '56px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', marginBottom: '2px' }}>{n.titel}</div>
+                {n.bericht && <div style={{ fontSize: '0.83rem', color: '#475569', lineHeight: 1.5, marginBottom: '4px' }}>{n.bericht}</div>}
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                  {n.auteur} · {new Date(n.aangemaakt_op).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </div>
+              </div>
+              <button onClick={() => handleNieuwsVerwijder(n.id)} title="Verwijderen"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px', fontSize: '0.85rem', flexShrink: 0 }}>
+                <i className="fa-solid fa-trash" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* === VERJAARDAGEN === */}
+      <div className="panel" style={{ marginTop: '16px' }}>
+        <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="fa-solid fa-cake-candles" style={{ color: '#F5850A' }} /> Verjaardagen personeel
+          </h2>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button onClick={handleVjSync} disabled={vjSyncing}
+              title="Haalt geboortedatums op uit Mijn Team"
+              style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '8px', cursor: 'pointer', color: '#16a34a', fontSize: '0.82rem', fontWeight: 700, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <i className={`fa-solid ${vjSyncing ? 'fa-spinner fa-spin' : 'fa-rotate'}`} />
+              {vjSyncing ? 'Laden...' : 'Sync team'}
+            </button>
+            {vjSyncResult !== null && (
+              <span style={{ fontSize: '0.75rem', color: vjSyncResult >= 0 ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
+                {vjSyncResult >= 0 ? `${vjSyncResult} gesynchroniseerd` : 'Fout'}
+              </span>
+            )}
+            <button onClick={() => setVjFormOpen(v => !v)}
+              style={{ background: vjFormOpen ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${vjFormOpen ? '#e2e8f0' : '#fde8cc'}`, borderRadius: '8px', cursor: 'pointer', color: vjFormOpen ? '#64748b' : '#F5850A', fontSize: '0.82rem', fontWeight: 700, padding: '6px 14px' }}>
+              {vjFormOpen ? 'Annuleren' : '+ Toevoegen'}
+            </button>
+          </div>
+        </div>
+
+        {vjFormOpen && (
+          <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input type="text" placeholder="Naam medewerker..." value={vjNaam} onChange={e => setVjNaam(e.target.value)}
+                style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              <input type="date" value={vjDatum} onChange={e => setVjDatum(e.target.value)}
+                style={{ width: '160px', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <input type="text" placeholder="Notitie (optioneel, bijv. 'wordt 30!')" value={vjNotitie} onChange={e => setVjNotitie(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            <button onClick={handleVjOpslaan} disabled={!vjNaam.trim() || !vjDatum}
+              style={{ alignSelf: 'flex-start', padding: '10px 24px', borderRadius: '9px', border: 'none', background: vjNaam.trim() && vjDatum ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: vjNaam.trim() && vjDatum ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.9rem', cursor: vjNaam.trim() && vjDatum ? 'pointer' : 'default' }}>
+              Opslaan
+            </button>
+          </div>
+        )}
+
+        <div style={{ padding: '0 16px' }}>
+          {verjaardagen.length === 0 ? (
+            <div style={{ padding: '24px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
+              <i className="fa-solid fa-cake-candles" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
+              Nog geen verjaardagen ingevoerd
+            </div>
+          ) : verjaardagen.map(v => {
+            const vandaag = v.dagenTot === 0;
+            const binnenkort = v.dagenTot <= 7;
+            return (
+              <div key={v.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '12px 0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: vandaag ? '#fff8f0' : binnenkort ? '#fffbeb' : '#f8fafc', border: `2px solid ${vandaag ? '#F5850A' : binnenkort ? '#fde68a' : '#e2e8f0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <i className="fa-solid fa-cake-candles" style={{ color: vandaag ? '#F5850A' : binnenkort ? '#d97706' : '#94a3b8', fontSize: '0.9rem' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>{v.naam}</div>
+                  <div style={{ fontSize: '0.78rem', color: vandaag ? '#F5850A' : '#64748b', fontWeight: vandaag ? 700 : 400 }}>
+                    {v.datum.split('-').reverse().join('-')} · {vandaag ? '🎉 Vandaag!' : `over ${v.dagenTot} dag${v.dagenTot === 1 ? '' : 'en'}`}
+                    {v.notitie ? ` — ${v.notitie}` : ''}
+                  </div>
+                </div>
+                <button onClick={() => handleVjVerwijder(v.id)} title="Verwijderen"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px', fontSize: '0.85rem' }}>
+                  <i className="fa-solid fa-trash" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* === TOOLBOX MEETINGS === */}
+      <div className="panel" style={{ marginTop: '16px' }}>
+        <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="fa-solid fa-toolbox" style={{ color: '#F5850A' }} /> Toolbox Meetings
+          </h2>
+          <button onClick={() => setTbFormOpen(v => !v)}
+            style={{ background: tbFormOpen ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${tbFormOpen ? '#e2e8f0' : '#fde8cc'}`, borderRadius: '8px', cursor: 'pointer', color: tbFormOpen ? '#64748b' : '#F5850A', fontSize: '0.82rem', fontWeight: 700, padding: '6px 14px' }}>
+            {tbFormOpen ? 'Annuleren' : '+ Nieuwe meeting'}
+          </button>
+        </div>
+
+        {tbFormOpen && (
+          <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input type="text" placeholder="Titel..." value={tbTitel} onChange={e => setTbTitel(e.target.value)}
+                style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.92rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              <input type="date" value={tbDatum} onChange={e => setTbDatum(e.target.value)}
+                style={{ width: '160px', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <textarea placeholder="Beschrijving (optioneel)..." value={tbBeschrijving} onChange={e => setTbBeschrijving(e.target.value)} rows={2}
+              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+            <button onClick={handleTbOpslaan} disabled={!tbTitel.trim() || !tbDatum || tbSaving}
+              style={{ alignSelf: 'flex-start', padding: '10px 24px', borderRadius: '9px', border: 'none', background: tbTitel.trim() && tbDatum ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: tbTitel.trim() && tbDatum ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.9rem', cursor: tbTitel.trim() && tbDatum ? 'pointer' : 'default' }}>
+              {tbSaving ? 'Opslaan...' : 'Opslaan'}
+            </button>
+          </div>
+        )}
+
+        <div style={{ padding: '0 16px' }}>
+          {tbMeetings.length === 0 ? (
+            <div style={{ padding: '24px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
+              <i className="fa-solid fa-toolbox" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
+              Nog geen toolbox meetings aangemaakt
+            </div>
+          ) : tbMeetings.map(m => (
+            <div key={m.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '14px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>{m.titel}</div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>{m.datum}{m.beschrijving ? ` — ${m.beschrijving}` : ''}</div>
+                  {/* Bestanden */}
+                  {(m.bestanden || []).length > 0 && (
+                    <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {m.bestanden.map(b => (
+                        <div key={b.bestand_id} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px 8px', fontSize: '0.78rem', color: '#334155' }}>
+                          <i className="fa-solid fa-file" style={{ color: '#F5850A', fontSize: '0.75rem' }} />
+                          <span>{b.originele_naam}</span>
+                          <button onClick={() => handleTbBestandVerwijder(m.id, b.bestand_id)} title="Verwijderen"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '0 0 0 2px', fontSize: '0.75rem', lineHeight: 1 }}>
+                            <i className="fa-solid fa-xmark" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Bestand toevoegen */}
+                  <div style={{ marginTop: '8px' }}>
+                    <input type="file" id={`tb-file-${m.id}`} style={{ display: 'none' }}
+                      onChange={e => handleTbBestandUpload(m.id, e)} />
+                    <label htmlFor={`tb-file-${m.id}`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: tbUploading[m.id] ? 'default' : 'pointer', color: '#F5850A', fontSize: '0.78rem', fontWeight: 600 }}>
+                      <i className={`fa-solid ${tbUploading[m.id] ? 'fa-spinner fa-spin' : 'fa-paperclip'}`} />
+                      {tbUploading[m.id] ? 'Uploaden...' : 'Bestand toevoegen'}
+                    </label>
+                  </div>
+                </div>
+                <button onClick={() => handleTbVerwijder(m.id)} title="Verwijderen"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px', fontSize: '0.85rem', flexShrink: 0 }}>
+                  <i className="fa-solid fa-trash" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* === SNELLE ACTIES === */}
       <div className="panel quick-actions" style={{ marginTop: '16px' }}>
