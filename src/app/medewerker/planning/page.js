@@ -434,6 +434,30 @@ export default function MedewerkerPlanning() {
         } catch { setVacDays(new Set()); }
     }, [user, year]);
 
+    // Bij laden: hersync alle localStorage-uren naar DB (corrigeert eventuele eerdere sync-fouten)
+    useEffect(() => {
+        if (!user) return;
+        try {
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const alle = raw ? JSON.parse(raw) : [];
+            const userEntries = alle.filter(e => String(e.userId) === String(user.id) && e.hours > 0 && e.date);
+            // Groepeer per (week, jaar)
+            const perWeek = {};
+            userEntries.forEach(e => {
+                const d = new Date(e.date + 'T00:00:00');
+                const w = getISOWeek(d);
+                const y = d.getFullYear();
+                const key = `${w}_${y}`;
+                if (!perWeek[key]) perWeek[key] = { week: w, jaar: y };
+            });
+            // Sync elke week
+            Object.values(perWeek).forEach(({ week: w, jaar: y }) => {
+                syncUrenNaarApi(alle, user.id, user.name, w, y);
+            });
+        } catch { }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.id]);
+
     // Notities laden zodra detail-modal opent
     useEffect(() => {
         if (!detail?.projectId) { setInfoNotities([]); return; }
@@ -544,6 +568,45 @@ export default function MedewerkerPlanning() {
         } catch { return []; }
     }
 
+    // Converteert schildersapp_uren_registraties → schilders_uren_weken formaat en synct naar API
+    function syncUrenNaarApi(alleRegistraties, userId, userName, weekNr, jaarNr) {
+        try {
+            const monday = getMondayOfWeek(weekNr, jaarNr);
+            const weekDagen = Array.from({ length: 5 }, (_, i) => {
+                const d = new Date(monday); d.setDate(monday.getDate() + i);
+                return fmtLocal(d);
+            });
+            const weekEntries = alleRegistraties.filter(e =>
+                String(e.userId) === String(userId) &&
+                e.hours > 0 &&
+                weekDagen.includes(e.date)
+            );
+            // Groepeer per projectId
+            const byProject = {};
+            weekEntries.forEach(e => {
+                const pid = String(e.projectId || 'onbekend');
+                if (!byProject[pid]) byProject[pid] = { projectId: pid, hours: ['', '', '', '', ''] };
+                const di = weekDagen.indexOf(e.date);
+                if (di >= 0) {
+                    const huidig = parseFloat(byProject[pid].hours[di]) || 0;
+                    byProject[pid].hours[di] = String(+(huidig + e.hours).toFixed(2));
+                }
+            });
+            const data = Object.values(byProject).map(p => ({
+                id: 'p_' + p.projectId,
+                projectId: p.projectId,
+                types: { normaal: p.hours },
+                notes: { normaal: ['', '', '', '', ''] },
+            }));
+            if (data.length === 0) return; // Niets te syncen
+            fetch('/api/uren', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, userName, week: weekNr, jaar: jaarNr, data, status: 'concept' }),
+            }).catch(() => {});
+        } catch { }
+    }
+
     async function saveUren() {
         const h = parseFloat(urenAantal);
         if (!h || h <= 0 || !detail || !user) return;
@@ -570,6 +633,9 @@ export default function MedewerkerPlanning() {
         setUrenLijst(prev => [...prev, entry]);
         setUrenAantal('');
         setUrenNote('');
+        // Sync naar beheerder dashboard (gebruik datum van entry, niet week-state)
+        const detailDate = new Date(detail.date + 'T00:00:00');
+        syncUrenNaarApi(updatedList, user.id, user.name, getISOWeek(detailDate), detailDate.getFullYear());
         // PATCH werkbon uren als werkbon gekoppeld is aan deze dag
         // Eerst via localStorage, daarna via selectedWerkbon state als fallback
         let werkbonId = getWerkbonIdVoorDag(detail.taskId, detail.date);
@@ -621,29 +687,52 @@ export default function MedewerkerPlanning() {
         if (!h || h <= 0) return;
         const update = (list) => list.map(e => e.id === id ? { ...e, hours: h, note: urenEditNote.trim() } : e);
         setUrenLijst(prev => update(prev));
+        let updated;
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
-            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(update(all)));
-        } catch {}
+            updated = update(all);
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
+        } catch { updated = update(urenLijst); }
         setUrenEditId(null);
+        // Sync naar beheerder dashboard (gebruik datum van de gewijzigde entry)
+        if (user) {
+            const editedEntry = updated.find(e => e.id === id);
+            if (editedEntry?.date) {
+                const ed = new Date(editedEntry.date + 'T00:00:00');
+                syncUrenNaarApi(updated, user.id, user.name, getISOWeek(ed), ed.getFullYear());
+            } else {
+                syncUrenNaarApi(updated, user.id, user.name, week, year);
+            }
+        }
     }
 
     function deleteUren(id) {
         const entry = urenLijst.find(e => e.id === id);
+        let updated;
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
             // If deleting a sick entry, remove all sick entries for this user+date
-            const updated = entry?.type === 'ziek'
+            updated = entry?.type === 'ziek'
                 ? all.filter(e => !(e.userId === user?.id && e.date === entry.date && e.type === 'ziek'))
                 : all.filter(e => e.id !== id);
             localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
-        } catch {}
+        } catch { updated = urenLijst.filter(e => e.id !== id); }
         setUrenLijst(prev => entry?.type === 'ziek'
             ? prev.filter(e => e.type !== 'ziek')
             : prev.filter(e => e.id !== id));
         if (urenEditId === id) setUrenEditId(null);
+        // Sync naar beheerder dashboard (gebruik datum van de verwijderde entry)
+        if (user) {
+            const entryDate = entry?.date;
+            if (entryDate) {
+                const ed = new Date(entryDate + 'T00:00:00');
+                syncUrenNaarApi(updated, user.id, user.name, getISOWeek(ed), ed.getFullYear());
+            } else {
+                syncUrenNaarApi(updated, user.id, user.name, week, year);
+            }
+        }
     }
 
     // ── Spraak naar tekst ──
@@ -2961,7 +3050,7 @@ export default function MedewerkerPlanning() {
                                                                                 const naam = getNaamUitRij(r);
                                                                                 const eenheid = getEenheidUitRij(r);
                                                                                 return (
-                                                                                    <button key={i} onClick={() => voegLosMateriaalToe(naam, losMatHoeveelheid || eenheid)}
+                                                                                    <button key={i} onClick={() => { setLosMatNaam(naam); setLosMatHoeveelheid(eenheid || '1 stuk'); setLosMatZoek([]); }}
                                                                                         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #fef3c7' : 'none', cursor: 'pointer', textAlign: 'left' }}>
                                                                                         <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.7rem', flexShrink: 0 }} />
                                                                                         <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{naam}</span>
@@ -2982,6 +3071,12 @@ export default function MedewerkerPlanning() {
                                                                         +
                                                                     </button>
                                                                 </div>
+                                                                <button onClick={() => { if (losMatNaam.trim()) voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); }}
+                                                                    disabled={!losMatNaam.trim()}
+                                                                    style={{ width: '100%', marginTop: '8px', padding: '11px', background: losMatNaam.trim() ? '#f59e0b' : '#f1f5f9', border: 'none', borderRadius: '10px', color: losMatNaam.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.88rem', cursor: losMatNaam.trim() ? 'pointer' : 'default' }}>
+                                                                    <i className="fa-solid fa-plus" style={{ marginRight: '6px' }} />
+                                                                    Voeg materialen toe aan project
+                                                                </button>
                                                             </div>
                                                         )}
                                                     </div>

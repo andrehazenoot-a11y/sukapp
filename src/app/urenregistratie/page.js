@@ -174,12 +174,34 @@ function MijnUren({ userId, userObj, adminMode = false, adminUserName = null }) 
 
     // loadedRef: voorkomt dat de save-effect de externe data overschrijft op mount
     const loadedRef = useRef(false);
+    // skipNextSaveRef: skip save wanneer projects werd gezet door een load (niet door gebruiker)
+    const skipNextSaveRef = useRef(false);
 
     useEffect(() => {
         loadedRef.current = false; // Reset bij elke week/user-wissel
-        const saved = loadData(userId, weekNum, yearNum);
-        setProjects(saved || defaultProjects());
-        setStatus(loadStatus(userId, weekNum, yearNum));
+        // API-first laden, localStorage als fallback
+        fetch(`/api/uren?userId=${encodeURIComponent(userId)}&week=${weekNum}&jaar=${yearNum}`)
+            .then(r => r.json())
+            .then(rows => {
+                const row = Array.isArray(rows) ? rows[0] : null;
+                skipNextSaveRef.current = true; // volgende save overslaan
+                if (row?.data?.length) {
+                    setProjects(row.data);
+                    setStatus(row.status || 'concept');
+                    saveData(userId, weekNum, yearNum, row.data);
+                    saveStatus(userId, weekNum, yearNum, row.status || 'concept');
+                } else {
+                    const saved = loadData(userId, weekNum, yearNum);
+                    setProjects(saved || defaultProjects());
+                    setStatus(loadStatus(userId, weekNum, yearNum));
+                }
+            })
+            .catch(() => {
+                skipNextSaveRef.current = true; // ook bij fallback overslaan
+                const saved = loadData(userId, weekNum, yearNum);
+                setProjects(saved || defaultProjects());
+                setStatus(loadStatus(userId, weekNum, yearNum));
+            });
     }, [userId, weekNum, yearNum]);
 
     useEffect(() => {
@@ -187,7 +209,17 @@ function MijnUren({ userId, userObj, adminMode = false, adminUserName = null }) 
             loadedRef.current = true; // Eerste run overslaan (data nog niet geladen)
             return;
         }
+        if (skipNextSaveRef.current) {
+            skipNextSaveRef.current = false; // Reset, maar sla deze save over
+            return;
+        }
         saveData(userId, weekNum, yearNum, projects);
+        // Sync naar DB (fire-and-forget)
+        fetch('/api/uren', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, userName: userObj?.name || adminUserName, week: weekNum, jaar: yearNum, data: projects, status }),
+        }).catch(() => {});
     }, [projects, userId, weekNum, yearNum]);
 
     // Berekeningen
@@ -222,6 +254,12 @@ function MijnUren({ userId, userObj, adminMode = false, adminUserName = null }) 
         setStatus('ingediend'); saveStatus(userId, weekNum, yearNum, 'ingediend');
         setShowSubmit(false); setShowToast('Weekstaat ingediend! ✅');
         setTimeout(() => setShowToast(''), 3500);
+        // Sync status naar DB
+        fetch('/api/uren', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, week: weekNum, jaar: yearNum, status: 'ingediend' }),
+        }).catch(() => {});
     };
 
     const statusCfg = {
@@ -530,12 +568,27 @@ function TeamOverzicht({ weekNum, yearNum, setWeekNum, setYearNum, allUsers, cur
     const DAYS = getDaysForWeek(weekNum, yearNum);
     const [refreshKey, setRefreshKey] = useState(0);
     const [expandedUser, setExpandedUser] = useState(null);
+    const [apiData, setApiData] = useState({}); // { [userId]: { projects, status } }
+
+    useEffect(() => {
+        setApiData({});
+        fetch(`/api/uren?week=${weekNum}&jaar=${yearNum}`)
+            .then(r => r.json())
+            .then(rows => {
+                if (!Array.isArray(rows)) return;
+                const map = {};
+                rows.forEach(r => { map[String(r.medewerker_id)] = { projects: r.data || [], status: r.status || 'concept' }; });
+                setApiData(map);
+            })
+            .catch(() => {});
+    }, [weekNum, yearNum, refreshKey]);
 
     const teamData = allUsers
         .filter(u => u.role !== "ZZP'er")
         .map(u => {
-            const projects = loadData(u.id, weekNum, yearNum) || [];
-            const status = loadStatus(u.id, weekNum, yearNum);
+            const fromApi = apiData[String(u.id)];
+            const projects = fromApi ? fromApi.projects : (loadData(u.id, weekNum, yearNum) || []);
+            const status = fromApi ? fromApi.status : loadStatus(u.id, weekNum, yearNum);
             const dayTotals = [0, 0, 0, 0, 0];
             projects.forEach(p => Object.entries(p.types || {}).forEach(([tid, hrs]) => {
                 const typeInfo = UREN_TYPES.find(t => t.id === tid);
@@ -564,6 +617,11 @@ function TeamOverzicht({ weekNum, yearNum, setWeekNum, setYearNum, allUsers, cur
 
     const approveUser = (userId) => {
         saveStatus(userId, weekNum, yearNum, 'goedgekeurd');
+        fetch('/api/uren', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, week: weekNum, jaar: yearNum, status: 'goedgekeurd' }),
+        }).catch(() => {});
         setRefreshKey(k => k + 1);
     };
 
@@ -773,33 +831,43 @@ function TeamOverzicht({ weekNum, yearNum, setWeekNum, setYearNum, allUsers, cur
 // URENSTAAT PRINT — A4 per persoon / week
 // ══════════════════════════════════════════
 // ── Herbruikbaar urenstaat document (zonder knoppen) ──
-function UrenstaatBody({ user, week, weeks, year }) {
+function UrenstaatBody({ entries, user, week, weeks, year, apiData, showSignature = true, showTotaal = true, overallTotals = null, pageNum = null, totalPages = null }) {
     const today = new Date();
     const allWeeks = weeks || [week];
 
-    const profielRaw  = typeof window !== 'undefined' ? localStorage.getItem(`schildersapp_profiel_${user.id}`) : null;
-    const profiel     = profielRaw ? JSON.parse(profielRaw) : null;
-    const bsn         = profiel?.bsn || user.bsn || '—';
+    // Multi-user mode: gebruik entries als beschikbaar, anders single-user fallback
+    const usersToRender = entries || [{ user, apiData }];
+
     const briefpapier = typeof window !== 'undefined' ? localStorage.getItem('wa_briefpapier') : null;
+
+    // BSN per gebruiker opzoeken
+    const bsnMap = {};
+    usersToRender.forEach(({ user: u }) => {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem(`schildersapp_profiel_${u.id}`) : null;
+        bsnMap[u.id] = (raw ? JSON.parse(raw)?.bsn : null) || u.bsn || null;
+    });
 
     const ALL_DAYS = ['Ma','Di','Wo','Do','Vr'];
     const fmtDate  = d => `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 
-    // Bouw per-week data op
+    // Bouw per-week data op — alle medewerkers per week
     const weekData = allWeeks.map(w => {
         const monday = getMondayOfWeek(w, year);
         const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
         const rows = [];
-        (loadData(user.id, w, year) || []).forEach((proj, pi) => {
-            const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
-            Object.keys(proj.types || {}).forEach(tid => {
-                const typeInfo = UREN_TYPES.find(t => t.id === tid);
-                if (!typeInfo || typeInfo.inputType === 'icon') return;
-                const hrs = proj.types[tid] || [];
-                const dayHours = ALL_DAYS.map((_, di) => parseVal(hrs[di] || 0));
-                const total = dayHours.reduce((a, b) => a + b, 0);
-                if (total === 0) return;
-                rows.push({ opdrachtgever: `${pi + 1}. Projecten`, project: projName, type: typeInfo.label, dayHours, total });
+        usersToRender.forEach(({ user: u, apiData: uApiData }) => {
+            const projects = (uApiData && uApiData[w]) ? uApiData[w] : (loadData(u.id, w, year) || []);
+            projects.forEach((proj) => {
+                const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
+                Object.keys(proj.types || {}).forEach(tid => {
+                    const typeInfo = UREN_TYPES.find(t => t.id === tid);
+                    if (!typeInfo || typeInfo.inputType === 'icon') return;
+                    const hrs = proj.types[tid] || [];
+                    const dayHours = ALL_DAYS.map((_, di) => parseVal(hrs[di] || 0));
+                    const total = dayHours.reduce((a, b) => a + b, 0);
+                    if (total === 0) return;
+                    rows.push({ rowUser: u, project: projName, type: typeInfo.label, dayHours, total });
+                });
             });
         });
         const weekTotal = rows.reduce((a, r) => a + r.total, 0);
@@ -807,18 +875,22 @@ function UrenstaatBody({ user, week, weeks, year }) {
     }).filter(d => d.rows.length > 0);
 
     const grandTotal = weekData.reduce((a, d) => a + d.weekTotal, 0);
-    const periodeLabel = weekData.length > 0
-        ? `${fmtDate(weekData[0].monday)} – ${fmtDate(weekData[weekData.length - 1].sunday)}`
-        : '—';
+
+    // Per-type totalen (voor overzicht in tfoot als er meerdere types zijn)
+    const typeTotals = {};
+    weekData.forEach(d => d.rows.forEach(r => {
+        typeTotals[r.type] = (typeTotals[r.type] || 0) + r.total;
+    }));
+    const typeEntries = Object.entries(typeTotals);
 
     const FONT = "'Carlito','Calibri','Segoe UI',Arial,sans-serif";
-    const PT = briefpapier ? 110 : 40;
-    const PB = briefpapier ? 100 : 40;
-    const PS = 48;
+    const PT = briefpapier ? 110 : 30;
+    const PB = briefpapier ? 100 : 30;
+    const PS = 36;
 
-    const tdH = { border: '1px solid #e2e8f0', padding: '6px 8px', fontSize: '11px', fontFamily: FONT, color: '#334155' };
-    const thH = { border: '1px solid #e2e8f0', borderBottom: '2px solid #cbd5e1', padding: '6px 8px', fontSize: '10px', fontFamily: FONT, background: '#fff', fontWeight: 800, whiteSpace: 'nowrap', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' };
-    const weekThS = { fontSize: '10px', fontWeight: 800, color: '#fff', background: '#F5850A', padding: '2px 8px', letterSpacing: '0.04em', textTransform: 'uppercase', border: '1px solid #F5850A' };
+    const tdH = { border: '1px solid #e2e8f0', padding: '1px 3px', fontSize: '8px', fontFamily: FONT, color: '#334155' };
+    const thH = { border: '1px solid #e2e8f0', borderBottom: '2px solid #cbd5e1', padding: '1px 3px', fontSize: '7px', fontFamily: FONT, background: '#fff', fontWeight: 800, whiteSpace: 'nowrap', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' };
+    const weekThS = { fontSize: '7px', fontWeight: 800, color: '#fff', background: '#F5850A', padding: '1px 3px', letterSpacing: '0.03em', textTransform: 'uppercase', border: '1px solid #F5850A' };
 
     return (
         <div className="urenstaat-doc" style={{
@@ -856,33 +928,6 @@ function UrenstaatBody({ user, week, weeks, year }) {
                     <span className="editable-title" contentEditable suppressContentEditableWarning style={{ outline: 'none' }}>Urenstaat</span>
                 </h1>
 
-                {/* Medewerker + periode naast elkaar */}
-                <div style={{ display: 'flex', gap: '32px', marginBottom: '10px', alignItems: 'flex-start' }}>
-                    <table style={{ borderCollapse: 'collapse', flex: 1 }}>
-                        <tbody>
-                            {[['Werkkracht', user.name], ['BSN nummer', bsn]].map(([label, value]) => (
-                                <tr key={label}>
-                                    <td style={{ fontWeight: 700, fontSize: '10px', padding: '1px 10px 1px 0', color: '#2c3b4e', width: '90px', fontFamily: FONT, verticalAlign: 'top' }}>{label}</td>
-                                    <td style={{ fontSize: '10px', color: '#2c3b4e', fontFamily: FONT, padding: '1px 0' }}>{value}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    <table style={{ borderCollapse: 'collapse' }}>
-                        <tbody>
-                            {[
-                                allWeeks.length === 1 ? ['Weeknummer', allWeeks[0]] : ['Weken', `${allWeeks[0]} – ${allWeeks[allWeeks.length-1]}`],
-                                ['Jaar', year],
-                                ['Periode', periodeLabel],
-                            ].map(([label, value]) => (
-                                <tr key={label}>
-                                    <td style={{ ...thH, width: '100px', textAlign: 'left' }}>{label}</td>
-                                    <td style={{ ...tdH, whiteSpace: 'nowrap' }}>{value}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
 
                 {/* Per-week secties */}
                 {weekData.length === 0 ? (
@@ -893,7 +938,7 @@ function UrenstaatBody({ user, week, weeks, year }) {
                             <tbody key={`wk-${w}`}>
                                 {/* Week-header rij */}
                                 <tr key={`wh-${w}`}>
-                                    <td colSpan={9} style={{ ...weekThS, borderTop: index > 0 ? '6px solid #f1f5f9' : '1px solid #F5850A' }}>
+                                    <td colSpan={9} style={{ ...weekThS, borderTop: index > 0 ? '3px solid #f1f5f9' : '1px solid #F5850A' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <span>Week {w}</span>
                                             <span>·</span>
@@ -902,15 +947,15 @@ function UrenstaatBody({ user, week, weeks, year }) {
                                     </td>
                                 </tr>
                                 <tr key={`ch-${w}`}>
-                                    {['Medewerker','Project','Type uur','Ma','Di','Wo','Do','Vr','Totaal'].map(h => (
-                                        <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '10px' }}>{h}</th>
+                                    {['Werkkracht','Project','Type uur','Ma','Di','Wo','Do','Vr','Totaal'].map(h => (
+                                        <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '9px' }}>{h}</th>
                                     ))}
                                 </tr>
                                     {rows.map((r, ri) => (
                                         <tr key={`${w}-${ri}`} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                                            <td style={{ ...tdH, verticalAlign: 'top' }}>
-                                                <div style={{ fontWeight: 800, color: '#1e293b' }}>{user.name}</div>
-                                                <div style={{ fontSize: '9px', color: '#64748b', marginTop: '2px', fontWeight: 600 }}>BSN: {bsn || '—'}</div>
+                                            <td style={{ ...tdH, verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                                                <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '8px' }}>{r.rowUser.name}</div>
+                                                {bsnMap[r.rowUser.id] && <div style={{ fontSize: '7px', color: '#64748b', marginTop: '1px' }}>BSN: {bsnMap[r.rowUser.id]}</div>}
                                             </td>
                                             <td style={{ ...tdH, maxWidth: '110px', verticalAlign: 'top' }}>{r.project}</td>
                                             <td style={tdH}>{r.type}</td>
@@ -922,29 +967,47 @@ function UrenstaatBody({ user, week, weeks, year }) {
                                     ))}
                             </tbody>
                         ))}
+                        {showTotaal && (
                         <tfoot>
+                            {(overallTotals?.byType ? Object.entries(overallTotals.byType) : typeEntries).filter(([,v]) => v > 0).length > 1 &&
+                             (overallTotals?.byType ? Object.entries(overallTotals.byType) : typeEntries).map(([type, tot]) => (
+                                <tr key={type} style={{ background: '#f8fafc' }}>
+                                    <td colSpan={8} style={{ padding: '1px 3px', textAlign: 'right', color: '#64748b', fontWeight: 600, fontSize: '7px', fontFamily: FONT, border: '1px solid #e2e8f0', fontStyle: 'italic' }}>{type}</td>
+                                    <td style={{ padding: '1px 3px', textAlign: 'center', fontWeight: 700, color: '#334155', fontSize: '7px', fontFamily: FONT, border: '1px solid #e2e8f0' }}>{tot}</td>
+                                </tr>
+                            ))}
                             <tr style={{ background: '#F5850A' }}>
-                                <td colSpan={8} style={{ padding: '8px', textAlign: 'right', color: '#fff', fontWeight: 800, fontSize: '11px', fontFamily: FONT, border: '1px solid #e07008' }}>Totaal uren</td>
-                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 900, color: '#fff', background: '#e07008', fontSize: '12px', fontFamily: FONT, border: '1px solid #c96007' }}>{grandTotal}</td>
+                                <td colSpan={8} style={{ padding: '1px 3px', textAlign: 'right', color: '#fff', fontWeight: 800, fontSize: '8px', fontFamily: FONT, border: '1px solid #e07008' }}>Totaal uren</td>
+                                <td style={{ padding: '1px 3px', textAlign: 'center', fontWeight: 900, color: '#fff', background: '#e07008', fontSize: '8px', fontFamily: FONT, border: '1px solid #c96007' }}>{overallTotals?.grand ?? grandTotal}</td>
                             </tr>
                         </tfoot>
+                        )}
                     </table>
                 )}
 
-                {/* Handtekening blokken */}
-                <div style={{ display: 'flex', gap: '40px', marginTop: '16px' }}>
-                    {['Handtekening uitvoerder', 'Handtekening De Schilders uit Katwijk'].map(label => (
-                        <div key={label} style={{ flex: 1 }}>
-                            <div style={{ height: '30px', borderBottom: '1.5px solid #2c3b4e', marginBottom: '4px' }}></div>
-                            <div style={{ fontSize: '8px', color: '#64748b', fontFamily: FONT, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>{label}</div>
-                        </div>
-                    ))}
-                </div>
-
-                <p style={{ fontSize: '9px', color: '#94a3b8', margin: '20px 0 0', fontFamily: FONT }}>
-                    Afgedrukt op {today.toLocaleDateString('nl-NL')} om {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
-                </p>
             </div>
+            {/* Paginanummer — rechts bovenin */}
+            {pageNum !== null && (
+                <div style={{ position: 'absolute', top: PT - 22, right: PS, zIndex: 2, fontFamily: FONT, fontSize: '10px', fontWeight: 700, color: '#1e293b' }}>
+                    Pagina {pageNum}{totalPages ? ` van ${totalPages}` : ''}
+                </div>
+            )}
+            {/* Handtekening blokken — buiten content div, zodat position:absolute tov urenstaat-doc werkt */}
+            {showSignature && (
+                <div style={{ position: 'absolute', bottom: PB, left: PS, right: PS, zIndex: 2 }}>
+                    <div style={{ display: 'flex', gap: '32px', marginBottom: '6px' }}>
+                        {['Handtekening uitvoerder', 'Handtekening De Schilders uit Katwijk'].map(label => (
+                            <div key={label} style={{ flex: 1 }}>
+                                <div style={{ height: '24px', borderBottom: '1.5px solid #2c3b4e', marginBottom: '3px' }}></div>
+                                <div style={{ fontSize: '7px', color: '#64748b', fontFamily: FONT, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{label}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <p style={{ fontSize: '8px', color: '#94a3b8', margin: '0', fontFamily: FONT }}>
+                        Afgedrukt op {today.toLocaleDateString('nl-NL')} om {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                </div>
+            )}
         </div>
     );
 }
@@ -994,136 +1057,7 @@ function UrenstaatPrint({ user, week, weeks, year, onBack }) {
     );
 }
 
-// ── Samenvoegd overzicht: alle medewerkers + weken in één tabel ──
-function SamengevoegdBody({ entries, year }) {
-    const today     = new Date();
-    const briefpapier = typeof window !== 'undefined' ? localStorage.getItem('wa_briefpapier') : null;
-    const ALL_DAYS  = ['Ma','Di','Wo','Do','Vr'];
-    const fmtDate   = d => `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-    const FONT      = "'Carlito','Calibri','Segoe UI',Arial,sans-serif";
-
-    const alleWeken = [...new Set(entries.flatMap(e => e.weeks))].sort((a, b) => a - b);
-
-    const weekData = alleWeken.map(w => {
-        const monday = getMondayOfWeek(w, year);
-        const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-        const rows = [];
-        entries.forEach(({ user }) => {
-            (loadData(user.id, w, year) || []).forEach((proj, pi) => {
-                Object.keys(proj.types || {}).forEach(tid => {
-                    const typeInfo = UREN_TYPES.find(t => t.id === tid);
-                    if (!typeInfo || typeInfo.inputType === 'icon') return;
-                    const hrs = proj.types[tid] || [];
-                    const dayHours = ALL_DAYS.map((_, di) => parseVal(hrs[di] || 0));
-                    const total = dayHours.reduce((a, b) => a + b, 0);
-                    if (total === 0) return;
-                    const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend';
-                    const profielRaw = typeof window !== 'undefined' ? localStorage.getItem(`schildersapp_profiel_${user.id}`) : null;
-                    const bsn = (profielRaw ? JSON.parse(profielRaw)?.bsn : null) || user.bsn || '—';
-                    rows.push({ user, bsn, projName, type: typeInfo.label, dayHours, total });
-                });
-            });
-        });
-        return { week: w, monday, sunday, rows, weekTotal: rows.reduce((a, r) => a + r.total, 0) };
-    }).filter(d => d.rows.length > 0);
-
-    const grandTotal = weekData.reduce((a, d) => a + d.weekTotal, 0);
-    const PT = briefpapier ? 110 : 40;
-    const PB = briefpapier ? 100 : 40;
-    const PS = 48;
-    const tdH = { border: '1px solid #e2e8f0', padding: '6px 8px', fontSize: '11px', fontFamily: FONT, color: '#334155' };
-    const thH = { border: '1px solid #e2e8f0', borderBottom: '2px solid #cbd5e1', padding: '6px 8px', fontSize: '10px', fontFamily: FONT, background: '#fff', fontWeight: 800, whiteSpace: 'nowrap', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' };
-
-    return (
-        <div className="urenstaat-doc" style={{
-            position: 'relative', width: '620px', minHeight: '876px',
-            margin: '0 auto', background: '#fff',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden',
-        }}>
-            <style dangerouslySetInnerHTML={{ __html: `
-                @media screen {
-                    .editable-title { 
-                        transition: background 0.2s; 
-                        border-radius: 4px; 
-                        background: #fff7ed; 
-                        border: 1px dashed #FA9F52; 
-                        padding: 2px 8px; 
-                        margin-left: -8px; 
-                        display: inline-block;
-                    }
-                    .editable-title:hover { background: #ffedd5; cursor: text; }
-                    .editable-title::after { content: "\\f304"; font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 10px; opacity: 0.6; margin-left: 8px; color: #F5850A; }
-                }
-            `}} />
-            {briefpapier && (
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `url(${briefpapier})`, backgroundSize: '100% auto', backgroundPosition: 'top center', backgroundRepeat: 'no-repeat', pointerEvents: 'none', zIndex: 0 }} />
-            )}
-            <div style={{ position: 'relative', zIndex: 1, padding: `${PT}px ${PS}px ${PB}px`, fontFamily: FONT }}>
-                <h1 style={{ fontSize: '12px', fontWeight: 800, margin: '0 0 6px', color: '#1e293b', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '2px solid #1e293b', paddingBottom: '4px', fontFamily: FONT }}>
-                    <span className="editable-title" contentEditable suppressContentEditableWarning style={{ outline: 'none' }}>Urenstaat — Samenvoegd overzicht</span>
-                </h1>
-                <div style={{ marginBottom: '8px', fontSize: '10px', color: '#4a5568', fontFamily: FONT }}>
-                    <strong>Medewerkers:</strong> {entries.map(e => e.user.name).join(', ')} &nbsp;·&nbsp; <strong>Jaar:</strong> {year}
-                    {weekData.length > 0 && <> &nbsp;·&nbsp; <strong>Periode:</strong> {fmtDate(weekData[0].monday)} – {fmtDate(weekData[weekData.length-1].sunday)}</>}
-                </div>
-                <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '10px' }}>
-                    {weekData.map(({ week: w, monday, sunday, rows, weekTotal }, index) => (
-                        <tbody key={`wk-${w}`}>
-                            <tr key={`wh-${w}`}>
-                                <td colSpan={9} style={{ fontSize: '10px', fontWeight: 800, color: '#fff', background: '#F5850A', padding: '2px 8px', letterSpacing: '0.04em', textTransform: 'uppercase', border: '1px solid #F5850A', borderTop: index > 0 ? '6px solid #f1f5f9' : '1px solid #F5850A' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <span>Week {w}</span>
-                                        <span>·</span>
-                                        <span style={{color: 'rgba(255,255,255,0.9)', fontWeight: 600}}>{fmtDate(monday)} – {fmtDate(sunday)}</span>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr key={`ch-${w}`}>
-                                {['Medewerker','Project','Type uur','Ma','Di','Wo','Do','Vr','Totaal'].map(h => (
-                                    <th key={h} style={{ ...thH, textAlign: ['Ma','Di','Wo','Do','Vr','Totaal'].includes(h) ? 'center' : 'left', fontSize: '10px' }}>{h}</th>
-                                ))}
-                            </tr>
-                                {rows.map((r, ri) => (
-                                    <tr key={`${w}-${ri}`} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                                        <td style={{ ...tdH, verticalAlign: 'top' }}>
-                                            <div style={{ fontWeight: 800, color: '#1e293b' }}>{r.user.name}</div>
-                                            <div style={{ fontSize: '9px', color: '#64748b', marginTop: '2px', fontWeight: 600 }}>BSN: {r.bsn || '—'}</div>
-                                        </td>
-                                        <td style={{ ...tdH, maxWidth: '110px', verticalAlign: 'top' }}>{r.projName}</td>
-                                        <td style={tdH}>{r.type}</td>
-                                        {r.dayHours.map((h, di) => (
-                                            <td key={di} style={{ ...tdH, textAlign: 'center', fontWeight: h > 0 ? 700 : 400, color: h > 0 ? '#1e293b' : '#d1d5db' }}>{h > 0 ? h : ''}</td>
-                                        ))}
-                                        <td style={{ ...tdH, textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>{r.total}</td>
-                                    </tr>
-                                ))}
-                        </tbody>
-                    ))}
-                    <tfoot>
-                        <tr style={{ background: '#F5850A' }}>
-                            <td colSpan={8} style={{ padding: '8px', textAlign: 'right', color: '#fff', fontWeight: 800, fontSize: '11px', fontFamily: FONT, border: '1px solid #e07008' }}>Totaal uren</td>
-                            <td style={{ padding: '8px', textAlign: 'center', fontWeight: 900, color: '#fff', background: '#e07008', fontSize: '12px', fontFamily: FONT, border: '1px solid #c96007' }}>{grandTotal}</td>
-                        </tr>
-                    </tfoot>
-                </table>
-                <div style={{ display: 'flex', gap: '40px', marginTop: '16px' }}>
-                    {['Handtekening uitvoerder', 'Handtekening De Schilders uit Katwijk'].map(label => (
-                        <div key={label} style={{ flex: 1 }}>
-                            <div style={{ height: '30px', borderBottom: '1.5px solid #2c3b4e', marginBottom: '4px' }} />
-                            <div style={{ fontSize: '8px', color: '#64748b', fontFamily: FONT, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>{label}</div>
-                        </div>
-                    ))}
-                </div>
-                <p style={{ fontSize: '9px', color: '#94a3b8', margin: '12px 0 0', fontFamily: FONT }}>
-                    Afgedrukt op {today.toLocaleDateString('nl-NL')} om {today.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
-                </p>
-            </div>
-        </div>
-    );
-}
-
-function BatchUrenstaatPrint({ entries, year, onBack }) {
-    const [viewMode, setViewMode] = useState('per-medewerker');
+function BatchUrenstaatPrint({ entries, year, onBack, apiUrenData }) {
 
     const handlePrint = () => {
         const docs = document.querySelectorAll('.urenstaat-doc');
@@ -1138,14 +1072,6 @@ function BatchUrenstaatPrint({ entries, year, onBack }) {
         win.document.close();
     };
 
-    const btnToggle = (active) => ({
-        padding: '5px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
-        fontWeight: 600, fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px',
-        background: active ? '#fff' : 'transparent',
-        color: active ? '#1e293b' : '#94a3b8',
-        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
-    });
-
     return (
         <>
             <div className="no-print" style={{
@@ -1154,44 +1080,96 @@ function BatchUrenstaatPrint({ entries, year, onBack }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
             }}>
-                <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-start' }}>
-                    <button onClick={onBack}
-                        style={{ padding: '7px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#e2e8f0' }}>
-                        <i className="fa-solid fa-arrow-left" /> Terug
-                    </button>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ color: '#e2e8f0', fontSize: '0.85rem', fontWeight: 600 }}>
-                        Kies hier de afdrukweergave:
-                    </span>
-                    <div style={{ display: 'flex', gap: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '3px' }}>
-                        <button onClick={() => setViewMode('per-medewerker')} style={btnToggle(viewMode === 'per-medewerker')}>
-                            <i className="fa-solid fa-user" /> Per medewerker
-                        </button>
-                        <button onClick={() => setViewMode('samenvoegd')} style={btnToggle(viewMode === 'samenvoegd')}>
-                            <i className="fa-solid fa-layer-group" /> Samengevoegde weergave voor alle medewerkers
-                        </button>
-                    </div>
-                </div>
-
-                <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-                    <button onClick={handlePrint}
-                        style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                        <i className="fa-solid fa-print" /> Afdrukken
-                    </button>
-                </div>
+                <button onClick={onBack}
+                    style={{ padding: '7px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#e2e8f0' }}>
+                    <i className="fa-solid fa-arrow-left" /> Terug
+                </button>
+                <button onClick={handlePrint}
+                    style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#FA9F52,#F5850A)', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                    <i className="fa-solid fa-print" /> Afdrukken
+                </button>
             </div>
             <div style={{ background: '#e5e7eb', minHeight: 'calc(100vh - 50px)', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                {viewMode === 'per-medewerker' ? (
-                    entries.map(({ user, weeks: entryWeeks }) => (
-                        <div key={user.id}>
-                            <UrenstaatBody user={user} weeks={entryWeeks} year={year} />
-                        </div>
-                    ))
-                ) : (
-                    <SamengevoegdBody entries={entries} year={year} />
-                )}
+                {(() => {
+                    // Alle unieke weken uit alle medewerkers samen, gesorteerd
+                    const allUniqueWeeks = [...new Set(entries.flatMap(e => e.weeks))].sort((a, b) => a - b);
+
+                    // Rij-budget per pagina: 2 rij-equivalenten per week (header+kolom) + datarijen
+                    // Bij ~22 rij-equivalenten passen 5–7 weken met elk 1–2 datarijen comfortabel op 1 A4
+                    const ROW_BUDGET = 22;
+
+                    const dataRowsForWeek = (w) => {
+                        let n = 0;
+                        entries.forEach(({ user: u }) => {
+                            const projs = apiUrenData?.[`${u.id}_${w}`] || loadData(u.id, w, year) || [];
+                            projs.forEach(proj => {
+                                Object.keys(proj.types || {}).forEach(tid => {
+                                    const ti = UREN_TYPES.find(t => t.id === tid);
+                                    if (!ti || ti.inputType === 'icon') return;
+                                    const total = (proj.types[tid] || []).reduce((s, v) => s + parseVal(v || 0), 0);
+                                    if (total > 0) n++;
+                                });
+                            });
+                        });
+                        return Math.max(n, 1);
+                    };
+
+                    // Dynamisch chunken op basis van rij-budget
+                    const chunks = [];
+                    let cur = [], curRows = 0;
+                    allUniqueWeeks.forEach(w => {
+                        const weekCost = 2 + dataRowsForWeek(w); // 2 headers + datarijen
+                        if (cur.length > 0 && curRows + weekCost > ROW_BUDGET) {
+                            chunks.push(cur);
+                            cur = [w]; curRows = weekCost;
+                        } else {
+                            cur.push(w); curRows += weekCost;
+                        }
+                    });
+                    if (cur.length > 0) chunks.push(cur);
+
+                    // Bereken overall grand total + type-totalen over ALLE weken
+                    let overallGrand = 0;
+                    const overallByType = {};
+                    allUniqueWeeks.forEach(w => {
+                        entries.forEach(({ user: u }) => {
+                            const projs = apiUrenData?.[`${u.id}_${w}`] || loadData(u.id, w, year) || [];
+                            projs.forEach(proj => {
+                                Object.keys(proj.types || {}).forEach(tid => {
+                                    const ti = UREN_TYPES.find(t => t.id === tid);
+                                    if (!ti || ti.inputType === 'icon') return;
+                                    const total = (proj.types[tid] || []).reduce((s, v) => s + parseVal(v || 0), 0);
+                                    if (total > 0) { overallGrand += total; overallByType[ti.label] = (overallByType[ti.label] || 0) + total; }
+                                });
+                            });
+                        });
+                    });
+
+                    return chunks.map((chunkWeeks, ci) => {
+                        // Per medewerker: apiData voor de weken in dit chunk
+                        const entriesWithApiData = entries.map(({ user: u }) => ({
+                            user: u,
+                            apiData: Object.fromEntries(
+                                chunkWeeks.map(w => [w, apiUrenData?.[`${u.id}_${w}`]]).filter(([, v]) => v)
+                            ),
+                        }));
+                        const isVeryLast = ci === chunks.length - 1;
+                        return (
+                            <div key={ci}>
+                                <UrenstaatBody
+                                    entries={entriesWithApiData}
+                                    weeks={chunkWeeks}
+                                    year={year}
+                                    showSignature={isVeryLast}
+                                    showTotaal={isVeryLast}
+                                    overallTotals={isVeryLast ? { grand: overallGrand, byType: overallByType } : null}
+                                    pageNum={ci + 1}
+                                    totalPages={chunks.length}
+                                />
+                            </div>
+                        );
+                    });
+                })()}
             </div>
         </>
     );
@@ -1216,6 +1194,8 @@ function MandagRegister({ allUsers }) {
 
     const MONTH_SHORT = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
     const ALL_DAYS    = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
+    // apiUrenData: { [userId_week]: projectsArray }
+    const [apiUrenData, setApiUrenData] = useState({});
 
     const getMon = (w) => {
         const jan4 = new Date(year, 0, 4);
@@ -1228,6 +1208,24 @@ function MandagRegister({ allUsers }) {
     const selStyle = { padding: '8px 12px', borderRadius: '9px', border: '1.5px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' };
     const labelStyle = { display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '5px' };
 
+    // Laad alle uren voor alle users voor dit jaar vanuit API
+    useEffect(() => {
+        setApiUrenData({});
+        allUsers.forEach(u => {
+            fetch(`/api/uren?userId=${encodeURIComponent(u.id)}&jaar=${year}`)
+                .then(r => r.json())
+                .then(rows => {
+                    if (!Array.isArray(rows)) return;
+                    setApiUrenData(prev => {
+                        const next = { ...prev };
+                        rows.forEach(r => { next[`${u.id}_${r.week}`] = r.data || []; });
+                        return next;
+                    });
+                })
+                .catch(() => {});
+        });
+    }, [year, allUsers.length]);
+
     // ── Dataverzameling: week-secties ──
     const wFrom = Math.min(fromWeek, toWeek);
     const wTo   = Math.max(fromWeek, toWeek);
@@ -1239,7 +1237,7 @@ function MandagRegister({ allUsers }) {
         const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
         const rows = [];
         usersToShow.forEach(u => {
-            const userData = loadData(u.id, w, year) || [];
+            const userData = apiUrenData[`${u.id}_${w}`] ?? loadData(u.id, w, year) ?? [];
             userData.forEach((proj, pi) => {
                 if (selectedProject !== 'all' && proj.projectId !== selectedProject) return;
                 const projName = getAppProjects().find(p => p.id === proj.projectId)?.name || 'Onbekend project';
@@ -1249,7 +1247,7 @@ function MandagRegister({ allUsers }) {
                     const dayHours = [0,1,2,3,4,5,6].map(i => parseVal(hrs[i] || 0));
                     const total = dayHours.reduce((a, b) => a + b, 0);
                     if (total === 0) return;
-                    rows.push({ user: u, projName, category: `${pi + 1}. Projecten`, typeInfo, dayHours, total });
+                    rows.push({ user: u, projId: proj.projectId, typeId: tid, projName, category: `${pi + 1}. Projecten`, typeInfo, dayHours, total });
                 });
             });
         });
@@ -1260,13 +1258,19 @@ function MandagRegister({ allUsers }) {
 
     // ── Render guards ──
     if (showBatch && printSelectie.size > 0) {
-        // printSelectie bevat userId's — verzamel alle weken per user uit weekSections
-        const toPrint = [...printSelectie].map(uid => {
-            const u = allUsers.find(u => String(u.id) === String(uid));
-            const userWeeks = weekSections.filter(s => s.rows.some(r => String(r.user.id) === String(uid))).map(s => s.week);
-            return (u && userWeeks.length > 0) ? { user: u, weeks: userWeeks } : null;
+        // printSelectie bevat 'userId::week::projId::typeId' sleutels — groepeer unieke (user, week) combos
+        const byUser = {};
+        [...printSelectie].forEach(key => {
+            const [uid, weekStr] = key.split('::');
+            const w = Number(weekStr);
+            if (!byUser[uid]) byUser[uid] = new Set();
+            byUser[uid].add(w);
+        });
+        const toPrint = Object.entries(byUser).map(([uid, weekSet]) => {
+            const u = allUsers.find(u => String(u.id) === uid);
+            return u ? { user: u, weeks: [...weekSet].sort((a, b) => a - b) } : null;
         }).filter(Boolean);
-        return <BatchUrenstaatPrint entries={toPrint} year={year} onBack={() => setShowBatch(false)} />;
+        return <BatchUrenstaatPrint entries={toPrint} year={year} onBack={() => setShowBatch(false)} apiUrenData={apiUrenData} />;
     }
     if (showUrenstaat) {
         const userWeeks = weekSections.filter(s => s.rows.some(r => String(r.user.id) === String(showUrenstaat.id))).map(s => s.week);
@@ -1409,10 +1413,10 @@ function MandagRegister({ allUsers }) {
                                             <td style={{ ...tdS, textAlign: 'center' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
                                                     <input type="checkbox"
-                                                        checked={printSelectie.has(r.user.id)}
-                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); e.target.checked ? s.add(r.user.id) : s.delete(r.user.id); return s; })}
+                                                        checked={printSelectie.has(`${r.user.id}::${week}::${r.projId}::${r.typeId}`)}
+                                                        onChange={e => setPrintSelectie(prev => { const s = new Set(prev); const k = `${r.user.id}::${week}::${r.projId}::${r.typeId}`; e.target.checked ? s.add(k) : s.delete(k); return s; })}
                                                         style={{ cursor: 'pointer', width: '14px', height: '14px' }}
-                                                        title={`Selecteer ${r.user.name} (alle weken)`}
+                                                        title={`Selecteer ${r.projName} – ${r.user.name} – week ${week}`}
                                                     />
                                                     <button onClick={() => setShowUrenstaat(r.user)} title={`Urenstaat ${r.user.name} (alle weken)`}
                                                         style={{ padding: '3px 8px', borderRadius: '6px', border: '1.5px solid #3b82f6', background: 'rgba(59,130,246,0.07)', color: '#3b82f6', fontWeight: 600, fontSize: '0.68rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }}>
@@ -1614,6 +1618,25 @@ function ProjectOverzicht({ allUsers }) {
     const [fromWeek, setFromWeek] = useState(Math.max(1, curWeek - 4));
     const [toWeek, setToWeek] = useState(curWeek);
     const [selectedProject, setSelectedProject] = useState('all');
+    // apiUrenData: { [userId_week]: projectsArray }
+    const [apiUrenData, setApiUrenData] = useState({});
+
+    useEffect(() => {
+        setApiUrenData({});
+        allUsers.forEach(u => {
+            fetch(`/api/uren?userId=${encodeURIComponent(u.id)}&jaar=${year}`)
+                .then(r => r.json())
+                .then(rows => {
+                    if (!Array.isArray(rows)) return;
+                    setApiUrenData(prev => {
+                        const next = { ...prev };
+                        rows.forEach(r => { next[`${u.id}_${r.week}`] = r.data || []; });
+                        return next;
+                    });
+                })
+                .catch(() => {});
+        });
+    }, [year, allUsers.length]);
 
     const wFrom = Math.min(fromWeek, toWeek);
     const wTo = Math.max(fromWeek, toWeek);
@@ -1621,7 +1644,7 @@ function ProjectOverzicht({ allUsers }) {
     const projectData = {};
     allUsers.forEach(u => {
         for (let w = wFrom; w <= wTo; w++) {
-            const userData = loadData(u.id, w, year) || [];
+            const userData = apiUrenData[`${u.id}_${w}`] ?? loadData(u.id, w, year) ?? [];
             userData.forEach(proj => {
                 if (selectedProject !== 'all' && proj.projectId !== selectedProject) return;
                 const pid = proj.projectId;
