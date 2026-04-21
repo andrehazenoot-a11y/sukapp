@@ -205,11 +205,17 @@ export default function MedewerkerPlanning() {
     const [losMatNaam, setLosMatNaam] = useState('');
     const [losMatHoeveelheid, setLosMatHoeveelheid] = useState('1 stuk');
     const [losMatZoek, setLosMatZoek] = useState([]);
+    const [losMatPrijs, setLosMatPrijs] = useState('');
+    const [losMatBtw, setLosMatBtw] = useState('21');
+    const [losMatOpslag, setLosMatOpslag] = useState('');
+    const [losMatCode, setLosMatCode] = useState('');
+    const [losMatEenheid, setLosMatEenheid] = useState('');
     const [weekLosMateriaal, setWeekLosMateriaal] = useState([]);
     const [andereOmschrijving, setAndereOmschrijving] = useState('');
     const [andereUren, setAndereUren] = useState('');
     const [localProgress, setLocalProgress] = useState(0);
     const [progressSaved, setProgressSaved] = useState(false);
+    const [hoverProg, setHoverProg] = useState(null);
     // ── Info tab secties ──
     const [poSectOpen, setPoSectOpen] = useState({ werkomschrijving: false, checklist: false, opmerkingen: false, bestanden: false, fotos: false });
     const [previewAtt, setPreviewAtt] = useState(null);
@@ -444,13 +450,21 @@ export default function MedewerkerPlanning() {
         })();
     }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Materiaalbot productdata laden
+    // Materiaalbot productdata laden (uitgeschakelde artikelen worden gefilterd)
     useEffect(() => {
         try {
             const r = localStorage.getItem('schildersapp_materiaal_data');
             const c = localStorage.getItem('schildersapp_materiaal_cols');
-            setMatRijen(r ? JSON.parse(r) : []);
-            setMatKolommen(c ? JSON.parse(c) : {});
+            const u = localStorage.getItem('schildersapp_materiaal_uitgeschakeld');
+            const colMap = c ? JSON.parse(c) : {};
+            const uitgeschakeldSet = new Set(u ? JSON.parse(u) : []);
+            const alleRijen = r ? JSON.parse(r) : [];
+            const actieveRijen = alleRijen.filter(row => {
+                const rk = row[colMap.code] || row[colMap.naam] || '';
+                return !uitgeschakeldSet.has(rk);
+            });
+            setMatRijen(actieveRijen);
+            setMatKolommen(colMap);
         } catch {}
     }, []);
 
@@ -458,13 +472,23 @@ export default function MedewerkerPlanning() {
     useEffect(() => {
         if (!user) return;
         const yr = year;
-        const key = `schildersapp_vakantie_${yr}_${user.name}`;
+        const key = `schildersapp_vakantie_${yr}_${(user.name || '').replace(/\s/g, '_')}`;
         try {
             const raw = localStorage.getItem(key);
             const arr = raw ? JSON.parse(raw) : [];
             setVacDays(new Set(arr));
         } catch { setVacDays(new Set()); }
     }, [user, year]);
+
+    // Admin-afwezigheid laden (gezet via personeelsplanning)
+    const [myAbsences, setMyAbsences] = useState([]);
+    useEffect(() => {
+        if (!user) return;
+        try {
+            const all = JSON.parse(localStorage.getItem('schilders-absences') || '[]');
+            setMyAbsences(all.filter(a => String(a.userId) === String(user.id)));
+        } catch { setMyAbsences([]); }
+    }, [user]);
 
     // Notities laden zodra detail-modal opent
     useEffect(() => {
@@ -1343,6 +1367,15 @@ export default function MedewerkerPlanning() {
 
     async function voegLosMateriaalToe(naam, hoeveelheid) {
         if (!naam.trim() || !detail || !user) return;
+        const inkoop = losMatPrijs ? parseFloat(String(losMatPrijs).replace(',', '.')) : null;
+        const btwPct = inkoop != null ? parseInt(losMatBtw) : null;
+        const opslagPct = losMatOpslag ? parseFloat(String(losMatOpslag).replace(',', '.')) : null;
+        const verkoopExcl = inkoop != null
+            ? Math.round(inkoop * (1 + (opslagPct ?? 0) / 100) * 100) / 100
+            : null;
+        const verkoopIncl = verkoopExcl != null && btwPct != null
+            ? Math.round(verkoopExcl * (1 + btwPct / 100) * 100) / 100
+            : null;
         const entry = {
             id: Date.now(),
             userId: user.id,
@@ -1353,6 +1386,13 @@ export default function MedewerkerPlanning() {
             date: detail.date,
             naam: naam.trim(),
             hoeveelheid: hoeveelheid.trim() || '1 stuk',
+            code: losMatCode || null,
+            eenheid: losMatEenheid || null,
+            inkoopprijs: inkoop,
+            btw: btwPct,
+            opslagPct,
+            verkoopExcl,
+            verkoopIncl,
             aangemaakt_op: new Date().toISOString(),
         };
         // Probeer ook in DB op te slaan als werkbon gekoppeld is
@@ -1362,7 +1402,7 @@ export default function MedewerkerPlanning() {
                 const res = await fetch(`/api/werkbonnen/${werkbonId}/materialen`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ naam: entry.naam, hoeveelheid: entry.hoeveelheid, medewerkerNaam: user?.name || null }),
+                    body: JSON.stringify({ naam: entry.naam, hoeveelheid: entry.hoeveelheid, prijs: entry.verkoopIncl, medewerkerNaam: user?.name || null }),
                 });
                 const data = await res.json();
                 if (data.ok && data.id) entry.dbId = data.id;
@@ -1377,6 +1417,11 @@ export default function MedewerkerPlanning() {
         setLosMateriaalLijst(prev => [...prev, entry]);
         setLosMatNaam('');
         setLosMatHoeveelheid('1 stuk');
+        setLosMatPrijs('');
+        setLosMatBtw('21');
+        setLosMatOpslag('');
+        setLosMatCode('');
+        setLosMatEenheid('');
         setLosMatZoek([]);
     }
 
@@ -1449,30 +1494,56 @@ export default function MedewerkerPlanning() {
     }
 
     function saveProgress(progress, markCompleted = false) {
+        const completed = markCompleted || (progress === 100);
         try {
-            const raw = localStorage.getItem('schildersapp_projecten');
-            const projects = raw ? JSON.parse(raw) : [];
-            for (const p of projects) {
-                for (const t of (p.tasks || [])) {
-                    // eslint-disable-next-line eqeqeq
-                    if (t.id == detail.taskId) {
-                        t.progress = progress;
-                        if (markCompleted) t.completed = true;
-                        if (progress < 100) t.completed = false;
-                    }
+            // 1. Update planning state direct — werkt altijd, ongeacht localStorage
+            setPlanning(prev => prev.map(day => {
+                if (day.iso !== detail?.date) return day;
+                const hasItem = day.items.some(it => String(it.taskId) === String(detail?.taskId));
+                if (hasItem) {
+                    return {
+                        ...day,
+                        items: day.items.map(it =>
+                            String(it.taskId) === String(detail?.taskId)
+                                ? { ...it, progress, completed }
+                                : it
+                        ),
+                    };
+                } else {
+                    // Synthetisch item (day.items was leeg): inject zodat displayItems het oppikt
+                    return {
+                        ...day,
+                        items: [{ ...detail, progress, completed }],
+                    };
                 }
-            }
-            localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
-            setDetail(prev => ({ ...prev, progress, completed: markCompleted || (progress === 100) }));
+            }));
+
+            // 2. Update modal state
+            setDetail(prev => prev ? ({ ...prev, progress, completed }) : prev);
             setLocalProgress(progress);
             setProgressSaved(true);
-            setPlanning(getMyPlanningForWeek(user.id, week, year));
             setTimeout(() => setProgressSaved(false), 2000);
-            // Sync naar server zodat het bij refresh bewaard blijft
+
+            // 3. Persisteer naar localStorage
+            try {
+                const raw = localStorage.getItem('schildersapp_projecten');
+                const projects = raw ? JSON.parse(raw) : [];
+                for (const p of projects) {
+                    for (const t of (p.tasks || [])) {
+                        if (String(t.id) === String(detail?.taskId)) {
+                            t.progress = progress;
+                            t.completed = completed;
+                        }
+                    }
+                }
+                localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
+            } catch {}
+
+            // 4. Sync naar server
             fetch('/api/projecten', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ taskId: detail.taskId, progress, completed: markCompleted || (progress === 100) }),
+                body: JSON.stringify({ taskId: detail?.taskId, progress, completed }),
             }).catch(() => {});
         } catch (e) { console.error('saveProgress fout:', e); }
     }
@@ -1885,7 +1956,8 @@ export default function MedewerkerPlanning() {
                     const isToday = day.iso === todayIso;
                     const isPast = day.iso < todayIso;
                     const holiday = HOLIDAYS[day.iso];
-                    const isVacation = vacDays.has(day.iso);
+                    const absEntry = myAbsences.find(a => day.iso >= a.startDate && day.iso <= a.endDate) || null;
+                    const isVacation = vacDays.has(day.iso) || absEntry?.type === 'vakantie' || absEntry?.type === 'vrije_dag';
                     const isFree = holiday || isVacation;
                     const ziekEntry = weekUren.find(u => u.date === day.iso && u.type === 'ziek');
                     const vrijTaskId = `vrij-${day.iso}`;
@@ -1895,7 +1967,7 @@ export default function MedewerkerPlanning() {
                     const eersteUrenProject = dagUrenVoorDisplay[0];
                     const displayItems = day.items.length === 0
                         ? [eersteUrenProject
-                            ? { taskId: vrijTaskId, projectName: eersteUrenProject.projectName, taskName: eersteUrenProject.taskName || '', projectId: eersteUrenProject.projectId, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }
+                            ? { taskId: eersteUrenProject.taskId || vrijTaskId, projectName: eersteUrenProject.projectName, taskName: eersteUrenProject.taskName || '', projectId: eersteUrenProject.projectId, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }
                             : { taskId: vrijTaskId, projectName: 'Nog in te vullen project', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }]
                         : day.items;
 
@@ -1909,8 +1981,8 @@ export default function MedewerkerPlanning() {
                         !String(u.id).startsWith('urv2_') &&
                         (day.items.length === 0 || dagTaskIds.has(String(u.taskId)))
                     ).reduce((s, u) => s + (u.hours || 0), 0) * 10) / 10;
-                    const dagVol = ziekEntry || dagTotaalUren >= 7.5;
-                    const dagDeels = !dagVol && dagTotaalUren > 0;
+                    const dagVol = !isFree && (ziekEntry || dagTotaalUren >= 7.5);
+                    const dagDeels = !isFree && !dagVol && dagTotaalUren > 0;
                     const dagAccent = dagVol ? '#10b981' : dagDeels ? '#f97316' : isToday ? '#F5850A' : '#e2e8f0';
                     const datumKleur = isToday ? '#F5850A' : '#64748b';
 
@@ -1941,6 +2013,20 @@ export default function MedewerkerPlanning() {
                                         {holiday ? `⭐ ${holiday}` : '☂ Vakantie'}
                                     </div>
                                 </div>
+                            ) : absEntry && (absEntry.type === 'ziek' || absEntry.type === 'dokter') ? (
+                                <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
+                                    {datumKolom}
+                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px',
+                                        background: absEntry.type === 'ziek' ? '#fef2f2' : '#fefce8',
+                                        borderRadius: '12px', border: `1px solid ${absEntry.type === 'ziek' ? '#fca5a5' : '#fde047'}`,
+                                        alignSelf: 'flex-start', marginTop: '6px' }}>
+                                        <i className={`fa-solid ${absEntry.type === 'ziek' ? 'fa-face-thermometer' : 'fa-stethoscope'}`}
+                                            style={{ color: absEntry.type === 'ziek' ? '#ef4444' : '#ca8a04', fontSize: '0.85rem', flexShrink: 0 }} />
+                                        <span style={{ fontSize: '0.82rem', color: absEntry.type === 'ziek' ? '#ef4444' : '#92400e', fontWeight: 700, flex: 1 }}>
+                                            {absEntry.type === 'ziek' ? 'Ziek (geregistreerd door beheerder)' : 'Dokter / Tandarts'}
+                                        </span>
+                                    </div>
+                                </div>
                             ) : ziekEntry && day.items.length === 0 ? (
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
                                     {datumKolom}
@@ -1958,7 +2044,7 @@ export default function MedewerkerPlanning() {
                                 {displayItems.map((item, ii) => {
                                 const isVrijItem = String(item.taskId).startsWith('vrij-');
                                 const dagUrenRaw = isVrijItem
-                                    ? weekUren.filter(u => u.date === day.iso)
+                                    ? weekUren.filter(u => u.date === day.iso && !u._fromUrv2 && !String(u.id).startsWith('urv2_'))
                                     : weekUren.filter(u => String(u.taskId) === String(item.taskId) && u.date === day.iso);
                                 // Dedup op id om dubbele entries te voorkomen
                                 const dagUren = dagUrenRaw.filter((u, idx, arr) => arr.findIndex(x => String(x.id) === String(u.id)) === idx);
@@ -2003,13 +2089,13 @@ export default function MedewerkerPlanning() {
                                                     </div>
                                                 )}
                                             </div>
-                                            {/* Rechts: pijltje om te openen */}
-                                            <div style={{ flexShrink: 0 }}>
+                                            {/* Rechts: pijltje */}
+                                            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                 <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.55rem' }} />
                                             </div>
                                             {(() => {
                                                 const dagLosMat = weekLosMateriaal.filter(e => String(e.taskId) === String(item.taskId) && e.date === day.iso);
-                                                const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0);
+                                                const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0 && String(m.taskId) === String(item.taskId));
                                                 if (matEntries.length === 0 && dagLosMat.length === 0) return null;
                                                 const totaalItems = matEntries.reduce((s, m) => s + m.materiaal.length, 0) + dagLosMat.length;
                                                 const popupOpen = materiaalPopup?.dayIso === day.iso && materiaalPopup?.taskId === item.taskId;
@@ -2025,8 +2111,9 @@ export default function MedewerkerPlanning() {
                                         </div>
                                     {/* Materiaal popup */}
                                     {materiaalPopup?.dayIso === day.iso && materiaalPopup?.taskId === item.taskId && (() => {
-                                        const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0);
+                                        const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0 && String(m.taskId) === String(item.taskId));
                                         const dagLosMat = weekLosMateriaal.filter(e => String(e.taskId) === String(item.taskId) && e.date === day.iso);
+                                        if (matEntries.length === 0 && dagLosMat.length === 0) return null;
                                         return (
                                             <div style={{ padding: '10px 12px', background: '#fffbeb', borderTop: '1px solid #fcd34d' }}>
                                                 <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '7px' }}>
@@ -2279,13 +2366,39 @@ export default function MedewerkerPlanning() {
                                             onTouchEnd={e => saveProgress(localProgress)}
                                             style={{ width: '100%', accentColor: localProgress === 100 ? '#10b981' : '#F5850A', cursor: 'pointer', marginBottom: '10px' }} />
                                         {/* Snelknoppen */}
-                                        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-                                            {[25, 50, 75, 100].map(v => (
-                                                <button key={v} onClick={() => saveProgress(v)}
-                                                    style={{ flex: 1, padding: '5px 0', border: `1.5px solid ${localProgress === v ? (v === 100 ? '#10b981' : '#F5850A') : '#e2e8f0'}`, borderRadius: '8px', background: localProgress === v ? (v === 100 ? '#f0fdf4' : '#fff8f0') : '#f8fafc', fontSize: '0.72rem', fontWeight: 700, color: localProgress === v ? (v === 100 ? '#10b981' : '#F5850A') : '#94a3b8', cursor: 'pointer' }}>
-                                                    {v}%
-                                                </button>
-                                            ))}
+                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                                            {[25, 50, 75, 100].map(v => {
+                                                const active = localProgress === v;
+                                                const hovered = hoverProg === v;
+                                                const isGreen = v === 100;
+                                                const activeColor = isGreen ? '#10b981' : '#F5850A';
+                                                const bg = active ? activeColor : hovered ? activeColor + '22' : '#f8fafc';
+                                                const borderColor = active ? activeColor : hovered ? activeColor : '#e2e8f0';
+                                                const textColor = active ? '#fff' : hovered ? activeColor : '#94a3b8';
+                                                return (
+                                                    <button key={v} onClick={() => saveProgress(v)}
+                                                        onMouseEnter={() => setHoverProg(v)}
+                                                        onMouseLeave={() => setHoverProg(null)}
+                                                        style={{
+                                                            flex: 1, padding: '10px 0',
+                                                            border: `2px solid ${borderColor}`,
+                                                            borderRadius: '12px',
+                                                            background: bg,
+                                                            fontSize: '0.82rem', fontWeight: 800,
+                                                            color: textColor,
+                                                            cursor: 'pointer',
+                                                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+                                                            transition: 'all 0.15s',
+                                                            transform: hovered && !active ? 'translateY(-2px)' : 'none',
+                                                            boxShadow: hovered && !active ? `0 4px 12px ${activeColor}44` : 'none',
+                                                        }}>
+                                                        <span style={{ fontSize: '0.62rem', opacity: active || hovered ? 0.85 : 0.5 }}>
+                                                            {'▓'.repeat(Math.round(v / 25))}{'░'.repeat(4 - Math.round(v / 25))}
+                                                        </span>
+                                                        {v}%
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                         {/* Taak afgerond knop */}
                                         <button onClick={() => saveProgress(100, true)}
@@ -3307,6 +3420,53 @@ export default function MedewerkerPlanning() {
                             {detailTab === 'materialen' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
+                                    {/* ── Datum navigator ── */}
+                                    {(() => {
+                                        function prevWorkday(iso) {
+                                            const d = new Date(iso + 'T00:00:00');
+                                            do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6 || HOLIDAYS[fmtLocal(d)]);
+                                            return fmtLocal(d);
+                                        }
+                                        function nextWorkday(iso) {
+                                            const d = new Date(iso + 'T00:00:00');
+                                            do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6 || HOLIDAYS[fmtLocal(d)]);
+                                            return fmtLocal(d);
+                                        }
+                                        function goToDay(iso) {
+                                            setDetail(prev => ({ ...prev, date: iso }));
+                                            setLosMateriaalLijst(loadLosMateriaal(detail.taskId, iso));
+                                        }
+                                        const d = new Date(detail.date + 'T00:00:00');
+                                        const dayName = DAY_NAMES_FULL[d.getDay() === 0 ? 6 : d.getDay() - 1];
+                                        const dayNum = d.getDate();
+                                        const monthName = MONTH_NAMES[d.getMonth()];
+                                        const yr = d.getFullYear();
+                                        const heeftUren = urenLijst.length > 0;
+                                        const accentColor = heeftUren ? '#10b981' : '#F5850A';
+                                        return (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', height: '72px', boxSizing: 'border-box', background: heeftUren ? '#f0fdf4' : '#f8fafc', borderRadius: '14px', border: `1.5px solid ${heeftUren ? '#86efac' : '#e2e8f0'}`, transition: 'background 0.2s, border-color 0.2s' }}>
+                                                <button onClick={() => goToDay(prevWorkday(detail.date))}
+                                                    style={{ width: '36px', height: '36px', borderRadius: '10px', border: 'none', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', cursor: 'pointer', color: '#475569', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <i className="fa-solid fa-chevron-left" />
+                                                </button>
+                                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                                                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: accentColor, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
+                                                        <span style={{ fontSize: '0.58rem', fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', lineHeight: 1 }}>{dayName.substring(0, 2)}</span>
+                                                        <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', lineHeight: 1.1 }}>{dayNum}</span>
+                                                    </div>
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>{dayName}</div>
+                                                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '1px' }}>{monthName} {yr}</div>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => goToDay(nextWorkday(detail.date))}
+                                                    style={{ width: '36px', height: '36px', borderRadius: '10px', border: 'none', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', cursor: 'pointer', color: '#475569', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <i className="fa-solid fa-chevron-right" />
+                                                </button>
+                                            </div>
+                                        );
+                                    })()}
+
                                     <div style={{ fontSize: '0.71rem', color: '#94a3b8', lineHeight: 1.4 }}>
                                         Vul hier alleen materialen in die je van de zaak hebt meegenomen naar de klus.
                                     </div>
@@ -3315,16 +3475,54 @@ export default function MedewerkerPlanning() {
                                     {losMateriaalLijst.length > 0 ? (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                             {losMateriaalLijst.map(m => (
-                                                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '10px' }}>
-                                                    <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.78rem', flexShrink: 0 }} />
-                                                    <span style={{ flex: 1, fontSize: '0.88rem', color: '#1e293b', fontWeight: 600 }}>{m.naam}</span>
-                                                    <span style={{ fontSize: '0.78rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', padding: '2px 8px' }}>{m.hoeveelheid}</span>
-                                                    <button onClick={() => verwijderLosMateriaal(m.id)}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px 6px', fontSize: '0.78rem' }}>
-                                                        <i className="fa-solid fa-xmark" />
-                                                    </button>
+                                                <div key={m.id} style={{ padding: '10px 12px', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '10px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                                        <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.78rem', flexShrink: 0, marginTop: '3px' }} />
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: '0.88rem', color: '#1e293b', fontWeight: 600 }}>{m.naam}</div>
+                                                            <div style={{ display: 'flex', gap: '6px', marginTop: '2px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                                                {m.code && <span style={{ fontSize: '0.67rem', color: '#94a3b8', background: '#f1f5f9', borderRadius: '4px', padding: '1px 5px' }}>{m.code}</span>}
+                                                                <span style={{ fontSize: '0.72rem', color: '#64748b', background: '#f8fafc', borderRadius: '5px', padding: '1px 7px' }}>{m.hoeveelheid}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                            {m.inkoopprijs != null && <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Ink. € {m.inkoopprijs.toFixed(2)}</div>}
+                                                            {m.opslagPct != null && m.opslagPct > 0 && <div style={{ fontSize: '0.7rem', color: '#64748b' }}>+{m.opslagPct}% opslag</div>}
+                                                            {m.btw != null && <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{m.btw}% BTW</div>}
+                                                            {m.verkoopIncl != null && <div style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: 800 }}>€ {m.verkoopIncl.toFixed(2)}</div>}
+                                                        </div>
+                                                        <button onClick={() => verwijderLosMateriaal(m.id)}
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px 4px', fontSize: '0.78rem', flexShrink: 0 }}>
+                                                            <i className="fa-solid fa-xmark" />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))}
+                                            {/* Totaalregel */}
+                                            {(() => {
+                                                const metPrijs = losMateriaalLijst.filter(m => m.verkoopIncl != null || m.verkoopExcl != null || m.inkoopprijs != null);
+                                                if (metPrijs.length === 0) return null;
+                                                const totInkoop = metPrijs.reduce((s, m) => s + (m.inkoopprijs ?? 0), 0);
+                                                const totVkExcl = metPrijs.reduce((s, m) => s + (m.verkoopExcl ?? m.inkoopprijs ?? 0), 0);
+                                                const totVkIncl = metPrijs.reduce((s, m) => s + (m.verkoopIncl ?? m.verkoopExcl ?? m.inkoopprijs ?? 0), 0);
+                                                const totBtw = totVkIncl - totVkExcl;
+                                                return (
+                                                    <div style={{ background: '#f0fdf4', borderRadius: '10px', border: '1px solid #86efac', padding: '10px 12px', marginTop: '2px' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '2px' }}>
+                                                            <span>Inkooptotaal excl. BTW</span><span>€ {totInkoop.toFixed(2)}</span>
+                                                        </div>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '2px' }}>
+                                                            <span>Verkooptotaal excl. BTW</span><span>€ {totVkExcl.toFixed(2)}</span>
+                                                        </div>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '4px' }}>
+                                                            <span>BTW</span><span>€ {totBtw.toFixed(2)}</span>
+                                                        </div>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#10b981', fontSize: '0.9rem', borderTop: '1px solid #86efac', paddingTop: '6px' }}>
+                                                            <span>Totaal incl. BTW</span><span>€ {totVkIncl.toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     ) : (
                                         <div style={{ textAlign: 'center', padding: '24px 0 8px' }}>
@@ -3339,11 +3537,13 @@ export default function MedewerkerPlanning() {
                                     {/* Nieuw materiaal toevoegen */}
                                     <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
                                         <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Materiaal toevoegen</div>
+                                        {/* Zoekbalk + autocomplete */}
                                         <div style={{ position: 'relative', marginBottom: '6px' }}>
                                             <input type="text" value={losMatNaam}
                                                 onChange={e => {
                                                     const q = e.target.value;
                                                     setLosMatNaam(q);
+                                                    setLosMatCode(''); setLosMatEenheid(''); setLosMatPrijs('');
                                                     if (q.length >= 2 && matRijen.length > 0 && matKolommen.naam) {
                                                         const ql = q.toLowerCase();
                                                         setLosMatZoek(matRijen.filter(r => String(r[matKolommen.naam] ?? '').toLowerCase().includes(ql)).slice(0, 8));
@@ -3354,31 +3554,91 @@ export default function MedewerkerPlanning() {
                                                 style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box' }} />
                                             <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem', pointerEvents: 'none' }} />
                                             {losMatZoek.length > 0 && (
-                                                <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '200px', overflowY: 'auto' }}>
+                                                <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '220px', overflowY: 'auto' }}>
                                                     {losMatZoek.map((r, i) => {
                                                         const naam = String(r[matKolommen.naam] ?? '');
+                                                        const code = matKolommen.code ? String(r[matKolommen.code] ?? '') : '';
                                                         const eenheid = matKolommen.eenheid ? String(r[matKolommen.eenheid] ?? '') : '';
+                                                        const cat = matKolommen.categorie ? String(r[matKolommen.categorie] ?? '') : '';
+                                                        const prijs = matKolommen.prijs ? String(r[matKolommen.prijs] ?? '') : '';
                                                         return (
-                                                            <button key={i} onClick={() => { voegLosMateriaalToe(naam, losMatHoeveelheid || eenheid || '1 stuk'); setLosMatZoek([]); }}
+                                                            <button key={i} onClick={() => {
+                                                                setLosMatNaam(naam);
+                                                                setLosMatHoeveelheid(eenheid || '1 stuk');
+                                                                setLosMatCode(code);
+                                                                setLosMatEenheid(eenheid);
+                                                                setLosMatPrijs(prijs);
+                                                                setLosMatZoek([]);
+                                                            }}
                                                                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', textAlign: 'left' }}>
                                                                 <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.7rem', flexShrink: 0 }} />
-                                                                <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{naam}</span>
-                                                                {eenheid && <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{eenheid}</span>}
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
+                                                                    <div style={{ display: 'flex', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
+                                                                        {code && <span style={{ fontSize: '0.67rem', color: '#94a3b8', background: '#f1f5f9', borderRadius: '4px', padding: '1px 5px' }}>{code}</span>}
+                                                                        {cat && <span style={{ fontSize: '0.67rem', color: '#64748b' }}>{cat}</span>}
+                                                                        {eenheid && <span style={{ fontSize: '0.67rem', color: '#64748b' }}>{eenheid}</span>}
+                                                                    </div>
+                                                                </div>
+                                                                {prijs && <span style={{ fontSize: '0.75rem', color: '#F5850A', fontWeight: 700, flexShrink: 0 }}>€ {prijs}</span>}
                                                             </button>
                                                         );
                                                     })}
                                                 </div>
                                             )}
                                         </div>
-                                        <div style={{ display: 'flex', gap: '6px' }}>
-                                            <input type="text" value={losMatHoeveelheid} onChange={e => setLosMatHoeveelheid(e.target.value)}
-                                                placeholder="Hoeveelheid"
-                                                style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
-                                            <button onClick={() => { if (losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam.trim(), losMatHoeveelheid.trim() || '1 stuk'); setLosMatZoek([]); } }}
-                                                style={{ padding: '0 14px', background: losMatNaam.trim() ? '#10b981' : '#e2e8f0', border: 'none', borderRadius: '9px', color: losMatNaam.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '1rem', cursor: losMatNaam.trim() ? 'pointer' : 'not-allowed', flexShrink: 0 }}>
-                                                +
-                                            </button>
+                                        {/* Hoeveelheid */}
+                                        <input type="text" value={losMatHoeveelheid} onChange={e => setLosMatHoeveelheid(e.target.value)}
+                                            placeholder="Hoeveelheid (bijv. 2 liter)"
+                                            style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', marginBottom: '6px', boxSizing: 'border-box' }} />
+                                        {/* Inkoopprijs + BTW */}
+                                        <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                                            <div style={{ flex: 2, position: 'relative' }}>
+                                                <span style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem', pointerEvents: 'none' }}>€</span>
+                                                <input type="number" min="0" step="0.01" placeholder="Inkoopprijs excl. BTW"
+                                                    value={losMatPrijs} onChange={e => setLosMatPrijs(e.target.value)}
+                                                    style={{ width: '100%', padding: '8px 8px 8px 22px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box' }} />
+                                            </div>
+                                            <select value={losMatBtw} onChange={e => setLosMatBtw(e.target.value)}
+                                                style={{ flex: 1, padding: '8px 6px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', color: '#475569', background: '#fff' }}>
+                                                <option value="0">0% BTW</option>
+                                                <option value="9">9% BTW</option>
+                                                <option value="21">21% BTW</option>
+                                            </select>
                                         </div>
+                                        {/* Opslag % */}
+                                        <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                                            <div style={{ flex: 2, position: 'relative' }}>
+                                                <input type="number" min="0" step="1" placeholder="Opslag % (bijv. 30)"
+                                                    value={losMatOpslag} onChange={e => setLosMatOpslag(e.target.value)}
+                                                    style={{ width: '100%', padding: '8px 26px 8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box' }} />
+                                                <span style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem', pointerEvents: 'none' }}>%</span>
+                                            </div>
+                                            <div style={{ flex: 1 }} />
+                                        </div>
+                                        {/* Live preview verkoopprijs */}
+                                        {losMatPrijs && (() => {
+                                            const ink = parseFloat(String(losMatPrijs).replace(',', '.'));
+                                            if (isNaN(ink)) return null;
+                                            const opl = losMatOpslag ? parseFloat(String(losMatOpslag).replace(',', '.')) : 0;
+                                            const btw = parseInt(losMatBtw);
+                                            const vkExcl = Math.round(ink * (1 + opl / 100) * 100) / 100;
+                                            const vkIncl = Math.round(vkExcl * (1 + btw / 100) * 100) / 100;
+                                            return (
+                                                <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '8px 10px', marginBottom: '6px', fontSize: '0.75rem', color: '#64748b' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Inkoop excl. BTW</span><span>€ {ink.toFixed(2)}</span></div>
+                                                    {opl > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Verkoop excl. BTW (+{opl}%)</span><span>€ {vkExcl.toFixed(2)}</span></div>}
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#10b981', marginTop: '3px', borderTop: '1px solid #e2e8f0', paddingTop: '4px' }}>
+                                                        <span>Verkoopprijs incl. {btw}% BTW</span><span>€ {vkIncl.toFixed(2)}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                        {/* Toevoegen knop */}
+                                        <button onClick={() => { if (losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam.trim(), losMatHoeveelheid.trim() || '1 stuk'); setLosMatZoek([]); } }}
+                                            style={{ width: '100%', padding: '10px', background: losMatNaam.trim() ? '#10b981' : '#e2e8f0', border: 'none', borderRadius: '9px', color: losMatNaam.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.88rem', cursor: losMatNaam.trim() ? 'pointer' : 'not-allowed' }}>
+                                            + Toevoegen
+                                        </button>
                                     </div>
 
                                 </div>

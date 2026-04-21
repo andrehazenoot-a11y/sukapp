@@ -4637,27 +4637,30 @@ export default function ProjectenPage() {
                                         </div>
                                         {/* Timeline with lane-based bar positioning */}
                                         {(() => {
-                                            // Assign lanes to tasks to avoid overlap
-                                            const taskEntries = projects.flatMap(proj =>
-                                                (proj.tasks||[]).filter(t =>
-                                                    (t.assignedTo||[]).includes(worker.id) ||
-                                                    (!( t.assignedTo||[]).includes(worker.id) && Object.values(t.assignedByDay||{}).some(ids => ids.includes(worker.id)))
-                                                ).map(t => ({ proj, task: t }))
-                                            );
-                                            const lanes = [];
+                                            // Assign lanes using actual bar positions (left/width) to guarantee no visual overlap
                                             const taskLane = new Map();
-                                            // Helper: effectieve datum voor deze medewerker (workerDates overschrijft task-datum)
-                                            const effStart = t => ((t.workerDates||{})[worker.id]?.startDate) || t.startDate;
-                                            const effEnd   = t => ((t.workerDates||{})[worker.id]?.endDate)   || t.endDate;
-                                            taskEntries.forEach(({ task }) => {
-                                                const ts = effStart(task), te = effEnd(task);
-                                                let lane = lanes.findIndex(l => !l.some(t => effStart(t) < te && effEnd(t) > ts));
-                                                if (lane === -1) { lane = lanes.length; lanes.push([]); }
-                                                lanes[lane].push(task);
-                                                taskLane.set(task.id, lane);
+                                            // Build per-task span: [minLeft, maxRight]
+                                            const taskSpan = new Map();
+                                            bars.forEach(b => {
+                                                const right = b.left + b.width;
+                                                const cur = taskSpan.get(b.task.id);
+                                                if (!cur) taskSpan.set(b.task.id, [b.left, right]);
+                                                else taskSpan.set(b.task.id, [Math.min(cur[0], b.left), Math.max(cur[1], right)]);
+                                            });
+                                            // Sort unique tasks by their start position
+                                            const uniqueTaskIds = [...taskSpan.keys()];
+                                            uniqueTaskIds.sort((a, b) => taskSpan.get(a)[0] - taskSpan.get(b)[0]);
+                                            // Greedy lane assignment: track rightmost end of each lane
+                                            const laneEnds = [];
+                                            uniqueTaskIds.forEach(tid => {
+                                                const [tLeft, tRight] = taskSpan.get(tid);
+                                                let lane = laneEnds.findIndex(end => end <= tLeft);
+                                                if (lane === -1) { lane = laneEnds.length; laneEnds.push(tRight); }
+                                                else { laneEnds[lane] = tRight; }
+                                                taskLane.set(tid, lane);
                                             });
                                             const laneH = 28, laneGap = 8, topBase = 6;
-                                            const numLanes = Math.max(1, lanes.length);
+                                            const numLanes = Math.max(1, laneEnds.length);
                                             const rowH = Math.max(48, topBase + numLanes * (laneH + laneGap));
                                             return (
                                                 <div className="gantt-row-timeline" style={{ position:'relative', cursor:'default', minHeight:`${rowH}px` }}

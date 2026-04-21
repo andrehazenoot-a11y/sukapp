@@ -5,10 +5,11 @@ import { useAuth } from '@/components/AuthContext';
 import { BESTEK } from '../api/materiaal-advies/bestek.js';
 
 const BTW = 0.21;
-const LS_DATA    = 'schildersapp_materiaal_data';
-const LS_COLS    = 'schildersapp_materiaal_cols';
+const LS_DATA     = 'schildersapp_materiaal_data';
+const LS_COLS     = 'schildersapp_materiaal_cols';
 const LS_PRIJZEN  = 'schildersapp_materiaal_prijzen'; // { userId: { opslag: 20 } }
 const LS_VOLGORDE = 'schildersapp_materiaal_volgorde';
+const LS_HEADERS  = 'schildersapp_materiaal_headers';
 
 const FIELD_LABELS = {
     naam:         { label: 'Artikelnaam',       icon: 'fa-tag',              color: '#1e293b' },
@@ -36,7 +37,7 @@ export default function MateriaalPage() {
 
     const [rows, setRows]         = useState([]);
     const [cols, setCols]         = useState({ naam: '', prijs: '', eenheid: '', code: '', categorie: '', verkoopprijs: '' });
-    const [headers, setHeaders]   = useState([]);
+    const [headers, setHeaders]   = useState(() => { try { return JSON.parse(localStorage.getItem(LS_HEADERS) || '[]'); } catch { return []; } });
     const [zoek, setZoek]         = useState('');
     const [tab, setTab]           = useState('zoeken'); // zoeken | instellingen
     const [prijzen, setPrijzen]   = useState({});       // { userId: { opslag } }
@@ -64,6 +65,16 @@ export default function MateriaalPage() {
     const [actiefSit, setActiefSit]           = useState('buiten');
     const [ingeklapteGroepen, setIngeklapteGroepen] = useState({});
     const [productTags, setProductTags]       = useState(() => { try { return JSON.parse(localStorage.getItem('schildersapp_product_tags') || '{}'); } catch { return {}; } });
+    const [uitgeschakeld, setUitgeschakeld]   = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('schildersapp_materiaal_uitgeschakeld') || '[]')); } catch { return new Set(); } });
+
+    function toggleUitgeschakeld(rk) {
+        setUitgeschakeld(prev => {
+            const next = new Set(prev);
+            if (next.has(rk)) next.delete(rk); else next.add(rk);
+            localStorage.setItem('schildersapp_materiaal_uitgeschakeld', JSON.stringify([...next]));
+            return next;
+        });
+    }
 
     const isBeheerder = user?.role === 'Beheerder';
 
@@ -226,6 +237,7 @@ export default function MateriaalPage() {
             if (!data.length) { showToast('Bestand is leeg of onleesbaar', 'error'); return; }
             const hdrs = Object.keys(data[0]);
             setHeaders(hdrs);
+            localStorage.setItem(LS_HEADERS, JSON.stringify(hdrs));
             setRows(data);
             localStorage.setItem(LS_DATA, JSON.stringify(data));
             // Probeer kolommen automatisch te koppelen
@@ -527,7 +539,7 @@ export default function MateriaalPage() {
                                         const badgeFields = fieldOrder.filter(f => f !== 'naam' && f !== 'prijs' && f !== 'verkoopprijs');
                                         const toonPrijs   = fieldOrder.includes('prijs') && fieldValues.prijs;
                                         return (
-                                            <div key={i} style={{ background: '#fff', borderRadius: '12px', border: '1.5px solid #f1f5f9', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', position: 'relative' }}>
+                                            <div key={i} style={{ background: '#fff', borderRadius: '12px', border: `1.5px solid ${uitgeschakeld.has(rk) ? '#e2e8f0' : '#f1f5f9'}`, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', position: 'relative', opacity: uitgeschakeld.has(rk) ? 0.45 : 1, transition: 'opacity 0.2s' }}>
                                                 {isBeheerder && (
                                                     <button onClick={() => deleteRow(row)}
                                                         title="Rij verwijderen"
@@ -657,6 +669,15 @@ export default function MateriaalPage() {
                                                         </div>
                                                     );
                                                 })()}
+                                                {/* Toggle in/uitschakelen */}
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0, borderLeft: '1px solid #f1f5f9', paddingLeft: '12px', marginLeft: '4px' }}>
+                                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, color: uitgeschakeld.has(rk) ? '#94a3b8' : '#10b981', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{uitgeschakeld.has(rk) ? 'Uit' : 'Aan'}</span>
+                                                    <button onClick={e => { e.stopPropagation(); toggleUitgeschakeld(rk); }}
+                                                        title={uitgeschakeld.has(rk) ? 'Artikel inschakelen' : 'Artikel uitschakelen'}
+                                                        style={{ width: '36px', height: '20px', borderRadius: '10px', border: 'none', cursor: 'pointer', background: uitgeschakeld.has(rk) ? '#e2e8f0' : '#10b981', position: 'relative', transition: 'background 0.2s', padding: 0, flexShrink: 0 }}>
+                                                        <span style={{ position: 'absolute', top: '2px', left: uitgeschakeld.has(rk) ? '2px' : '18px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', display: 'block' }} />
+                                                    </button>
+                                                </div>
                                             </div>
                                         );
                                     })}
