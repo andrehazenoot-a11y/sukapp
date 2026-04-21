@@ -31,3 +31,18 @@ export async function PUT(req) {
     writeData(all);
     return NextResponse.json({ ok: true });
 }
+
+export async function PATCH(req) {
+    const { taskId, progress, completed } = await req.json();
+    const all = readData();
+    for (const p of all) {
+        for (const t of (p.tasks || [])) {
+            if (String(t.id) === String(taskId)) {
+                t.progress = completed ? 100 : progress;
+                t.completed = completed;
+            }
+        }
+    }
+    writeData(all);
+    return NextResponse.json({ ok: true });
+}

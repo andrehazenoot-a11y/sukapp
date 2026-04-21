@@ -302,10 +302,20 @@ export default function MijnSuk() {
         syncVacDays(updated);
     }
 
-    // Tap op kalenderdag → vul startdatum in en open modal
+    // Tap op kalenderdag → direct aan/uit zetten als vakantiedag
     function tapDag(iso, isWeekend, isHoliday) {
-        if (isWeekend || isHoliday) return;
-        openNieuw(iso);
+        if (isWeekend || isHoliday || !user) return;
+        const bestaand = verlofLijst.find(v => v.van === iso && (v.tot === iso || !v.tot));
+        let updated;
+        if (bestaand) {
+            updated = verlofLijst.filter(v => v.id !== bestaand.id);
+        } else {
+            const entry = { type:'Vakantie', van:iso, tot:iso, id:Date.now(), ingediend:new Date().toISOString(), status:'Goedgekeurd', naam:user.name, opmerking:'' };
+            updated = [entry, ...verlofLijst];
+        }
+        setVerlofLijst(updated);
+        saveLS(`schildersapp_verlof_${user.id}`, updated);
+        syncVacDays(updated);
     }
 
     // Verlof range voor kalender
@@ -419,7 +429,7 @@ export default function MijnSuk() {
 
     // ── Verloftegoed berekening ──
     const TOTAAL_DAGEN = 25;       // standaard jaarlijks verloftegoed
-    const UREN_PER_DAG = 8;
+    const UREN_PER_DAG = 7.5;
     function telWerkdagen(van, tot) {
         if (!van) return 0;
         let count = 0;
@@ -515,12 +525,8 @@ export default function MijnSuk() {
                         </div>
 
                         {/* Header rij */}
-                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'10px' }}>
-                            <div style={{ fontSize:'0.72rem', color:'#94a3b8', fontWeight:500 }}>Tik een werkdag om verlof aan te vragen</div>
-                            <button onClick={() => openNieuw(todayIso)}
-                                style={{ background:'#F5850A', color:'#fff', border:'none', borderRadius:'9px', padding:'6px 11px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:'4px' }}>
-                                <i className="fa-solid fa-plus" style={{ fontSize:'0.65rem' }} />Aanvragen
-                            </button>
+                        <div style={{ display:'flex', alignItems:'center', marginBottom:'10px' }}>
+                            <div style={{ fontSize:'0.72rem', color:'#94a3b8', fontWeight:500 }}>Tik een werkdag om vakantie aan of uit te zetten</div>
                         </div>
 
                         {/* Kalender */}

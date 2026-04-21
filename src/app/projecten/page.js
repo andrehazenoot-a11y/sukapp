@@ -3701,6 +3701,44 @@ export default function ProjectenPage() {
 
                 const getWorkerBars = (userId) => {
                     const bars = [];
+
+                    // Bouw een set van skip-dagen voor deze medewerker:
+                    // vakantiedagen + handmatige afwezigheid (feestdagen zitten al in getWorkdaySegments)
+                    const userSkipDays = new Set();
+                    (workerAbsences||[]).filter(a => a.userId === userId).forEach(a => {
+                        try {
+                            const s = parseDate(a.startDate), e = parseDate(a.endDate);
+                            const cur = new Date(s);
+                            while (cur <= e) { userSkipDays.add(formatDate(cur)); cur.setDate(cur.getDate() + 1); }
+                        } catch {}
+                    });
+                    const userVacSet = vacDaysGantt[userId];
+                    if (userVacSet) userVacSet.forEach(ds => userSkipDays.add(ds));
+
+                    // Hulpfunctie: segmenteer een periode met extra skip-dagen per medewerker
+                    const getSegsForWorker = (s, e) => {
+                        if (userSkipDays.size === 0) return getWorkdaySegments(s, e, tStart, tEnd, totalDays);
+                        const allSegs = [];
+                        let segStart = null;
+                        const cur = new Date(s);
+                        while (cur <= e) {
+                            const ds = formatDate(cur);
+                            const skip = userSkipDays.has(ds);
+                            if (!skip && segStart === null) {
+                                segStart = new Date(cur);
+                            } else if (skip && segStart !== null) {
+                                const segEnd = new Date(cur.getTime() - 86400000);
+                                getWorkdaySegments(segStart, segEnd, tStart, tEnd, totalDays).forEach(seg => allSegs.push(seg));
+                                segStart = null;
+                            }
+                            cur.setDate(cur.getDate() + 1);
+                        }
+                        if (segStart !== null) {
+                            getWorkdaySegments(segStart, e, tStart, tEnd, totalDays).forEach(seg => allSegs.push(seg));
+                        }
+                        return allSegs;
+                    };
+
                     projects.forEach(proj => (proj.tasks||[]).forEach(task => {
                         const inAssignedTo = (task.assignedTo||[]).includes(userId);
                         const inAssignedByDay = !inAssignedTo && Object.values(task.assignedByDay||{}).some(ids => ids.includes(userId));
@@ -3714,12 +3752,13 @@ export default function ProjectenPage() {
                                     try {
                                         const d = parseDate(ds);
                                         if (d < tStart || d > tEnd) return;
+                                        if (userSkipDays.has(ds)) return; // skip vakantie/afwezig dag
                                         const segs = getWorkdaySegments(d, d, tStart, tEnd, totalDays);
                                         segs.forEach((seg, si) => bars.push({ proj, task, left: seg.left, width: seg.width, si, total: segs.length, isOverride: true }));
                                     } catch {}
                                 });
                             } else {
-                                // inAssignedTo: balk tekenen maar dagen met assignedByDay-uitsluiting overslaan
+                                // inAssignedTo: balk tekenen maar dagen met assignedByDay-uitsluiting + vakantie overslaan
                                 const _twd = (task.workerDates||{})[userId];
                                 const s = parseDate(_twd?.startDate || task.startDate);
                                 const e = parseDate(_twd?.endDate   || task.endDate);
@@ -3730,6 +3769,8 @@ export default function ProjectenPage() {
                                         .filter(([, ids]) => !ids.includes(userId))
                                         .map(([ds]) => ds)
                                 );
+                                // Voeg vakantie/afwezigheid toe aan uitgesloten dagen
+                                userSkipDays.forEach(ds => excludedDays.add(ds));
 
                                 if (excludedDays.size === 0) {
                                     const segs = getWorkdaySegments(s, e, tStart, tEnd, totalDays);

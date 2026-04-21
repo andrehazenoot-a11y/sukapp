@@ -22,7 +22,7 @@
         "assignedTo": [
           4
         ],
-        "completed": true,
+        "completed": false,
         "kanbanStatus": "klaar",
         "attachments": [
           {
@@ -32,7 +32,34 @@
             "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Ftaken%2F1775240784536_WhatsApp_Image_2026-04-01_at_10.50.55.jpeg",
             "data": null
           }
-        ]
+        ],
+        "assignedByDay": {
+          "2026-04-14": [
+            1
+          ],
+          "2026-05-12": [
+            1
+          ],
+          "2026-05-27": [
+            1
+          ],
+          "2026-04-22": [
+            1
+          ],
+          "2026-04-13": [
+            1
+          ],
+          "2026-04-15": [
+            1
+          ]
+        },
+        "workerDates": {
+          "1": {
+            "startDate": "2026-04-15",
+            "endDate": "2026-04-15"
+          }
+        },
+        "progress": 50
       },
       {
         "id": "t6",
@@ -43,7 +70,19 @@
           1
         ],
         "completed": false,
-        "kanbanStatus": "bezig"
+        "kanbanStatus": "bezig",
+        "assignedByDay": {
+          "2026-04-13": [
+            1
+          ]
+        },
+        "workerDates": {
+          "1": {
+            "startDate": "2026-04-13",
+            "endDate": "2026-04-13"
+          }
+        },
+        "progress": 30
       },
       {
         "id": "t7",
@@ -66,7 +105,19 @@
         "assignedTo": [
           4
         ],
-        "completed": false
+        "completed": false,
+        "assignedByDay": {
+          "2026-05-11": [
+            1
+          ]
+        },
+        "workerDates": {
+          "1": {
+            "startDate": "2026-05-11",
+            "endDate": "2026-05-11"
+          }
+        },
+        "progress": 80
       },
       {
         "id": "t17743891531730.05620105291367994",
@@ -536,6 +587,15 @@
         "datum": "3-4-2026",
         "tijd": "20:33",
         "auteur": "Jan Modaal"
+      },
+      {
+        "id": 1776170665815,
+        "name": "Jan_2026-04-14_14-44.jpg",
+        "type": "image/jpeg",
+        "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fmedewerker-fotos%2F1776170648892_WhatsApp_Image_2026-04-01_at_10.50.55.jpeg",
+        "datum": "14-4-2026",
+        "tijd": "14:44",
+        "auteur": "Jan Modaal"
       }
     ],
     "checklist": [
@@ -553,6 +613,35 @@
         "id": 1775241127430,
         "text": "fgff",
         "done": false
+      }
+    ],
+    "materiaal": [
+      {
+        "id": 1776107922499,
+        "product": "ALPHACRYL PURE MAT SF KLEUR 10L UIT W05",
+        "verpakking": "STUK    ",
+        "aantalEmmers": null,
+        "totaalprijs": "€ 96,00",
+        "datum": "13-4-2026",
+        "opgeslagenDoor": "Jan Modaal"
+      },
+      {
+        "id": 1776108008808,
+        "product": "ALPHACRYL PURE MAT SF KLEUR 5L UIT W05",
+        "verpakking": "STUK    ",
+        "aantalEmmers": null,
+        "totaalprijs": "€ 53,00",
+        "datum": "13-4-2026",
+        "opgeslagenDoor": "Jan Modaal"
+      },
+      {
+        "id": 1776108051223,
+        "product": "ALPHACRYL PURE MAT SF KLEUR 10L UIT N00",
+        "verpakking": "STUK    ",
+        "aantalEmmers": null,
+        "totaalprijs": "€ 216,00",
+        "datum": "14-4-2026",
+        "opgeslagenDoor": "Jan Modaal"
       }
     ]
   }

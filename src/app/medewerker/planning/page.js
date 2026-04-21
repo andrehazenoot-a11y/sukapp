@@ -52,6 +52,14 @@ function getISOWeek(date) {
     return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
 }
 
+function getISOWeekAndYear(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+    return { week, year: d.getUTCFullYear() };
+}
+
 function getMondayOfWeek(week, year) {
     const jan4 = new Date(year, 0, 4);
     const dow = jan4.getDay() || 7;
@@ -112,6 +120,15 @@ function getMyPlanningForWeek(userId, week, year) {
                 });
             }
         }
+        // Dedup: verwijder dubbele taskIds per dag (b.v. bij overlap inRange + assignedByDay)
+        result.forEach(day => {
+            const seen = new Set();
+            day.items = day.items.filter(item => {
+                if (seen.has(item.taskId)) return false;
+                seen.add(item.taskId);
+                return true;
+            });
+        });
         return result;
     } catch { return []; }
 }
@@ -128,6 +145,7 @@ export default function MedewerkerPlanning() {
     const [year, setYear] = useState(today.getFullYear());
     const [planning, setPlanning] = useState([]);
     const [detail, setDetail] = useState(null);
+    const [dagKiezer, setDagKiezer] = useState(null); // { date, iso } — keuze menu voor lege dag
     const [detailTab, setDetailTab] = useState('uren'); // 'info' | 'checklist' | 'uren'
     const [vacDays, setVacDays] = useState(new Set());
     const [urenAantal, setUrenAantal] = useState('');
@@ -168,49 +186,6 @@ export default function MedewerkerPlanning() {
     const [wbMatNaam, setWbMatNaam] = useState('');
     const [wbMatHoeveelheid, setWbMatHoeveelheid] = useState('1 stuk');
     const [wbMatSaving, setWbMatSaving] = useState(false);
-    const [wbMatZoek, setWbMatZoek] = useState([]);
-
-    // Zoekhelpers voor materiaal
-    function getNaamUitRij(r) {
-        if (typeof r.naam === 'string') return r.naam; // API / genormaliseerd formaat
-        if (matKolommen.naam) return String(r[matKolommen.naam] ?? '');
-        return String(Object.values(r).find(v => v && typeof v === 'string') ?? '');
-    }
-    function getEenheidUitRij(r) {
-        if (typeof r.hoeveelheid === 'string') return r.hoeveelheid;
-        if (typeof r.eenheid === 'string') return r.eenheid;
-        if (matKolommen.eenheid) return String(r[matKolommen.eenheid] ?? '');
-        return '';
-    }
-    function getCodeUitRij(r) {
-        if (typeof r.code === 'string') return r.code;
-        if (matKolommen.code) return String(r[matKolommen.code] ?? '');
-        return '';
-    }
-    function zoekMateriaalAsync(q, setFn) {
-        if (!q || q.length < 2) { setFn([]); return; }
-        const ql = q.toLowerCase();
-        // Zoek lokaal in catalogus
-        let lokaal = [];
-        if (matRijen.length > 0) {
-            const naamKol = matKolommen.naam;
-            lokaal = matRijen.filter(r => {
-                if (naamKol) return String(r[naamKol] ?? '').toLowerCase().includes(ql);
-                return Object.values(r).some(v => String(v ?? '').toLowerCase().includes(ql));
-            }).slice(0, 15);
-        }
-        // Zoek altijd ook in DB (werkbon-historie) en combineer
-        fetch(`/api/materialen-zoeken?q=${encodeURIComponent(q)}`)
-            .then(r => r.json())
-            .then(data => {
-                const api = Array.isArray(data) ? data : [];
-                // Merge: lokaal eerst, dan API-resultaten die nog niet in lokaal zitten
-                const lokaalNamen = new Set(lokaal.map(r => getNaamUitRij(r).toLowerCase()));
-                const extra = api.filter(r => !lokaalNamen.has((r.naam || '').toLowerCase()));
-                setFn([...lokaal, ...extra].slice(0, 15));
-            })
-            .catch(() => setFn(lokaal));
-    }
     const [materiaalPopup, setMateriaalPopup] = useState(null); // { dayIso, taskId }
     const [meerwerkUren, setMeerwerkUren] = useState('');
     const [ziekeNote, setZiekeNote] = useState('');
@@ -270,29 +245,22 @@ export default function MedewerkerPlanning() {
         const y = year;
         // Direct tonen vanuit localStorage (snel)
         setPlanning(getMyPlanningForWeek(uid, w, y));
-        // Daarna server ophalen en bijwerken
+        // Daarna server ophalen — merge met lokale progress/completed zodat die niet overschreven worden
         fetch('/api/projecten')
             .then(r => r.json())
             .then(data => {
                 if (Array.isArray(data) && data.length > 0) {
-                    // Merge server-data met lokale data — lokale planning-data wint altijd
-                    const lokaal = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]');
-                    const merged = data.map(serverProject => {
-                        const lokaalProject = lokaal.find(l => String(l.id) === String(serverProject.id));
-                        if (!lokaalProject) return serverProject;
-                        // Lokaal wint voor alle planning-velden (assignedTo, assignedByDay, workerDates)
-                        // Server levert alleen metadata (naam, data, status) bij als die lokaal ontbreekt
-                        return {
-                            ...serverProject,
-                            ...lokaalProject,
-                            tasks: (serverProject.tasks || []).map(st => {
-                                const lt = (lokaalProject.tasks || []).find(t => String(t.id) === String(st.id));
-                                // Lokale taak wint volledig — bevat assignedTo/assignedByDay/workerDates
-                                return lt ? { ...st, ...lt } : st;
-                            }),
-                        };
-                    });
-                    localStorage.setItem('schildersapp_projecten', JSON.stringify(merged));
+                    try {
+                        const local = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]');
+                        const localMap = {};
+                        local.forEach(p => (p.tasks || []).forEach(t => {
+                            if (t.progress > 0 || t.completed) localMap[t.id] = { progress: t.progress, completed: t.completed };
+                        }));
+                        data.forEach(p => (p.tasks || []).forEach(t => {
+                            if (localMap[t.id]) { t.progress = localMap[t.id].progress; t.completed = localMap[t.id].completed; }
+                        }));
+                    } catch {}
+                    localStorage.setItem('schildersapp_projecten', JSON.stringify(data));
                     setPlanning(getMyPlanningForWeek(uid, w, y));
                 }
             })
@@ -305,7 +273,46 @@ export default function MedewerkerPlanning() {
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
-            setWeekUren(all.filter(e => e.userId === user.id));
+            const mijnUren = all.filter(e => e.userId === user.id);
+
+            // OOK urv2-data voor de huidige week inlezen (ingevuld via /urenregistratie)
+            const urv2Key = `schildersapp_urv2_u${user.id}_w${week}_${year}`;
+            const urv2Raw = localStorage.getItem(urv2Key);
+            if (urv2Raw) {
+                const urv2Rows = JSON.parse(urv2Raw);
+                const monday = getMondayOfWeek(week, year);
+                urv2Rows.forEach(row => {
+                    if (!row.projectId) return;
+                    Object.entries(row.types || {}).forEach(([typeId, hrs]) => {
+                        if (typeId === 'ziek' || typeId === 'vrij') return;
+                        (hrs || []).forEach((h, di) => {
+                            const hours = parseFloat(h) || 0;
+                            if (hours <= 0) return;
+                            const d = new Date(monday);
+                            d.setDate(monday.getDate() + di);
+                            const dateIso = fmtLocal(d);
+                            const alreadyExists = mijnUren.some(e =>
+                                e.date === dateIso &&
+                                !e._fromUrv2 &&
+                                (String(e.projectId) === String(row.projectId) || e.projectId == null)
+                            );
+                            if (!alreadyExists) {
+                                mijnUren.push({
+                                    id: `urv2_${row.projectId}_${di}`,
+                                    userId: user.id,
+                                    projectId: row.projectId,
+                                    date: dateIso,
+                                    hours,
+                                    note: row.notes?.[typeId]?.[di] || '',
+                                    _fromUrv2: true,
+                                });
+                            }
+                        });
+                    });
+                });
+            }
+
+            setWeekUren(mijnUren);
         } catch { setWeekUren([]); }
     }, [user, week, year, urenLijst]);
 
@@ -318,6 +325,48 @@ export default function MedewerkerPlanning() {
             setWeekMeerwerk(all.filter(e => e.userId === user.id));
         } catch { setWeekMeerwerk([]); }
     }, [user, week, year, urenLijst]);
+
+    // Laad uren van API bij wisseling van week/jaar en merge met localStorage
+    useEffect(() => {
+        if (!user?.id) return;
+        (async () => {
+            try {
+                const res = await fetch(`/api/uren?userId=${user.id}&week=${week}&jaar=${year}`);
+                const rows = await res.json();
+                if (!Array.isArray(rows) || rows.length === 0) return;
+
+                const apiData = rows[0]?.data;
+                if (!apiData) return;
+
+                // Merge uren: lokale entries hebben voorrang, ontbrekende aanvullen vanuit API
+                const urenRaw = localStorage.getItem('schildersapp_uren_registraties');
+                const localUren = urenRaw ? JSON.parse(urenRaw) : [];
+                const localIds = new Set(localUren.map(e => String(e.id)));
+                const apiUren = Array.isArray(apiData.uren) ? apiData.uren : [];
+                const toAdd = apiUren
+                    .filter(e => !localIds.has(String(e.id)))
+                    .map(e => String(e.id).startsWith('urv2_') ? { ...e, _fromUrv2: true } : e);
+                if (toAdd.length > 0) {
+                    localStorage.setItem('schildersapp_uren_registraties', JSON.stringify([...localUren, ...toAdd]));
+                    setUrenLijst(prev => [...prev]); // trigger weekUren effect
+                }
+
+                // Merge meerwerk
+                const meerwerkRaw = localStorage.getItem('schildersapp_meerwerk');
+                const localMeerwerk = meerwerkRaw ? JSON.parse(meerwerkRaw) : [];
+                const localMwIds = new Set(localMeerwerk.map(e => String(e.id)));
+                const apiMeerwerk = Array.isArray(apiData.meerwerk) ? apiData.meerwerk : [];
+                const mwToAdd = apiMeerwerk.filter(e => !localMwIds.has(String(e.id)));
+                if (mwToAdd.length > 0) {
+                    const mergedMw = [...localMeerwerk, ...mwToAdd];
+                    localStorage.setItem('schildersapp_meerwerk', JSON.stringify(mergedMw));
+                    setWeekMeerwerk(mergedMw.filter(e => e.userId === user.id));
+                }
+            } catch (e) {
+                console.log('[loadUrenFromApi] ophalen mislukt:', e);
+            }
+        })();
+    }, [user?.id, week, year]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!user) return;
@@ -395,30 +444,13 @@ export default function MedewerkerPlanning() {
         })();
     }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Materiaalbot productdata laden — eerst localStorage, daarna server als leeg
+    // Materiaalbot productdata laden
     useEffect(() => {
         try {
             const r = localStorage.getItem('schildersapp_materiaal_data');
             const c = localStorage.getItem('schildersapp_materiaal_cols');
-            const rijen = r ? JSON.parse(r) : [];
-            const kolommen = c ? JSON.parse(c) : {};
-            if (rijen.length > 0) {
-                setMatRijen(rijen);
-                setMatKolommen(kolommen);
-            } else {
-                // Haal op van server (gesynchroniseerd door beheerder materiaalzoeker)
-                fetch('/api/materiaal-data')
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.rijen?.length > 0) {
-                            setMatRijen(data.rijen);
-                            setMatKolommen(data.kolommen || {});
-                            localStorage.setItem('schildersapp_materiaal_data', JSON.stringify(data.rijen));
-                            localStorage.setItem('schildersapp_materiaal_cols', JSON.stringify(data.kolommen || {}));
-                        }
-                    })
-                    .catch(() => {});
-            }
+            setMatRijen(r ? JSON.parse(r) : []);
+            setMatKolommen(c ? JSON.parse(c) : {});
         } catch {}
     }, []);
 
@@ -433,30 +465,6 @@ export default function MedewerkerPlanning() {
             setVacDays(new Set(arr));
         } catch { setVacDays(new Set()); }
     }, [user, year]);
-
-    // Bij laden: hersync alle localStorage-uren naar DB (corrigeert eventuele eerdere sync-fouten)
-    useEffect(() => {
-        if (!user) return;
-        try {
-            const raw = localStorage.getItem('schildersapp_uren_registraties');
-            const alle = raw ? JSON.parse(raw) : [];
-            const userEntries = alle.filter(e => String(e.userId) === String(user.id) && e.hours > 0 && e.date);
-            // Groepeer per (week, jaar)
-            const perWeek = {};
-            userEntries.forEach(e => {
-                const d = new Date(e.date + 'T00:00:00');
-                const w = getISOWeek(d);
-                const y = d.getFullYear();
-                const key = `${w}_${y}`;
-                if (!perWeek[key]) perWeek[key] = { week: w, jaar: y };
-            });
-            // Sync elke week
-            Object.values(perWeek).forEach(({ week: w, jaar: y }) => {
-                syncUrenNaarApi(alle, user.id, user.name, w, y);
-            });
-        } catch { }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user?.id]);
 
     // Notities laden zodra detail-modal opent
     useEffect(() => {
@@ -564,47 +572,100 @@ export default function MedewerkerPlanning() {
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
-            return all.filter(e => e.taskId === taskId && e.date === dateIso && e.userId === user?.id);
+            // Voor vrij-items: alle uren van die dag teruggeven (taskId-onafhankelijk)
+            if (String(taskId).startsWith('vrij-')) {
+                return all.filter(e => e.date === dateIso && e.userId === user?.id);
+            }
+            // Eerst exact op taskId
+            const byTask = all.filter(e => e.taskId === taskId && e.date === dateIso && e.userId === user?.id);
+            if (byTask.length > 0) return byTask;
+            // Fallback: entries van /urenregistratie hebben geen taskId, match op projectId
+            const task = (() => { try { const p = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); for (const pr of p) for (const t of (pr.tasks||[])) if (String(t.id)===String(taskId)) return { projectId: pr.id }; } catch {} return null; })();
+            if (!task) return [];
+            return all.filter(e => !e.taskId && String(e.projectId) === String(task.projectId) && e.date === dateIso && e.userId === user?.id);
         } catch { return []; }
     }
 
-    // Converteert schildersapp_uren_registraties → schilders_uren_weken formaat en synct naar API
-    function syncUrenNaarApi(alleRegistraties, userId, userName, weekNr, jaarNr) {
+    // Sync uren + notitie vanuit planning naar urv2-formaat (urenregistratie)
+    function syncToUrv2(dateIso, projectId) {
         try {
-            const monday = getMondayOfWeek(weekNr, jaarNr);
-            const weekDagen = Array.from({ length: 5 }, (_, i) => {
-                const d = new Date(monday); d.setDate(monday.getDate() + i);
-                return fmtLocal(d);
-            });
-            const weekEntries = alleRegistraties.filter(e =>
-                String(e.userId) === String(userId) &&
-                e.hours > 0 &&
-                weekDagen.includes(e.date)
+            const date = new Date(dateIso + 'T00:00:00');
+            const dow = date.getDay(); // 0=Zo, 6=Za
+            if (dow === 0 || dow === 6) return;
+            const di = dow - 1; // 0=Ma..4=Vr
+            const { week, year } = getISOWeekAndYear(date);
+            const weekKey = `schildersapp_urv2_u${user.id}_w${week}_${year}`;
+
+            // Herbereken totaal uren + laatste notitie voor dit project+dag
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const all = raw ? JSON.parse(raw) : [];
+            const dagEntries = all.filter(e =>
+                e.date === dateIso &&
+                String(e.projectId) === String(projectId) &&
+                e.userId === user.id &&
+                e.type !== 'ziek' && e.type !== 'andere'
             );
-            // Groepeer per projectId
-            const byProject = {};
-            weekEntries.forEach(e => {
-                const pid = String(e.projectId || 'onbekend');
-                if (!byProject[pid]) byProject[pid] = { projectId: pid, hours: ['', '', '', '', ''] };
-                const di = weekDagen.indexOf(e.date);
-                if (di >= 0) {
-                    const huidig = parseFloat(byProject[pid].hours[di]) || 0;
-                    byProject[pid].hours[di] = String(+(huidig + e.hours).toFixed(2));
-                }
+            const totalHours = dagEntries.reduce((s, e) => s + (e.hours || 0), 0);
+            const noteText = dagEntries.slice().reverse().find(e => e.note)?.note || '';
+
+            // Laad urv2
+            let urv2 = [];
+            try { const u = localStorage.getItem(weekKey); urv2 = u ? JSON.parse(u) : []; } catch {}
+
+            // Vind of maak project rij
+            let row = urv2.find(p => String(p.projectId) === String(projectId));
+            if (!row) {
+                row = { id: 'p' + Date.now(), projectId: String(projectId), types: { normaal: ['', '', '', '', ''] }, notes: { normaal: ['', '', '', '', ''] } };
+                urv2.push(row);
+            }
+            if (!row.types.normaal) row.types.normaal = ['', '', '', '', ''];
+            if (!row.notes) row.notes = {};
+            if (!row.notes.normaal) row.notes.normaal = ['', '', '', '', ''];
+
+            row.types.normaal[di] = totalHours > 0 ? String(totalHours) : '';
+            row.notes.normaal[di] = noteText;
+
+            localStorage.setItem(weekKey, JSON.stringify(urv2));
+        } catch {}
+    }
+
+    async function syncUrenToApi(userId, weekNr, jaarNr) {
+        try {
+            const urenRaw = localStorage.getItem('schildersapp_uren_registraties');
+            const allUren = urenRaw ? JSON.parse(urenRaw) : [];
+
+            const meerwerkRaw = localStorage.getItem('schildersapp_meerwerk');
+            const allMeerwerk = meerwerkRaw ? JSON.parse(meerwerkRaw) : [];
+
+            const weekUrenData = allUren.filter(e => {
+                if (e.userId !== userId) return false;
+                if (!e.date) return false;
+                if (String(e.id).startsWith('urv2_')) return false;
+                const { week: w, year: y } = getISOWeekAndYear(new Date(e.date + 'T00:00:00'));
+                return w === weekNr && y === jaarNr;
             });
-            const data = Object.values(byProject).map(p => ({
-                id: 'p_' + p.projectId,
-                projectId: p.projectId,
-                types: { normaal: p.hours },
-                notes: { normaal: ['', '', '', '', ''] },
-            }));
-            if (data.length === 0) return; // Niets te syncen
-            fetch('/api/uren', {
+
+            const weekMeerwerkData = allMeerwerk.filter(e => {
+                if (e.userId !== userId) return false;
+                if (!e.date) return false;
+                const { week: w, year: y } = getISOWeekAndYear(new Date(e.date + 'T00:00:00'));
+                return w === weekNr && y === jaarNr;
+            });
+
+            await fetch('/api/uren', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, userName, week: weekNr, jaar: jaarNr, data, status: 'concept' }),
-            }).catch(() => {});
-        } catch { }
+                body: JSON.stringify({
+                    userId: String(userId),
+                    userName: user?.name || null,
+                    week: weekNr,
+                    jaar: jaarNr,
+                    data: { uren: weekUrenData, meerwerk: weekMeerwerkData },
+                }),
+            });
+        } catch (e) {
+            console.log('[syncUrenToApi] sync mislukt:', e);
+        }
     }
 
     async function saveUren() {
@@ -633,9 +694,6 @@ export default function MedewerkerPlanning() {
         setUrenLijst(prev => [...prev, entry]);
         setUrenAantal('');
         setUrenNote('');
-        // Sync naar beheerder dashboard (gebruik datum van entry, niet week-state)
-        const detailDate = new Date(detail.date + 'T00:00:00');
-        syncUrenNaarApi(updatedList, user.id, user.name, getISOWeek(detailDate), detailDate.getFullYear());
         // PATCH werkbon uren als werkbon gekoppeld is aan deze dag
         // Eerst via localStorage, daarna via selectedWerkbon state als fallback
         let werkbonId = getWerkbonIdVoorDag(detail.taskId, detail.date);
@@ -680,6 +738,8 @@ export default function MedewerkerPlanning() {
                 });
             } catch {}
         }
+        if (detail) syncToUrv2(detail.date, detail.projectId);
+        syncUrenToApi(user.id, week, year);
     }
 
     function saveUrenEdit(id) {
@@ -687,52 +747,31 @@ export default function MedewerkerPlanning() {
         if (!h || h <= 0) return;
         const update = (list) => list.map(e => e.id === id ? { ...e, hours: h, note: urenEditNote.trim() } : e);
         setUrenLijst(prev => update(prev));
-        let updated;
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
-            updated = update(all);
-            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
-        } catch { updated = update(urenLijst); }
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(update(all)));
+        } catch {}
         setUrenEditId(null);
-        // Sync naar beheerder dashboard (gebruik datum van de gewijzigde entry)
-        if (user) {
-            const editedEntry = updated.find(e => e.id === id);
-            if (editedEntry?.date) {
-                const ed = new Date(editedEntry.date + 'T00:00:00');
-                syncUrenNaarApi(updated, user.id, user.name, getISOWeek(ed), ed.getFullYear());
-            } else {
-                syncUrenNaarApi(updated, user.id, user.name, week, year);
-            }
-        }
+        if (detail) syncToUrv2(detail.date, detail.projectId);
     }
 
     function deleteUren(id) {
         const entry = urenLijst.find(e => e.id === id);
-        let updated;
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
             // If deleting a sick entry, remove all sick entries for this user+date
-            updated = entry?.type === 'ziek'
+            const updated = entry?.type === 'ziek'
                 ? all.filter(e => !(e.userId === user?.id && e.date === entry.date && e.type === 'ziek'))
                 : all.filter(e => e.id !== id);
             localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(updated));
-        } catch { updated = urenLijst.filter(e => e.id !== id); }
+        } catch {}
         setUrenLijst(prev => entry?.type === 'ziek'
             ? prev.filter(e => e.type !== 'ziek')
             : prev.filter(e => e.id !== id));
         if (urenEditId === id) setUrenEditId(null);
-        // Sync naar beheerder dashboard (gebruik datum van de verwijderde entry)
-        if (user) {
-            const entryDate = entry?.date;
-            if (entryDate) {
-                const ed = new Date(entryDate + 'T00:00:00');
-                syncUrenNaarApi(updated, user.id, user.name, getISOWeek(ed), ed.getFullYear());
-            } else {
-                syncUrenNaarApi(updated, user.id, user.name, week, year);
-            }
-        }
+        if (detail && entry) syncToUrv2(entry.date, detail.projectId);
     }
 
     // ── Spraak naar tekst ──
@@ -937,6 +976,7 @@ export default function MedewerkerPlanning() {
         setMeerwerkMatHoeveelheid('1 stuk');
         setMatZoekResultaten([]);
         setMeerwerkEditEntry(null);
+        syncUrenToApi(user.id, week, year);
         setUrenSection(null);
     }
 
@@ -960,6 +1000,7 @@ export default function MedewerkerPlanning() {
             setUrenLijst(loadUren(detail.taskId, detail.date));
         } catch {}
         setZiekeNote('');
+        syncUrenToApi(user.id, week, year);
         setUrenSection(null);
         alert('Ziekmelding opgeslagen.');
     }
@@ -1038,6 +1079,7 @@ export default function MedewerkerPlanning() {
         } catch {}
         setAndereOmschrijving('');
         setAndereUren('');
+        syncUrenToApi(user.id, week, year);
         setUrenSection(null);
     }
 
@@ -1402,15 +1444,6 @@ export default function MedewerkerPlanning() {
 
             localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
             setPlanning(getMyPlanningForWeek(user.id, week, year));
-            // Sync gewijzigd project naar server zodat het na refresh bewaard blijft
-            const updatedProject = projects.find(p => String(p.id) === String(newProject.id));
-            if (updatedProject) {
-                fetch('/api/projecten', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ project: updatedProject }),
-                }).catch(() => {});
-            }
             setDetail(null);
         } catch (e) { console.error('saveProjectChange fout:', e); }
     }
@@ -1435,6 +1468,12 @@ export default function MedewerkerPlanning() {
             setProgressSaved(true);
             setPlanning(getMyPlanningForWeek(user.id, week, year));
             setTimeout(() => setProgressSaved(false), 2000);
+            // Sync naar server zodat het bij refresh bewaard blijft
+            fetch('/api/projecten', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId: detail.taskId, progress, completed: markCompleted || (progress === 100) }),
+            }).catch(() => {});
         } catch (e) { console.error('saveProgress fout:', e); }
     }
 
@@ -1591,9 +1630,9 @@ export default function MedewerkerPlanning() {
         </div>
     );
 
-    function openDetail(item, dateIso) {
+    function openDetail(item, dateIso, tab = 'uren') {
         setDetail({ ...item, date: dateIso });
-        setDetailTab('uren');
+        setDetailTab(tab);
         setReplyText('');
         setReplyType('info');
         setReplyImage(null);
@@ -1612,6 +1651,7 @@ export default function MedewerkerPlanning() {
         setChangeProject(null);
         setSelectedWerkbon(null);
         setShowWerkbonPicker(false);
+        setShowNieuwWerkbon(false);
         setWerkbonSearch('');
         setWerkbonUren('');
         setWerkbonGeselecteerd(null);
@@ -1720,7 +1760,7 @@ export default function MedewerkerPlanning() {
         setZiekeNote('');
         setAndereOmschrijving('');
         setAndereUren('');
-        setLocalProgress(item.progress || 0);
+        setLocalProgress(item.completed ? 100 : (item.progress || 0));
         setProgressSaved(false);
         setPoSectOpen({ werkomschrijving: false, checklist: false, opmerkingen: false, bestanden: false, fotos: false });
         setPoNoteText('');
@@ -1759,27 +1799,35 @@ export default function MedewerkerPlanning() {
 
             {/* ── Week uren tracker ── */}
             {(() => {
-                // Alle werkdagen (Ma-Vr) die geen feestdag of vakantie zijn
-                const werkDagen = workDays.filter(d => !HOLIDAYS[d.iso] && !vacDays.has(d.iso));
-                if (werkDagen.length === 0) return null;
                 const DAG_AFR_MAP = {1:'Ma',2:'Di',3:'Wo',4:'Do',5:'Vr'};
-                const dagTotalen = werkDagen.map(d => {
-                    const du = d.items.length === 0
-                        ? weekUren.filter(u => u.date === d.iso && String(u.taskId).startsWith('vrij-'))
-                        : weekUren.filter(u => u.date === d.iso);
+                // Alle 5 werkdagen (Ma-Vr) tonen, inclusief feestdagen en vakantie
+                const alleDagen = workDays.map(d => {
+                    const holiday = HOLIDAYS[d.iso];
+                    const isVac = vacDays.has(d.iso);
+                    // Haal de taskIds op die écht ingepland staan op deze dag
+                    const dagPlanningItems = planning.find(p => p.iso === d.iso)?.items || [];
+                    const dagTaskIds = new Set(dagPlanningItems.map(t => String(t.taskId)));
+                    const duRaw = weekUren.filter(u =>
+                        u.date === d.iso &&
+                        !u._fromUrv2 &&
+                        !String(u.id).startsWith('urv2_') &&
+                        // Alleen uren meerekenen die bij een ingeplande taak horen, of vrij-dag uren als er geen taken zijn
+                        (dagPlanningItems.length === 0 || dagTaskIds.has(String(u.taskId)))
+                    );
+                    const du = duRaw.filter((u, idx, arr) => arr.findIndex(x => String(x.id) === String(u.id)) === idx);
                     const mw = weekMeerwerk.filter(m => m.date === d.iso);
                     const u  = Math.round((du.filter(e => e.type !== 'ziek').reduce((s, e) => s + (e.hours || 0), 0) + mw.reduce((s, m) => s + (m.hours || 0), 0)) * 10) / 10;
                     const ziek = du.some(e => e.type === 'ziek');
                     const dagNr = new Date(d.iso + 'T00:00:00').getDay();
-                    return { iso: d.iso, u, ziek, vol: ziek || u >= 7.5, label: DAG_AFR_MAP[dagNr] || '' };
+                    return { iso: d.iso, u, ziek, holiday, isVac, vol: ziek || u >= 7.5, label: DAG_AFR_MAP[dagNr] || '' };
                 });
-                const weekTotaal = Math.round(dagTotalen.reduce((s, d) => s + d.u, 0) * 10) / 10;
-                const dagenVol   = dagTotalen.filter(d => d.vol).length;
-                const volledig   = dagenVol === werkDagen.length;
+                const werkDagen = alleDagen.filter(d => !d.holiday && !d.isVac);
+                const weekTotaal = Math.round(werkDagen.reduce((s, d) => s + d.u, 0) * 10) / 10;
+                const dagenVol   = werkDagen.filter(d => d.vol).length;
+                const volledig   = werkDagen.length > 0 && dagenVol === werkDagen.length;
                 return (
                     <div style={{ background: '#fff', borderRadius: '14px', padding: '10px 14px', marginBottom: '10px', border: `1px solid ${volledig ? '#bbf7d0' : '#f1f5f9'}` }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            {/* Totaal links */}
                             <div style={{ minWidth: '52px' }}>
                                 <div style={{ fontSize: '0.6rem', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1, marginBottom: '2px' }}>Deze week</div>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '2px' }}>
@@ -1790,29 +1838,39 @@ export default function MedewerkerPlanning() {
                                     {volledig ? '✓ volledig' : `${dagenVol}/${werkDagen.length} dagen`}
                                 </div>
                             </div>
-                            {/* Dag cirkels rechts */}
                             <div style={{ flex: 1, display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
-                                {dagTotalen.map((d) => {
+                                {alleDagen.map((d) => {
                                     const vol = d.vol;
                                     const deels = !vol && d.u > 0;
+                                    const isHoliday = !!d.holiday;
+                                    const isVac = d.isVac;
                                     const ziek = d.ziek;
+                                    // Feestdag stijl: oranje/goud
+                                    const bg    = isHoliday ? '#fff7ed' : isVac ? '#f0fdf4' : vol ? '#10b981' : ziek ? '#fef2f2' : deels ? '#f97316' : '#f8fafc';
+                                    const border= isHoliday ? '#fb923c' : isVac ? '#86efac' : vol ? '#10b981' : ziek ? '#fca5a5' : deels ? '#ea580c' : '#e2e8f0';
+                                    const shortName = isHoliday ? d.holiday.replace('dag','').replace('eerste','1e').replace('tweede','2e').substring(0,6) : null;
                                     return (
                                         <div key={d.iso} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                                            <span style={{ fontSize: '0.58rem', fontWeight: 700, color: '#94a3b8', lineHeight: 1 }}>{d.label}</span>
+                                            <span style={{ fontSize: '0.58rem', fontWeight: 700, color: isHoliday ? '#fb923c' : isVac ? '#10b981' : '#94a3b8', lineHeight: 1 }}>{d.label}</span>
                                             <div style={{
                                                 width: '32px', height: '32px', borderRadius: '50%',
-                                                background: vol ? '#10b981' : ziek ? '#fef2f2' : deels ? '#f97316' : '#f8fafc',
-                                                border: `2px solid ${vol ? '#10b981' : ziek ? '#fca5a5' : deels ? '#ea580c' : '#e2e8f0'}`,
+                                                background: bg, border: `2px solid ${border}`,
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                                             }}>
-                                                {vol
-                                                    ? <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.65rem' }} />
-                                                    : ziek
-                                                        ? <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.6rem' }} />
-                                                        : deels
-                                                            ? <span style={{ fontSize: '0.52rem', fontWeight: 900, color: '#fff', lineHeight: 1 }}>{d.u}</span>
-                                                            : null}
+                                                {isHoliday
+                                                    ? <i className="fa-solid fa-star" style={{ color: '#fb923c', fontSize: '0.6rem' }} />
+                                                    : isVac
+                                                        ? <i className="fa-solid fa-umbrella-beach" style={{ color: '#10b981', fontSize: '0.6rem' }} />
+                                                        : vol
+                                                            ? <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.65rem' }} />
+                                                            : ziek
+                                                                ? <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.6rem' }} />
+                                                                : deels
+                                                                    ? <span style={{ fontSize: '0.52rem', fontWeight: 900, color: '#fff', lineHeight: 1 }}>{d.u}</span>
+                                                                    : null}
                                             </div>
+                                            {isHoliday && <span style={{ fontSize: '0.46rem', fontWeight: 700, color: '#fb923c', lineHeight: 1, textAlign: 'center', maxWidth: '34px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName}</span>}
+                                            {isVac && <span style={{ fontSize: '0.46rem', fontWeight: 700, color: '#10b981', lineHeight: 1 }}>Vak.</span>}
                                         </div>
                                     );
                                 })}
@@ -1823,6 +1881,7 @@ export default function MedewerkerPlanning() {
             })()}
 
             {workDays.map((day, di) => {
+
                     const isToday = day.iso === todayIso;
                     const isPast = day.iso < todayIso;
                     const holiday = HOLIDAYS[day.iso];
@@ -1831,33 +1890,62 @@ export default function MedewerkerPlanning() {
                     const ziekEntry = weekUren.find(u => u.date === day.iso && u.type === 'ziek');
                     const vrijTaskId = `vrij-${day.iso}`;
                     // Lege dagen krijgen een synthetisch item → zelfde kaart-rendering als echte taken
+                    // Als lege dag maar wel uren geregistreerd: toon projectnaam uit uren
+                    const dagUrenVoorDisplay = weekUren.filter(u => u.date === day.iso && !String(u.taskId).startsWith('vrij-') && u.projectName && u.userId === user?.id);
+                    const eersteUrenProject = dagUrenVoorDisplay[0];
                     const displayItems = day.items.length === 0
-                        ? [{ taskId: vrijTaskId, projectName: 'Onbekend', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }]
+                        ? [eersteUrenProject
+                            ? { taskId: vrijTaskId, projectName: eersteUrenProject.projectName, taskName: eersteUrenProject.taskName || '', projectId: eersteUrenProject.projectId, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }
+                            : { taskId: vrijTaskId, projectName: 'Nog in te vullen project', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }]
                         : day.items;
 
+                    // Dag-level uren totaal — alleen uren die ook zichtbaar zijn in de uren tab
+                    // Bij vrij-dag: alle uren voor die datum; bij echte taak: alleen uren die matchen met een van de taskIds
+                    const dagTaskIds = new Set(day.items.map(t => String(t.taskId)));
+                    const dagTotaalUren = Math.round(weekUren.filter(u =>
+                        u.date === day.iso &&
+                        u.type !== 'ziek' &&
+                        !u._fromUrv2 &&
+                        !String(u.id).startsWith('urv2_') &&
+                        (day.items.length === 0 || dagTaskIds.has(String(u.taskId)))
+                    ).reduce((s, u) => s + (u.hours || 0), 0) * 10) / 10;
+                    const dagVol = ziekEntry || dagTotaalUren >= 7.5;
+                    const dagDeels = !dagVol && dagTotaalUren > 0;
+                    const dagAccent = dagVol ? '#10b981' : dagDeels ? '#f97316' : isToday ? '#F5850A' : '#e2e8f0';
                     const datumKleur = isToday ? '#F5850A' : '#64748b';
+
                     const datumKolom = (
-                        <div style={{ width: '44px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1px', paddingRight: '8px', paddingTop: '4px', paddingBottom: '4px' }}>
-                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: datumKleur, lineHeight: 1, textTransform: 'uppercase' }}>{DAY_NAMES_FULL[di].substring(0, 2)}</span>
-                            <span style={{ fontSize: '1.25rem', fontWeight: 900, lineHeight: 1, color: datumKleur }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
+                        <div style={{ width: '52px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', paddingRight: '8px', paddingTop: '8px', gap: '2px' }}>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: datumKleur, lineHeight: 1, textTransform: 'uppercase', marginBottom: '1px' }}>{DAY_NAMES_FULL[di].substring(0, 2)}</span>
+                            <div style={{
+                                width: '36px', height: '36px', borderRadius: '10px',
+                                background: dagVol ? '#10b981' : dagDeels ? '#fff7ed' : isToday ? '#fff8f0' : '#f8fafc',
+                                border: `2px solid ${dagAccent}`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
+                            }}>
+                                {ziekEntry
+                                    ? <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.7rem' }} />
+                                    : <span style={{ fontSize: '1rem', fontWeight: 900, lineHeight: 1, color: dagVol ? '#fff' : dagDeels ? '#f97316' : isToday ? '#F5850A' : '#94a3b8' }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
+                                }
+                            </div>
                         </div>
                     );
 
                     return (
-                        <div key={day.iso} style={{ marginBottom: '6px' }}>
+                        <div key={day.iso} style={{ marginBottom: '8px' }}>
                             {/* Items — datum-kolom links */}
                             {isFree ? (
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
                                     {datumKolom}
-                                    <div style={{ flex: 1, padding: '10px 14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>
-                                        {holiday ? `⭐ ${holiday} — vrije dag` : '☂ Vakantie — vrije dag'}
+                                    <div style={{ flex: 1, padding: '10px 14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#64748b', fontWeight: 600, alignSelf: 'flex-start', marginTop: '6px' }}>
+                                        {holiday ? `⭐ ${holiday}` : '☂ Vakantie'}
                                     </div>
                                 </div>
                             ) : ziekEntry && day.items.length === 0 ? (
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
                                     {datumKolom}
                                     <div onClick={() => { setZiekEditEntry(ziekEntry); setZiekEditNote(ziekEntry.note || ''); }}
-                                        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#fef2f2', borderRadius: '12px', border: '1px solid #fca5a5', cursor: 'pointer' }}>
+                                        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#fef2f2', borderRadius: '12px', border: '1px solid #fca5a5', cursor: 'pointer', alignSelf: 'flex-start', marginTop: '6px' }}>
                                         <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.85rem', flexShrink: 0 }} />
                                         <span style={{ fontSize: '0.82rem', color: '#ef4444', fontWeight: 700, flex: 1 }}>{ziekEntry.note && ziekEntry.note !== 'Ziek gemeld' ? ziekEntry.note : 'Ziek gemeld'}</span>
                                         <i className="fa-solid fa-pen" style={{ color: '#fca5a5', fontSize: '0.7rem' }} />
@@ -1866,24 +1954,31 @@ export default function MedewerkerPlanning() {
                             ) : (
                             <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
                                 {datumKolom}
-                                <div style={{ flex: 1 }}>
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '6px' }}>
                                 {displayItems.map((item, ii) => {
-                                const dagUren = weekUren.filter(u => String(u.taskId) === String(item.taskId) && u.date === day.iso);
-                                const dagMeerwerk = weekMeerwerk.filter(m => String(m.taskId) === String(item.taskId) && m.date === day.iso);
+                                const isVrijItem = String(item.taskId).startsWith('vrij-');
+                                const dagUrenRaw = isVrijItem
+                                    ? weekUren.filter(u => u.date === day.iso)
+                                    : weekUren.filter(u => String(u.taskId) === String(item.taskId) && u.date === day.iso);
+                                // Dedup op id om dubbele entries te voorkomen
+                                const dagUren = dagUrenRaw.filter((u, idx, arr) => arr.findIndex(x => String(x.id) === String(u.id)) === idx);
+                                const dagMeerwerk = isVrijItem
+                                    ? weekMeerwerk.filter(m => m.date === day.iso)
+                                    : weekMeerwerk.filter(m => String(m.taskId) === String(item.taskId) && m.date === day.iso);
                                 const werkbonEntry = dagUren.find(u => u.type === 'werkbon');
                                 const totaalU = Math.round(dagUren.reduce((s, u) => s + (u.hours || 0), 0) * 10) / 10;
                                 const urenIngevuld = totaalU > 0;
                                 return (
-                                <div key={ii} onClick={() => openDetail(item, day.iso)} style={{
-                                    marginBottom: '4px',
+                                <div key={ii} onClick={() => item.projectId === null && String(item.taskId).startsWith('vrij-') ? setDagKiezer({ date: day.iso }) : openDetail(item, day.iso)} style={{
                                     background: item.completed ? '#fafafa' : '#fff',
-                                    borderRadius: '14px', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                                    boxShadow: item.completed ? 'none' : '0 2px 8px rgba(0,0,0,0.07)',
-                                    border: `1px solid #f1f5f9`,
-                                    cursor: 'pointer', opacity: item.completed ? 0.6 : 1,
+                                    borderRadius: '12px', display: 'flex', flexDirection: 'row', overflow: 'hidden',
+                                    borderTop: `1.5px solid ${urenIngevuld ? '#bbf7d0' : item.color + '22'}`,
+                                    borderRight: `1.5px solid ${urenIngevuld ? '#bbf7d0' : item.color + '22'}`,
+                                    borderBottom: `1.5px solid ${urenIngevuld ? '#bbf7d0' : item.color + '22'}`,
+                                    borderLeft: `4px solid ${urenIngevuld ? '#10b981' : item.color || '#F5850A'}`,
+                                    cursor: 'pointer', opacity: item.completed ? 0.65 : 1,
                                 }}>
-                                    <div style={{ height: '3px', background: urenIngevuld ? '#10b981' : '#F5850A', borderRadius: '12px 12px 0 0' }} />
-                                    <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                                         <div style={{ flex: 1, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 {werkbonEntry ? (
@@ -1896,28 +1991,26 @@ export default function MedewerkerPlanning() {
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <div style={{ fontWeight: 700, fontSize: '0.87rem', color: item.projectName ? '#1e293b' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: item.projectName ? 'normal' : 'italic' }}>{item.projectName || 'Projectnaam later invullen'}</div>
-                                                        <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.taskName}</div>
-                                                        {item.client && <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>{item.client}</div>}
+                                                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.projectName}</div>
+                                                        {item.taskName && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.taskName}</div>}
+                                                        {item.client && <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><i className="fa-solid fa-location-dot" style={{ marginRight: '3px', fontSize: '0.6rem' }} />{item.client}</div>}
                                                     </>
                                                 )}
                                                 {item.notes && item.notes.length > 0 && (
                                                     <div style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.62rem', color: '#f59e0b' }} />
-                                                        <span style={{ fontSize: '0.65rem', color: '#f59e0b', fontWeight: 600 }}>{item.notes.length} notitie{item.notes.length !== 1 ? 's' : ''}</span>
+                                                        <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.6rem', color: '#f59e0b' }} />
+                                                        <span style={{ fontSize: '0.63rem', color: '#f59e0b', fontWeight: 600 }}>{item.notes.length} notitie{item.notes.length !== 1 ? 's' : ''}</span>
                                                     </div>
                                                 )}
+                                            </div>
+                                            {/* Rechts: pijltje om te openen */}
+                                            <div style={{ flexShrink: 0 }}>
+                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.55rem' }} />
                                             </div>
                                             {(() => {
                                                 const dagLosMat = weekLosMateriaal.filter(e => String(e.taskId) === String(item.taskId) && e.date === day.iso);
                                                 const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0);
-                                                if (matEntries.length === 0 && dagLosMat.length === 0) return (
-                                                    item.completed
-                                                        ? <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.9rem', flexShrink: 0 }} />
-                                                        : item.progress > 0
-                                                            ? <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.color, flexShrink: 0 }}>{item.progress}%</span>
-                                                            : <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.65rem', flexShrink: 0 }} />
-                                                );
+                                                if (matEntries.length === 0 && dagLosMat.length === 0) return null;
                                                 const totaalItems = matEntries.reduce((s, m) => s + m.materiaal.length, 0) + dagLosMat.length;
                                                 const popupOpen = materiaalPopup?.dayIso === day.iso && materiaalPopup?.taskId === item.taskId;
                                                 return (
@@ -1930,7 +2023,6 @@ export default function MedewerkerPlanning() {
                                                 );
                                             })()}
                                         </div>
-                                    </div>
                                     {/* Materiaal popup */}
                                     {materiaalPopup?.dayIso === day.iso && materiaalPopup?.taskId === item.taskId && (() => {
                                         const matEntries = dagMeerwerk.filter(m => m.materiaal?.length > 0);
@@ -1965,13 +2057,7 @@ export default function MedewerkerPlanning() {
                                             </div>
                                         );
                                     })()}
-                                    {/* Voortgangsbalk onderaan kaart */}
-                                    {(item.progress > 0 || item.completed) && (
-                                        <div style={{ height: '3px', background: '#f1f5f9' }}>
-                                            <div style={{ height: '100%', width: `${item.completed ? 100 : item.progress}%`, background: item.completed ? '#10b981' : item.color, transition: 'width 0.3s' }} />
-                                        </div>
-                                    )}
-                                    {/* Uren balken onderaan kaart */}
+                                    {/* Uren balken onderaan content column */}
                                     {(() => {
                                         const STIJL = {
                                             ziek:     { bg: '#fef2f2', border: '#fca5a5', color: '#ef4444', icon: 'fa-bed-pulse' },
@@ -1984,9 +2070,8 @@ export default function MedewerkerPlanning() {
                                             ...dagUren.filter(e => e.type !== 'werkbon').map(e => ({
                                                 key: e.id,
                                                 entry: e,
-                                                // Als er een werkbon gekoppeld is, toon de werkbon naam i.p.v. "Projecturen"
                                                 stijl: (werkbonEntry && !e.type) ? STIJL.werkbon : (STIJL[e.type] || STIJL.default),
-                                                label: e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || (werkbonEntry ? werkbonEntry.werkbonNaam : 'Projecturen')),
+                                                label: e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || 'Projecturen'),
                                                 uren: e.hours || null,
                                             })),
                                             ...(dagMeerwerk.length > 0 ? [{
@@ -2018,34 +2103,45 @@ export default function MedewerkerPlanning() {
                                             </div>
                                         ));
                                     })()}
+                                    </div>{/* einde content column */}
+                                    {/* Voortgangsbalk rechts — verticaal */}
+                                    <div style={{ width: '28px', background: item.completed ? '#d1fae5' : (item.color || '#F5850A') + '22', position: 'relative', flexShrink: 0, minHeight: '52px' }}>
+                                        <div style={{ width: '100%', height: `${item.completed ? 100 : item.progress || 0}%`, background: item.completed ? 'linear-gradient(to top, #059669, #10b981)' : `linear-gradient(to top, ${item.color}cc, ${item.color})`, transition: 'height 0.3s', position: 'absolute', bottom: 0, left: 0, borderRadius: '0 0 2px 2px' }} />
+                                        {/* Label bovenaan gevuld deel */}
+                                        {item.completed ? (
+                                            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1 }}>
+                                                <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.65rem' }} />
+                                            </div>
+                                        ) : item.progress > 0 ? (
+                                            <div style={{
+                                                position: 'absolute',
+                                                bottom: `${item.progress}%`,
+                                                left: 0, right: 0,
+                                                transform: 'translateY(50%)',
+                                                zIndex: 1,
+                                                display: 'flex', justifyContent: 'center',
+                                            }}>
+                                                <span style={{
+                                                    background: item.color,
+                                                    color: '#fff',
+                                                    fontSize: '0.52rem',
+                                                    fontWeight: 800,
+                                                    borderRadius: '4px',
+                                                    padding: '1px 3px',
+                                                    lineHeight: 1.3,
+                                                    whiteSpace: 'nowrap',
+                                                }}>{item.progress}%</span>
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 </div>
                                 );
                             })}
                                 </div>
                             </div>
+
                             )}
 
-                            {/* ── Dag uren tracker ── */}
-                            {day.items.length > 0 && (() => {
-                                const dayUren = weekUren.filter(u => u.date === day.iso);
-                                const dayMW   = weekMeerwerk.filter(m => m.date === day.iso);
-                                const isZiek  = dayUren.some(u => u.type === 'ziek');
-                                const totaal  = Math.round((dayUren.filter(u => u.type !== 'ziek').reduce((s, u) => s + (u.hours || 0), 0) + dayMW.reduce((s, m) => s + (m.hours || 0), 0)) * 10) / 10;
-                                const volledig = totaal >= 7.5;
-                                const niets    = !totaal && !isZiek;
-                                if (niets || isZiek || volledig) return null;
-                                return (
-                                    <div style={{ marginTop: '2px', marginLeft: '44px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', flexShrink: 0,
-                                            background: volledig ? '#f0fdf4' : '#fff8f0',
-                                            border: `1px solid ${volledig ? '#86efac' : '#fdba74'}` }}>
-                                            <i className={`fa-solid ${volledig ? 'fa-check' : 'fa-clock'}`}
-                                                style={{ color: volledig ? '#10b981' : '#f97316', fontSize: '0.6rem' }} />
-                                            {!volledig && <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#f97316' }}>{totaal}u</span>}
-                                        </div>
-                                    </div>
-                                );
-                            })()}
                         </div>
                     );
                 })
@@ -2056,28 +2152,15 @@ export default function MedewerkerPlanning() {
             {detail && (
                 <>
                     <div onClick={() => setDetail(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300 }} />
-                    <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', zIndex: 310, height: '96vh', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', zIndex: 310, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
                         {/* Header */}
                         <div style={{ padding: '16px 20px 0', flexShrink: 0 }}>
                             <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '0 auto 14px' }} />
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                                 <div style={{ width: '6px', height: '44px', background: detail.color, borderRadius: '3px', flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontWeight: 800, fontSize: '1rem', color: detail.projectName ? '#1e293b' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: detail.projectName ? 'normal' : 'italic' }}>{detail.projectName || 'Projectnaam later invullen'}</div>
+                                    <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.projectName}</div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.taskName}</div>
-                                    {detailTab === 'uren' && (
-                                        <div style={{ position: 'relative', display: 'inline-block', marginTop: '4px' }}
-                                            onMouseEnter={e => e.currentTarget.querySelector('.tooltip').style.display = 'block'}
-                                            onMouseLeave={e => e.currentTarget.querySelector('.tooltip').style.display = 'none'}
-                                            onClick={e => { const t = e.currentTarget.querySelector('.tooltip'); t.style.display = t.style.display === 'block' ? 'none' : 'block'; }}>
-                                            <i className="fa-solid fa-circle-info" style={{ color: '#3b82f6', fontSize: '0.75rem', cursor: 'pointer' }} />
-                                            <div className="tooltip" style={{ display: 'none', position: 'absolute', top: '100%', left: 0, marginTop: '5px', background: '#1e293b', color: '#fff', fontSize: '0.72rem', fontWeight: 500, borderRadius: '8px', padding: '8px 11px', whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', lineHeight: 1.6 }}>
-                                                <div style={{ color: 'rgba(255,255,255,0.6)', marginBottom: '4px', fontSize: '0.68rem' }}>Uren &amp; materiaal worden geboekt op:</div>
-                                                <div>📁 <strong>{detail.projectName || '—'}</strong></div>
-                                                <div>🔧 {detail.taskName || '—'}</div>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                                 <button onClick={() => { setShowProjectChange(v => !v); setShowWerkbonPicker(false); setChangeProject(null); setProjectSearch(''); }}
                                     style={{ background: showProjectChange ? '#fff8f0' : '#f8fafc', border: `1.5px solid ${showProjectChange ? '#F5850A' : '#e2e8f0'}`, borderRadius: '10px', padding: '7px 10px', cursor: 'pointer', color: showProjectChange ? '#F5850A' : '#94a3b8', flexShrink: 0 }}>
@@ -2126,8 +2209,8 @@ export default function MedewerkerPlanning() {
                             })()}
 
                             {/* Tabs */}
-                            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '12px', padding: '4px', marginBottom: '0', overflowX: 'auto', scrollbarWidth: 'none', justifyContent: 'center' }}>
-                                {[['info','fa-circle-info','Info'],['checklist','fa-list-check','Checklist'],['uren','fa-clock','Project'],['werkbon','fa-file-pen','Werkbon']].map(([t, ic, l]) => (
+                            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '12px', padding: '4px', marginBottom: '0', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                                {[['info','fa-circle-info','Info'],['checklist','fa-list-check','Checklist'],['uren','fa-clock','Uren'],['werkbon','fa-file-pen','Werkbon'],['materialen','fa-box-open','Materiaal']].map(([t, ic, l]) => (
                                     <button key={t} onClick={() => setDetailTab(t)}
                                         style={{ flexShrink: 0, padding: '8px 10px', borderRadius: '9px', border: 'none',
                                             background: detailTab === t ? '#fff' : 'transparent',
@@ -2141,7 +2224,7 @@ export default function MedewerkerPlanning() {
                                         {t === 'werkbon' && selectedWerkbon && (
                                             <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#F5850A' }} />
                                         )}
-                                        {t === 'uren' && weekLosMateriaal.some(e => String(e.taskId) === String(detail?.taskId)) && (
+                                        {t === 'materialen' && wbMaterialen.length > 0 && (
                                             <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }} />
                                         )}
                                     </button>
@@ -2563,6 +2646,29 @@ export default function MedewerkerPlanning() {
                                             );
                                         })()}
 
+                                        {/* Notities van de taak */}
+                                        {detail.notes && detail.notes.length > 0 && (
+                                            <div style={{ marginBottom: '14px' }}>
+                                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '7px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b' }} />Notities
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    {detail.notes.map((n, i) => (
+                                                        <div key={n.id || i} style={{ padding: '9px 12px', background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: '10px' }}>
+                                                            {n.photo && (
+                                                                <img src={n.photo} alt="" style={{ width: '100%', borderRadius: '8px', marginBottom: '7px', maxHeight: '160px', objectFit: 'cover' }} />
+                                                            )}
+                                                            <div style={{ fontSize: '0.83rem', color: '#1e293b', lineHeight: 1.4 }}>{n.text || n.content || ''}</div>
+                                                            <div style={{ fontSize: '0.68rem', color: '#b45309', marginTop: '4px', display: 'flex', gap: '8px' }}>
+                                                                {n.author && <span>{n.author}</span>}
+                                                                {n.date && <span>{n.date}</span>}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {/* Geregistreerde blokken */}
                                         <div style={{ marginBottom: '14px' }}>
                                             {urenLijst.length === 0 && (
@@ -2660,7 +2766,7 @@ export default function MedewerkerPlanning() {
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
 
                                             {/* ── Projecturen ── */}
-                                            <div style={{ borderRadius: '12px', border: `1.5px solid ${!urenSection ? '#F5850A' : '#e2e8f0'}`, overflow: !urenSection ? 'visible' : 'hidden' }}>
+                                            <div style={{ borderRadius: '12px', border: `1.5px solid ${!urenSection ? '#F5850A' : '#e2e8f0'}`, overflow: 'hidden' }}>
                                                 <button onClick={() => setUrenSection(null)}
                                                     style={{ width: '100%', padding: '13px 16px', background: !urenSection ? '#fff8f0' : '#f8fafc',
                                                         border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
@@ -2673,28 +2779,23 @@ export default function MedewerkerPlanning() {
                                                         <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '10px' }}>
                                                             <div style={{ flex: 1 }}>
                                                                 <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
-                                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                                    <button onClick={() => setUrenAantal('7.5')}
-                                                                        style={{ padding: '10px 20px', borderRadius: '10px', border: `1.5px solid ${urenAantal === '7.5' ? '#F5850A' : '#e2e8f0'}`,
-                                                                            background: urenAantal === '7.5' ? '#fff8f0' : '#f8fafc',
-                                                                            color: urenAantal === '7.5' ? '#F5850A' : '#64748b',
-                                                                            fontWeight: urenAantal === '7.5' ? 700 : 500, fontSize: '0.95rem', cursor: 'pointer' }}>
-                                                                        7.5u
-                                                                    </button>
-                                                                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>of</span>
-                                                                    <input type="number" min="0.5" max="24" step="0.5"
-                                                                        value={urenAantal === '7.5' ? '' : urenAantal}
-                                                                        onChange={e => setUrenAantal(e.target.value)}
-                                                                        placeholder="Aantal uren"
-                                                                        style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
-                                                                            fontSize: '0.95rem', fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
-                                                                </div>
+                                                                <input type="number" min="0.5" max="24" step="0.5"
+                                                                    value={urenAantal}
+                                                                    onChange={e => setUrenAantal(e.target.value)}
+                                                                    placeholder="Aantal uren"
+                                                                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
+                                                                        fontSize: '0.95rem', fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
                                                             </div>
+                                                            <button onClick={() => setUrenAantal('7.5')}
+                                                                style={{ padding: '10px 14px', background: urenAantal === '7.5' ? '#F5850A' : '#fff8f0', border: '1.5px solid #F5850A', borderRadius: '10px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, color: urenAantal === '7.5' ? '#fff' : '#F5850A', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                                                7,5u
+                                                            </button>
                                                         </div>
                                                         <input value={urenNote} onChange={e => setUrenNote(e.target.value)}
                                                             placeholder="Opmerking (optioneel)"
                                                             style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
                                                                 fontSize: '0.87rem', fontFamily: 'inherit', color: '#1e293b', boxSizing: 'border-box', outline: 'none', marginBottom: '10px' }} />
+
 
                                                         {(() => {
                                                             const invoer = parseFloat(urenAantal) || 0;
@@ -2740,24 +2841,14 @@ export default function MedewerkerPlanning() {
                                                 </button>
                                                 {urenSection === 'meerwerk' && (
                                                     <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde68a' }}>
-                                                        <div style={{ marginBottom: '10px' }}>
-                                                            <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
-                                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                                <button onClick={() => setMeerwerkUren('7.5')}
-                                                                    style={{ padding: '10px 20px', borderRadius: '10px', border: `1.5px solid ${meerwerkUren === '7.5' ? '#f59e0b' : '#e2e8f0'}`,
-                                                                        background: meerwerkUren === '7.5' ? '#fffbeb' : '#f8fafc',
-                                                                        color: meerwerkUren === '7.5' ? '#f59e0b' : '#64748b',
-                                                                        fontWeight: meerwerkUren === '7.5' ? 700 : 500, fontSize: '0.95rem', cursor: 'pointer' }}>
-                                                                    7.5u
-                                                                </button>
-                                                                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>of</span>
-                                                                <input type="number" min="0.5" max="24" step="0.5"
-                                                                    value={meerwerkUren === '7.5' ? '' : meerwerkUren}
-                                                                    onChange={e => setMeerwerkUren(e.target.value)}
-                                                                    placeholder="Aantal uren"
-                                                                    style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
-                                                                        fontSize: '0.95rem', fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
-                                                            </div>
+                                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
+                                                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Extra uren</label>
+                                                            <input type="number" min="0.5" max="24" step="0.5"
+                                                                value={meerwerkUren}
+                                                                onChange={e => setMeerwerkUren(e.target.value)}
+                                                                placeholder="bijv. 2"
+                                                                style={{ width: '90px', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
+                                                                    fontSize: '0.95rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
                                                         </div>
                                                         <textarea
                                                             value={meerwerkText}
@@ -2769,7 +2860,96 @@ export default function MedewerkerPlanning() {
                                                                 boxSizing: 'border-box', color: '#1e293b', marginBottom: '10px' }}
                                                         />
 
-
+                                                        {/* ── Materiaal ── */}
+                                                        <div style={{ marginBottom: '10px' }}>
+                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', marginBottom: '7px' }}>
+                                                                <i className="fa-solid fa-box" style={{ marginRight: '5px', color: '#f59e0b' }} />Materiaal toevoegen
+                                                            </div>
+                                                            {/* Zoekveld */}
+                                                            <div style={{ position: 'relative', marginBottom: '6px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={meerwerkMatNaam}
+                                                                    onChange={e => {
+                                                                        const q = e.target.value;
+                                                                        setMeerwerkMatNaam(q);
+                                                                        if (q.length >= 2 && matRijen.length > 0 && matKolommen.naam) {
+                                                                            const ql = q.toLowerCase();
+                                                                            setMatZoekResultaten(
+                                                                                matRijen.filter(r => String(r[matKolommen.naam] ?? '').toLowerCase().includes(ql)).slice(0, 8)
+                                                                            );
+                                                                        } else {
+                                                                            setMatZoekResultaten([]);
+                                                                        }
+                                                                    }}
+                                                                    onKeyDown={e => {
+                                                                        if (e.key === 'Enter' && meerwerkMatNaam.trim()) {
+                                                                            setMeerwerkMateriaal(prev => [...prev, { naam: meerwerkMatNaam.trim(), hoeveelheid: meerwerkMatHoeveelheid.trim() }]);
+                                                                            setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]);
+                                                                        }
+                                                                    }}
+                                                                    placeholder="Zoek product..."
+                                                                    style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #fde68a', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box', background: '#fffbeb' }}
+                                                                />
+                                                                <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#d97706', fontSize: '0.8rem', pointerEvents: 'none' }} />
+                                                                {/* Dropdown */}
+                                                                {matZoekResultaten.length > 0 && (
+                                                                    <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #fde68a', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '220px', overflowY: 'auto', overflowX: 'auto' }}>
+                                                                        {matZoekResultaten.map((r, i) => {
+                                                                            const naam = String(r[matKolommen.naam] ?? '');
+                                                                            const eenheid = matKolommen.eenheid ? String(r[matKolommen.eenheid] ?? '') : '';
+                                                                            const code = matKolommen.code ? String(r[matKolommen.code] ?? '') : '';
+                                                                            return (
+                                                                                <button key={i}
+                                                                                    onClick={() => {
+                                                                                        setMeerwerkMateriaal(prev => [...prev, { naam, hoeveelheid: meerwerkMatHoeveelheid.trim() || eenheid }]);
+                                                                                        setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]);
+                                                                                    }}
+                                                                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < matZoekResultaten.length - 1 ? '1px solid #fef3c7' : 'none', cursor: 'pointer', textAlign: 'left' }}
+                                                                                    onMouseOver={e => e.currentTarget.style.background = '#fffbeb'}
+                                                                                    onMouseOut={e => e.currentTarget.style.background = 'none'}
+                                                                                >
+                                                                                    <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                                                    <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, whiteSpace: 'nowrap' }}>{naam}</span>
+                                                                                    {(eenheid || code) && <span style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>{eenheid || code}</span>}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {/* Hoeveelheid + toevoegen */}
+                                                            <div style={{ display: 'flex', gap: '6px', marginBottom: '7px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={meerwerkMatHoeveelheid}
+                                                                    onChange={e => setMeerwerkMatHoeveelheid(e.target.value)}
+                                                                    placeholder="Hoeveelheid"
+                                                                    style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }}
+                                                                />
+                                                                <button
+                                                                    onClick={() => { if (!meerwerkMatNaam.trim()) return; setMeerwerkMateriaal(prev => [...prev, { naam: meerwerkMatNaam.trim(), hoeveelheid: meerwerkMatHoeveelheid.trim() }]); setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]); }}
+                                                                    style={{ padding: '0 14px', background: '#f59e0b', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', flexShrink: 0 }}>
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                            {/* Toegevoegde items */}
+                                                            {meerwerkMateriaal.length > 0 && (
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                                                    {meerwerkMateriaal.map((mat, i) => (
+                                                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                                                                            <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.72rem', flexShrink: 0 }} />
+                                                                            <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{mat.naam}</span>
+                                                                            {mat.hoeveelheid && <span style={{ fontSize: '0.78rem', color: '#78716c', fontWeight: 500 }}>{mat.hoeveelheid}</span>}
+                                                                            <button onClick={() => setMeerwerkMateriaal(prev => prev.filter((_, j) => j !== i))}
+                                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', padding: '2px 4px', fontSize: '0.75rem' }}>
+                                                                                <i className="fa-solid fa-xmark" />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
 
                                                         {/* Luisteren indicator */}
                                                         {sttActive && (
@@ -2976,112 +3156,6 @@ export default function MedewerkerPlanning() {
 
                                         </div>
 
-                                            {/* ── Materialen ── */}
-                                            {(() => {
-                                                const allProjectMat = weekLosMateriaal.filter(e => String(e.taskId) === String(detail?.taskId));
-                                                const totaal = allProjectMat.length;
-                                                // Groepeer per datum
-                                                const perDag = {};
-                                                for (const m of allProjectMat) {
-                                                    if (!perDag[m.date]) perDag[m.date] = [];
-                                                    perDag[m.date].push(m);
-                                                }
-                                                const gesorteerdeData = Object.keys(perDag).sort();
-                                                return (
-                                                    <div style={{ borderRadius: '12px', border: `1.5px solid ${urenSection === 'materialen' ? '#f59e0b' : '#e2e8f0'}`, overflow: urenSection === 'materialen' ? 'visible' : 'hidden' }}>
-                                                        <button onClick={() => setUrenSection(s => s === 'materialen' ? null : 'materialen')}
-                                                            style={{ width: '100%', padding: '13px 16px', background: urenSection === 'materialen' ? '#fffbeb' : '#f8fafc',
-                                                                border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
-                                                            <i className="fa-solid fa-box-open" style={{ color: '#f59e0b', fontSize: '1rem' }} />
-                                                            <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Materialen</span>
-                                                            {totaal > 0 && <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700 }}>{totaal} item{totaal !== 1 ? 's' : ''}</span>}
-                                                            <i className={`fa-solid fa-chevron-${urenSection === 'materialen' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
-                                                        </button>
-                                                        {urenSection === 'materialen' && (
-                                                            <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde68a' }}>
-                                                                {/* Per dag gegroepeerde materialen */}
-                                                                {gesorteerdeData.map(datum => {
-                                                                    const isVandaag = datum === detail?.date;
-                                                                    const d = new Date(datum + 'T00:00:00');
-                                                                    const dagLabel = d.toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' });
-                                                                    return (
-                                                                        <div key={datum} style={{ marginBottom: '12px' }}>
-                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                                                                                <div style={{ width: '3px', height: '12px', background: isVandaag ? '#f59e0b' : '#e2e8f0', borderRadius: '2px', flexShrink: 0 }} />
-                                                                                <span style={{ fontSize: '0.68rem', fontWeight: 800, color: isVandaag ? '#b45309' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                                                                                    {isVandaag ? `Vandaag — ${dagLabel}` : dagLabel}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                                                {perDag[datum].map(mat => (
-                                                                                    <div key={mat.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', background: isVandaag ? '#fffbeb' : '#f8fafc', border: `1px solid ${isVandaag ? '#fde68a' : '#e2e8f0'}`, borderRadius: '9px' }}>
-                                                                                        <i className="fa-solid fa-box" style={{ color: isVandaag ? '#f59e0b' : '#94a3b8', fontSize: '0.72rem', flexShrink: 0 }} />
-                                                                                        <span style={{ flex: 1, fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{mat.naam}</span>
-                                                                                        <span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>
-                                                                                        {isVandaag && (
-                                                                                            <button onClick={() => verwijderLosMateriaal(mat.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', padding: '0 2px' }}>
-                                                                                                <i className="fa-solid fa-xmark" style={{ fontSize: '0.8rem' }} />
-                                                                                            </button>
-                                                                                        )}
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                                {/* Toevoegen voor vandaag */}
-                                                                {gesorteerdeData.length > 0 && <hr style={{ border: 'none', borderTop: '1px solid #fde68a', margin: '4px 0 12px' }} />}
-                                                                <div style={{ position: 'relative', marginBottom: '6px' }}>
-                                                                    <input type="text" value={losMatNaam}
-                                                                        onChange={e => {
-                                                                            const q = e.target.value;
-                                                                            setLosMatNaam(q);
-                                                                            zoekMateriaalAsync(q, setLosMatZoek);
-                                                                        }}
-                                                                        onKeyDown={e => { if (e.key === 'Enter' && losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); } }}
-                                                                        placeholder="Zoek of typ materiaal..."
-                                                                        style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #fde68a', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box', background: '#fffbeb' }} />
-                                                                    <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#d97706', fontSize: '0.8rem', pointerEvents: 'none' }} />
-                                                                    {losMatZoek.length > 0 && (
-                                                                        <>
-                                                                        <div onClick={() => setLosMatZoek([])} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
-                                                                        <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #fde68a', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '350px', overflowY: 'auto' }}>
-                                                                            {losMatZoek.map((r, i) => {
-                                                                                const naam = getNaamUitRij(r);
-                                                                                const eenheid = getEenheidUitRij(r);
-                                                                                return (
-                                                                                    <button key={i} onClick={() => { setLosMatNaam(naam); setLosMatHoeveelheid(eenheid || '1 stuk'); setLosMatZoek([]); }}
-                                                                                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #fef3c7' : 'none', cursor: 'pointer', textAlign: 'left' }}>
-                                                                                        <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.7rem', flexShrink: 0 }} />
-                                                                                        <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{naam}</span>
-                                                                                        {eenheid && <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{eenheid}</span>}
-                                                                                    </button>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                                <div style={{ display: 'flex', gap: '6px' }}>
-                                                                    <input type="text" value={losMatHoeveelheid} onChange={e => setLosMatHoeveelheid(e.target.value)}
-                                                                        placeholder="Hoeveelheid"
-                                                                        style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
-                                                                    <button onClick={() => { if (losMatNaam.trim()) voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); }}
-                                                                        style={{ padding: '0 14px', background: '#f59e0b', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', flexShrink: 0 }}>
-                                                                        +
-                                                                    </button>
-                                                                </div>
-                                                                <button onClick={() => { if (losMatNaam.trim()) voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); }}
-                                                                    disabled={!losMatNaam.trim()}
-                                                                    style={{ width: '100%', marginTop: '8px', padding: '11px', background: losMatNaam.trim() ? '#f59e0b' : '#f1f5f9', border: 'none', borderRadius: '10px', color: losMatNaam.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.88rem', cursor: losMatNaam.trim() ? 'pointer' : 'default' }}>
-                                                                    <i className="fa-solid fa-plus" style={{ marginRight: '6px' }} />
-                                                                    Voeg materialen toe aan project
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
 
                                         {/* ── Urentotaal ── */}
                                         {(() => {
@@ -3103,154 +3177,6 @@ export default function MedewerkerPlanning() {
                                         </div>
                                     )}
 
-                                    {/* ── Datumprikker ── */}
-                                    {(() => {
-                                        function prevWorkday(iso) {
-                                            const d = new Date(iso + 'T00:00:00');
-                                            do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6 || HOLIDAYS[fmtLocal(d)]);
-                                            return fmtLocal(d);
-                                        }
-                                        function nextWorkday(iso) {
-                                            const d = new Date(iso + 'T00:00:00');
-                                            do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6 || HOLIDAYS[fmtLocal(d)]);
-                                            return fmtLocal(d);
-                                        }
-                                        function goToDay(iso) {
-                                            setDetail(prev => ({ ...prev, date: iso }));
-                                            setUrenLijst(loadUren(detail.taskId, iso));
-                                            setUrenAantal('');
-                                            setUrenNote('');
-                                            setUrenEditId(null);
-                                        }
-                                        const detailDayObj = new Date((detail?.date || new Date().toISOString().slice(0, 10)) + 'T00:00:00');
-                                        const detailDayName = DAY_NAMES_FULL[detailDayObj.getDay() === 0 ? 6 : detailDayObj.getDay() - 1];
-                                        const detailDayNum = detailDayObj.getDate();
-                                        const detailMonth = MONTH_NAMES[detailDayObj.getMonth()];
-                                        const detailYear = detailDayObj.getFullYear();
-                                        const totalVandaag = urenLijst.reduce((s, e) => s + (e.hours || 0), 0);
-                                        const heeftUren = urenLijst.length > 0;
-                                        const accentColor = heeftUren ? '#10b981' : '#F5850A';
-                                        const bgColor = heeftUren ? '#f0fdf4' : '#f8fafc';
-                                        const borderColor = heeftUren ? '#86efac' : '#e2e8f0';
-                                        return (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', height: '72px', boxSizing: 'border-box', background: bgColor, borderRadius: '14px', border: `1.5px solid ${borderColor}` }}>
-                                                <button onClick={() => goToDay(prevWorkday(detail.date))}
-                                                    style={{ width: '36px', height: '36px', borderRadius: '10px', border: 'none', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', cursor: 'pointer', color: '#475569', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                    <i className="fa-solid fa-chevron-left" />
-                                                </button>
-                                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-                                                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: accentColor, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                        <span style={{ fontSize: '0.58rem', fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', lineHeight: 1 }}>{detailDayName.substring(0, 2)}</span>
-                                                        <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', lineHeight: 1.1 }}>{detailDayNum}</span>
-                                                    </div>
-                                                    <div style={{ textAlign: 'center' }}>
-                                                        <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>{detailDayName}</div>
-                                                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '1px' }}>{detailMonth} {detailYear}</div>
-                                                    </div>
-                                                </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                                                    <div style={{ fontWeight: 900, fontSize: '1.1rem', color: heeftUren ? '#10b981' : '#cbd5e1', lineHeight: 1 }}>
-                                                        {heeftUren ? `${Math.round(totalVandaag * 10) / 10}u` : '—'}
-                                                    </div>
-                                                    {heeftUren && <i className="fa-solid fa-check" style={{ fontSize: '0.6rem', color: '#10b981' }} />}
-                                                </div>
-                                                <button onClick={() => goToDay(nextWorkday(detail.date))}
-                                                    style={{ width: '36px', height: '36px', borderRadius: '10px', border: 'none', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', cursor: 'pointer', color: '#475569', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                    <i className="fa-solid fa-chevron-right" />
-                                                </button>
-                                            </div>
-                                        );
-                                    })()}
-
-                                    {/* ── Opgeslagen uren (boven accordion) ── */}
-                                    {urenLijst.map(e => (
-                                        <div key={e.id} style={{ marginBottom: '6px', border: `1.5px solid ${urenEditId === e.id ? '#F5850A' : '#e2e8f0'}`, borderRadius: '10px', overflow: 'hidden' }}>
-                                            {urenEditId === e.id ? (
-                                                <div style={{ padding: '10px 12px', background: '#fff8f0' }}>
-                                                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                                                        <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Uren</label>
-                                                        <input type="number" min="0.5" max="24" step="0.5"
-                                                            value={urenEditVal}
-                                                            onChange={ev => setUrenEditVal(ev.target.value)}
-                                                            style={{ width: '70px', padding: '6px 8px', border: '1.5px solid #F5850A', borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
-                                                        <input value={urenEditNote}
-                                                            onChange={ev => setUrenEditNote(ev.target.value)}
-                                                            placeholder="Opmerking"
-                                                            style={{ flex: 1, padding: '6px 8px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: '6px' }}>
-                                                        <button onClick={() => saveUrenEdit(e.id)}
-                                                            style={{ flex: 1, padding: '7px', background: '#F5850A', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
-                                                            <i className="fa-solid fa-check" style={{ marginRight: '5px' }} />Opslaan
-                                                        </button>
-                                                        <button onClick={() => deleteUren(e.id)}
-                                                            style={{ padding: '7px 12px', background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: '8px', color: '#ef4444', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>
-                                                            <i className="fa-solid fa-trash" />
-                                                        </button>
-                                                        <button onClick={() => setUrenEditId(null)}
-                                                            style={{ padding: '7px 12px', background: '#f1f5f9', border: 'none', borderRadius: '8px', color: '#64748b', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>
-                                                            Annuleren
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background: e.type === 'ziek' ? '#fef2f2' : '#f8fafc', cursor: e.type === 'ziek' ? 'default' : 'pointer' }}
-                                                    onClick={() => { if (e.type === 'ziek') return; setUrenEditId(e.id); setUrenEditVal(String(e.hours)); setUrenEditNote(e.note || ''); }}>
-                                                    <i className={`fa-solid ${e.type === 'ziek' ? 'fa-bed-pulse' : e.type === 'andere' ? 'fa-stethoscope' : 'fa-clock'}`}
-                                                        style={{ color: e.type === 'ziek' ? '#ef4444' : e.type === 'andere' ? '#6366f1' : '#10b981', fontSize: '0.8rem', flexShrink: 0 }} />
-                                                    <span style={{ fontSize: '0.85rem', color: e.type === 'ziek' ? '#ef4444' : '#475569', fontWeight: e.type === 'ziek' ? 700 : 400, flex: 1 }}>
-                                                        {e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || 'Werkbonuren')}
-                                                    </span>
-                                                    {e.hours ? <span style={{ fontWeight: 700, color: '#F5850A', fontSize: '0.95rem' }}>{e.hours}u</span> : null}
-                                                    {e.type === 'ziek'
-                                                        ? <button onClick={ev => { ev.stopPropagation(); deleteUren(e.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px 4px', fontSize: '0.8rem' }}><i className="fa-solid fa-trash" /></button>
-                                                        : <i className="fa-solid fa-pen" style={{ color: '#cbd5e1', fontSize: '0.68rem' }} />
-                                                    }
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-
-                                    {/* ── Werkbonuren accordion ── */}
-                                    <div style={{ borderRadius: '12px', border: `1.5px solid ${urenSection === 'wb_projecturen' ? '#F5850A' : '#e2e8f0'}`, overflow: 'hidden' }}>
-                                        <button onClick={() => setUrenSection(s => s === 'wb_projecturen' ? null : 'wb_projecturen')}
-                                            style={{ width: '100%', padding: '13px 16px', background: urenSection === 'wb_projecturen' ? '#fff8f0' : '#f8fafc', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
-                                            <i className="fa-solid fa-clock" style={{ color: '#F5850A', fontSize: '1rem' }} />
-                                            <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Werkbonuren</span>
-                                            <i className={`fa-solid fa-chevron-${urenSection === 'wb_projecturen' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
-                                        </button>
-                                        {urenSection === 'wb_projecturen' && (
-                                            <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde8cc' }}>
-                                                <div style={{ marginBottom: '10px' }}>
-                                                    <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
-                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                        <button onClick={() => setUrenAantal('7.5')}
-                                                            style={{ padding: '10px 20px', borderRadius: '10px', border: `1.5px solid ${urenAantal === '7.5' ? '#F5850A' : '#e2e8f0'}`,
-                                                                background: urenAantal === '7.5' ? '#fff8f0' : '#f8fafc',
-                                                                color: urenAantal === '7.5' ? '#F5850A' : '#64748b',
-                                                                fontWeight: urenAantal === '7.5' ? 700 : 500, fontSize: '0.95rem', cursor: 'pointer' }}>
-                                                            7.5u
-                                                        </button>
-                                                        <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>of</span>
-                                                        <input type="number" min="0.5" max="24" step="0.5"
-                                                            value={urenAantal === '7.5' ? '' : urenAantal}
-                                                            onChange={e => setUrenAantal(e.target.value)}
-                                                            placeholder="Aantal uren"
-                                                            style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.95rem', fontFamily: 'inherit', color: '#1e293b', outline: 'none', boxSizing: 'border-box' }} />
-                                                    </div>
-                                                </div>
-                                                <input value={urenNote} onChange={e => setUrenNote(e.target.value)}
-                                                    placeholder="Opmerking (optioneel)"
-                                                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.87rem', fontFamily: 'inherit', color: '#1e293b', boxSizing: 'border-box', outline: 'none', marginBottom: '10px' }} />
-                                                <button onClick={saveUren} disabled={!(parseFloat(urenAantal) > 0)}
-                                                    style={{ width: '100%', padding: '12px', background: parseFloat(urenAantal) > 0 ? '#F5850A' : '#f1f5f9', border: 'none', borderRadius: '12px', fontWeight: 700, fontSize: '0.92rem', cursor: parseFloat(urenAantal) > 0 ? 'pointer' : 'default', color: parseFloat(urenAantal) > 0 ? '#fff' : '#94a3b8' }}>
-                                                    <i className="fa-solid fa-floppy-disk" style={{ marginRight: '7px' }} />
-                                                    {parseFloat(urenAantal) > 0 ? `${urenAantal}u opslaan` : 'Kies aantal uren'}
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-
                                     {/* Gekoppelde werkbon: header + uren + materialen */}
                                     {selectedWerkbon && (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -3271,26 +3197,18 @@ export default function MedewerkerPlanning() {
 
                                             {/* Uren */}
                                             <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
-                                                <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
-                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
-                                                    <button onClick={() => setWbDetailUren('7.5')}
-                                                        style={{ padding: '10px 20px', borderRadius: '10px', border: `1.5px solid ${wbDetailUren === '7.5' ? '#F5850A' : '#e2e8f0'}`,
-                                                            background: wbDetailUren === '7.5' ? '#fff8f0' : '#f8fafc',
-                                                            color: wbDetailUren === '7.5' ? '#F5850A' : '#64748b',
-                                                            fontWeight: wbDetailUren === '7.5' ? 700 : 500, fontSize: '0.95rem', cursor: 'pointer' }}>
-                                                        7.5u
+                                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Uren</div>
+                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                    <input type="number" min="0" step="0.5" value={wbDetailUren} onChange={e => setWbDetailUren(e.target.value)}
+                                                        placeholder="0"
+                                                        style={{ flex: 1, padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.95rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>uur</span>
+                                                    <button onClick={saveWbDetailUren}
+                                                        style={{ padding: '9px 16px', borderRadius: '9px', border: 'none', background: wbDetailUrenSaved ? '#16a34a' : 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                                        {wbDetailUrenSaved ? <><i className="fa-solid fa-check" /> Opgeslagen</> : 'Opslaan'}
                                                     </button>
-                                                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>of</span>
-                                                    <input type="number" min="0" step="0.5" value={wbDetailUren === '7.5' ? '' : wbDetailUren} onChange={e => setWbDetailUren(e.target.value)}
-                                                        placeholder="Aantal uren"
-                                                        style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.95rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
                                                 </div>
-                                                <button onClick={saveWbDetailUren}
-                                                    style={{ width: '100%', padding: '10px', borderRadius: '10px', border: 'none', background: wbDetailUrenSaved ? '#16a34a' : 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer' }}>
-                                                    {wbDetailUrenSaved ? <><i className="fa-solid fa-check" /> Opgeslagen</> : 'Opslaan'}
-                                                </button>
                                             </div>
-
 
                                         </div>
                                     )}
@@ -3328,20 +3246,12 @@ export default function MedewerkerPlanning() {
                                                     placeholder="Wat heb je gedaan?" autoFocus
                                                     style={{ width: '100%', padding: '11px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
                                             </div>
-                                            <div style={{ marginBottom: '12px' }}>
-                                                <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
-                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                    <button onClick={() => setWerkbonUren('7.5')}
-                                                        style={{ padding: '10px 20px', borderRadius: '10px', border: `1.5px solid ${werkbonUren === '7.5' ? '#F5850A' : '#e2e8f0'}`,
-                                                            background: werkbonUren === '7.5' ? '#fff8f0' : '#f8fafc',
-                                                            color: werkbonUren === '7.5' ? '#F5850A' : '#64748b',
-                                                            fontWeight: werkbonUren === '7.5' ? 700 : 500, fontSize: '0.95rem', cursor: 'pointer' }}>
-                                                        7.5u
-                                                    </button>
-                                                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>of</span>
-                                                    <input type="number" min="0" step="0.5" value={werkbonUren === '7.5' ? '' : werkbonUren} onChange={e => setWerkbonUren(e.target.value)}
-                                                        placeholder="Aantal uren"
-                                                        style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.95rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                                                <input type="number" min="0" step="0.5" value={werkbonUren} onChange={e => setWerkbonUren(e.target.value)}
+                                                    placeholder="Uur"
+                                                    style={{ padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                                                <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.82rem', color: '#475569', fontWeight: 600 }}>
+                                                    {detail?.date ? new Date(detail.date + 'T00:00:00').toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Vandaag'}
                                                 </div>
                                             </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
@@ -3390,99 +3300,6 @@ export default function MedewerkerPlanning() {
                                         </button>
                                     )}
 
-                                    {/* ── Losse Materialen onderaan werkbon ── */}
-                                    {(() => {
-                                        const allProjectMat = weekLosMateriaal.filter(e => String(e.taskId) === String(detail?.taskId));
-                                        const totaal = allProjectMat.length;
-                                        const perDag = {};
-                                        for (const m of allProjectMat) {
-                                            if (!perDag[m.date]) perDag[m.date] = [];
-                                            perDag[m.date].push(m);
-                                        }
-                                        const gesorteerdeData = Object.keys(perDag).sort();
-                                        return (
-                                            <div style={{ borderRadius: '12px', border: `1.5px solid ${urenSection === 'mat_wb' ? '#f59e0b' : '#e2e8f0'}`, overflow: urenSection === 'mat_wb' ? 'visible' : 'hidden' }}>
-                                                <button onClick={() => setUrenSection(s => s === 'mat_wb' ? null : 'mat_wb')}
-                                                    style={{ width: '100%', padding: '13px 16px', background: urenSection === 'mat_wb' ? '#fffbeb' : '#f8fafc', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
-                                                    <i className="fa-solid fa-box-open" style={{ color: '#f59e0b', fontSize: '1rem' }} />
-                                                    <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Materialen</span>
-                                                    {totaal > 0 && <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700 }}>{totaal} item{totaal !== 1 ? 's' : ''}</span>}
-                                                    <i className={`fa-solid fa-chevron-${urenSection === 'mat_wb' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
-                                                </button>
-                                                {urenSection === 'mat_wb' && (
-                                                    <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde68a' }}>
-                                                        {gesorteerdeData.map(datum => {
-                                                            const isVandaag = datum === detail?.date;
-                                                            const d = new Date(datum + 'T00:00:00');
-                                                            const dagLabel = d.toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' });
-                                                            return (
-                                                                <div key={datum} style={{ marginBottom: '12px' }}>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                                                                        <div style={{ width: '3px', height: '12px', background: isVandaag ? '#f59e0b' : '#e2e8f0', borderRadius: '2px', flexShrink: 0 }} />
-                                                                        <span style={{ fontSize: '0.68rem', fontWeight: 800, color: isVandaag ? '#b45309' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                                                                            {isVandaag ? `Vandaag — ${dagLabel}` : dagLabel}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                                        {perDag[datum].map(mat => (
-                                                                            <div key={mat.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', background: isVandaag ? '#fffbeb' : '#f8fafc', border: `1px solid ${isVandaag ? '#fde68a' : '#e2e8f0'}`, borderRadius: '9px' }}>
-                                                                                <i className="fa-solid fa-box" style={{ color: isVandaag ? '#f59e0b' : '#94a3b8', fontSize: '0.72rem', flexShrink: 0 }} />
-                                                                                <span style={{ flex: 1, fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{mat.naam}</span>
-                                                                                <span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>
-                                                                                {isVandaag && (
-                                                                                    <button onClick={() => verwijderLosMateriaal(mat.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', padding: '0 2px' }}>
-                                                                                        <i className="fa-solid fa-xmark" style={{ fontSize: '0.8rem' }} />
-                                                                                    </button>
-                                                                                )}
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                        {gesorteerdeData.length > 0 && <hr style={{ border: 'none', borderTop: '1px solid #fde68a', margin: '4px 0 12px' }} />}
-                                                        <div style={{ position: 'relative', marginBottom: '6px' }}>
-                                                            <input type="text" value={losMatNaam}
-                                                                onChange={e => { const q = e.target.value; setLosMatNaam(q); zoekMateriaalAsync(q, setLosMatZoek); }}
-                                                                onKeyDown={e => { if (e.key === 'Enter' && losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); } }}
-                                                                placeholder="Zoek of typ materiaal..."
-                                                                style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #fde68a', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box', background: '#fffbeb' }} />
-                                                            <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#d97706', fontSize: '0.8rem', pointerEvents: 'none' }} />
-                                                            {losMatZoek.length > 0 && (
-                                                                <>
-                                                                <div onClick={() => setLosMatZoek([])} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
-                                                                <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #fde68a', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '350px', overflowY: 'auto' }}>
-                                                                    {losMatZoek.map((r, i) => {
-                                                                        const naam = getNaamUitRij(r);
-                                                                        const eenheid = getEenheidUitRij(r);
-                                                                        return (
-                                                                            <button key={i} onClick={() => voegLosMateriaalToe(naam, losMatHoeveelheid || eenheid)}
-                                                                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #fef3c7' : 'none', cursor: 'pointer', textAlign: 'left' }}>
-                                                                                <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.7rem', flexShrink: 0 }} />
-                                                                                <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{naam}</span>
-                                                                                {eenheid && <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{eenheid}</span>}
-                                                                            </button>
-                                                                        );
-                                                                    })}
-                                                                </div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                        <div style={{ display: 'flex', gap: '6px' }}>
-                                                            <input type="text" value={losMatHoeveelheid} onChange={e => setLosMatHoeveelheid(e.target.value)}
-                                                                placeholder="Hoeveelheid"
-                                                                style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
-                                                            <button onClick={() => { if (losMatNaam.trim()) voegLosMateriaalToe(losMatNaam, losMatHoeveelheid); }}
-                                                                style={{ padding: '0 14px', background: '#f59e0b', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', flexShrink: 0 }}>
-                                                                +
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })()}
-
                                 </div>
                             )}
 
@@ -3490,66 +3307,19 @@ export default function MedewerkerPlanning() {
                             {detailTab === 'materialen' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-                                    {/* Werkbon selector */}
-                                    {selectedWerkbon ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '10px', padding: '9px 12px' }}>
-                                            <i className="fa-solid fa-clipboard-list" style={{ color: '#10b981', fontSize: '0.8rem', flexShrink: 0 }} />
-                                            <span style={{ flex: 1, fontSize: '0.83rem', fontWeight: 700, color: '#15803d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedWerkbon.naam}</span>
-                                            <button onClick={() => { setSelectedWerkbon(null); setWbMaterialen([]); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#86efac', fontSize: '0.78rem', padding: '0 2px' }}>
-                                                <i className="fa-solid fa-xmark" />
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ef4444', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                <i className="fa-solid fa-triangle-exclamation" />
-                                                Kies eerst een werkbon om materiaal op te slaan
-                                            </div>
-                                            <div style={{ position: 'relative' }}>
-                                                <input type="text" value={werkbonSearch} onChange={e => setWerkbonSearch(e.target.value)}
-                                                    placeholder="Zoek werkbon..."
-                                                    style={{ width: '100%', padding: '9px 32px 9px 10px', border: '1.5px solid #fca5a5', borderRadius: '8px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', background: '#fff5f5' }} />
-                                                <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#ef4444', fontSize: '0.78rem', pointerEvents: 'none' }} />
-                                            </div>
-                                            {werkbonnen.length > 0 && (
-                                                <div style={{ marginTop: '4px', border: '1.5px solid #fca5a5', borderRadius: '10px', overflow: 'hidden', maxHeight: '160px', overflowY: 'auto' }}>
-                                                    {werkbonnen.filter(w => !werkbonSearch || w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase())).slice(0, 6).map(w => (
-                                                        <button key={w.id}
-                                                            onClick={async () => {
-                                                                setSelectedWerkbon(w);
-                                                                setWerkbonSearch('');
-                                                                // Laad bestaande materialen van deze werkbon
-                                                                const res = await fetch(`/api/werkbonnen/${w.id}/materialen`);
-                                                                const data = await res.json();
-                                                                if (data.materialen) setWbMaterialen(data.materialen);
-                                                            }}
-                                                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'none', border: 'none', borderBottom: '1px solid #fee2e2', cursor: 'pointer', textAlign: 'left' }}
-                                                            onMouseOver={e => e.currentTarget.style.background = '#fff5f5'}
-                                                            onMouseOut={e => e.currentTarget.style.background = 'none'}>
-                                                            <i className="fa-solid fa-clipboard-list" style={{ color: '#ef4444', fontSize: '0.75rem', flexShrink: 0 }} />
-                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                <div style={{ fontSize: '0.83rem', fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.naam}</div>
-                                                                {w.datum && <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{new Date(w.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</div>}
-                                                            </div>
-                                                        </button>
-                                                    ))}
-                                                    {werkbonnen.filter(w => !werkbonSearch || w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase())).length === 0 && (
-                                                        <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#94a3b8' }}>Geen werkbonnen gevonden</div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                                    <div style={{ fontSize: '0.71rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                                        Vul hier alleen materialen in die je van de zaak hebt meegenomen naar de klus.
+                                    </div>
 
                                     {/* Bestaande materialen */}
-                                    {wbMaterialen.length > 0 ? (
+                                    {losMateriaalLijst.length > 0 ? (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                            {wbMaterialen.map(m => (
+                                            {losMateriaalLijst.map(m => (
                                                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '10px' }}>
                                                     <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.78rem', flexShrink: 0 }} />
                                                     <span style={{ flex: 1, fontSize: '0.88rem', color: '#1e293b', fontWeight: 600 }}>{m.naam}</span>
                                                     <span style={{ fontSize: '0.78rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', padding: '2px 8px' }}>{m.hoeveelheid}</span>
-                                                    <button onClick={() => deleteWbMateriaal(m.id)}
+                                                    <button onClick={() => verwijderLosMateriaal(m.id)}
                                                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px 6px', fontSize: '0.78rem' }}>
                                                         <i className="fa-solid fa-xmark" />
                                                     </button>
@@ -3569,52 +3339,47 @@ export default function MedewerkerPlanning() {
                                     {/* Nieuw materiaal toevoegen */}
                                     <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
                                         <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Materiaal toevoegen</div>
-                                        {/* Zoekbalk (volle breedte) */}
                                         <div style={{ position: 'relative', marginBottom: '6px' }}>
-                                            <input type="text" value={wbMatNaam}
-                                                onChange={e => { const q = e.target.value; setWbMatNaam(q); zoekMateriaalAsync(q, setWbMatZoek); }}
-                                                onKeyDown={e => { if (e.key === 'Enter' && wbMatNaam.trim()) { addWbMateriaal(); setWbMatZoek([]); } }}
+                                            <input type="text" value={losMatNaam}
+                                                onChange={e => {
+                                                    const q = e.target.value;
+                                                    setLosMatNaam(q);
+                                                    if (q.length >= 2 && matRijen.length > 0 && matKolommen.naam) {
+                                                        const ql = q.toLowerCase();
+                                                        setLosMatZoek(matRijen.filter(r => String(r[matKolommen.naam] ?? '').toLowerCase().includes(ql)).slice(0, 8));
+                                                    } else { setLosMatZoek([]); }
+                                                }}
+                                                onKeyDown={e => { if (e.key === 'Enter' && losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam.trim(), losMatHoeveelheid.trim() || '1 stuk'); setLosMatZoek([]); } }}
                                                 placeholder="Zoek of typ materiaal..."
-                                                style={{ width: '100%', padding: '9px 32px 9px 10px', border: '1.5px solid #d1fae5', borderRadius: '8px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', background: '#f0fdf4' }} />
-                                            <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#10b981', fontSize: '0.78rem', pointerEvents: 'none' }} />
-                                            {wbMatZoek?.length > 0 && (
-                                                <>
-                                                <div onClick={() => setWbMatZoek([])} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
-                                                <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #d1fae5', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '220px', overflowY: 'auto' }}>
-                                                    {wbMatZoek.map((r, i) => {
-                                                        const naam = getNaamUitRij(r);
-                                                        const eenheid = getEenheidUitRij(r);
-                                                        const code = getCodeUitRij(r);
+                                                style={{ width: '100%', padding: '9px 36px 9px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box' }} />
+                                            <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem', pointerEvents: 'none' }} />
+                                            {losMatZoek.length > 0 && (
+                                                <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '200px', overflowY: 'auto' }}>
+                                                    {losMatZoek.map((r, i) => {
+                                                        const naam = String(r[matKolommen.naam] ?? '');
+                                                        const eenheid = matKolommen.eenheid ? String(r[matKolommen.eenheid] ?? '') : '';
                                                         return (
-                                                            <button key={i}
-                                                                onClick={() => { setWbMatNaam(naam); setWbMatHoeveelheid(eenheid || '1 stuk'); setWbMatZoek([]); }}
-                                                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < wbMatZoek.length - 1 ? '1px solid #d1fae5' : 'none', cursor: 'pointer', textAlign: 'left' }}
-                                                                onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
-                                                                onMouseOut={e => e.currentTarget.style.background = 'none'}>
+                                                            <button key={i} onClick={() => { voegLosMateriaalToe(naam, losMatHoeveelheid || eenheid || '1 stuk'); setLosMatZoek([]); }}
+                                                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', textAlign: 'left' }}>
                                                                 <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.7rem', flexShrink: 0 }} />
-                                                                <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{naam}</span>
-                                                                {(eenheid || code) && <span style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>{eenheid || code}</span>}
+                                                                <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{naam}</span>
+                                                                {eenheid && <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{eenheid}</span>}
                                                             </button>
                                                         );
                                                     })}
                                                 </div>
-                                                </>
                                             )}
                                         </div>
-                                        {/* Hoeveelheid + knop (onder zoekbalk) */}
                                         <div style={{ display: 'flex', gap: '6px' }}>
-                                            <input type="text" value={wbMatHoeveelheid} onChange={e => setWbMatHoeveelheid(e.target.value)}
-                                                placeholder="1 stuk"
-                                                style={{ flex: 1, padding: '9px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-                                            <button onClick={() => { addWbMateriaal(); setWbMatZoek([]); }} disabled={!wbMatNaam.trim() || wbMatSaving}
-                                                style={{ padding: '9px 16px', borderRadius: '8px', border: 'none', background: wbMatNaam.trim() ? '#10b981' : '#e2e8f0', color: wbMatNaam.trim() ? '#fff' : '#94a3b8', cursor: wbMatNaam.trim() ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.9rem' }}>
-                                                <i className="fa-solid fa-plus" />
+                                            <input type="text" value={losMatHoeveelheid} onChange={e => setLosMatHoeveelheid(e.target.value)}
+                                                placeholder="Hoeveelheid"
+                                                style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
+                                            <button onClick={() => { if (losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam.trim(), losMatHoeveelheid.trim() || '1 stuk'); setLosMatZoek([]); } }}
+                                                style={{ padding: '0 14px', background: losMatNaam.trim() ? '#10b981' : '#e2e8f0', border: 'none', borderRadius: '9px', color: losMatNaam.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '1rem', cursor: losMatNaam.trim() ? 'pointer' : 'not-allowed', flexShrink: 0 }}>
+                                                +
                                             </button>
                                         </div>
-                                        {!selectedWerkbon && <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '4px' }}>Kies eerst een werkbon hierboven</div>}
-                                        {selectedWerkbon && matRijen.length === 0 && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px' }}>Typ een naam om handmatig toe te voegen</div>}
                                     </div>
-
 
                                 </div>
                             )}
@@ -3624,6 +3389,149 @@ export default function MedewerkerPlanning() {
                 </>
             )}
 
+
+            {/* ── Dag kiezer menu (lege dag) ── */}
+            {dagKiezer && (() => {
+                const dagLabel = (() => {
+                    const d = new Date(dagKiezer.date + 'T00:00:00');
+                    return `${DAY_NAMES_FULL[d.getDay() === 0 ? 6 : d.getDay() - 1]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+                })();
+                const allProjects = (() => { try { return JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); } catch { return []; } })();
+
+                return (
+                    <>
+                        <div onClick={() => setDagKiezer(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 400 }} />
+                        <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', zIndex: 410, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ padding: '16px 20px', flexShrink: 0 }}>
+                                <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '0 auto 14px' }} />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    {dagKiezer.step && (
+                                        <button onClick={() => setDagKiezer(dk => ({ date: dk.date, step: dk.step === 'taak' ? 'project' : null }))}
+                                            style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', color: '#475569', fontSize: '0.8rem' }}>
+                                            <i className="fa-solid fa-chevron-left" />
+                                        </button>
+                                    )}
+                                    <div>
+                                        <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>
+                                            {!dagKiezer.step && 'Wat wil je toevoegen?'}
+                                            {dagKiezer.step === 'project' && 'Kies een project'}
+                                            {dagKiezer.step === 'taak' && dagKiezer.project?.name}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '1px' }}>{dagLabel}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ overflowY: 'auto', padding: '0 20px 32px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+
+                                {/* ── Stap 1: hoofdmenu ── */}
+                                {!dagKiezer.step && (<>
+                                    <button onClick={() => setDagKiezer(dk => ({ ...dk, step: 'project' }))}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: '#fff8f0', border: '1.5px solid #fde8cc', borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}>
+                                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#F5850A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <i className="fa-solid fa-briefcase" style={{ color: '#fff', fontSize: '1rem' }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>Project / uren boeken</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>Kies een ingeplande taak en boek je uren op een project</div>
+                                        </div>
+                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.75rem' }} />
+                                    </button>
+                                    <button onClick={() => {
+                                        const vrijTaskId = `vrij-${dagKiezer.date}`;
+                                        setDagKiezer(null);
+                                        openDetail({ taskId: vrijTaskId, projectName: 'Nog in te vullen project', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }, dagKiezer.date, 'werkbon');
+                                    }} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}>
+                                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <i className="fa-solid fa-file-pen" style={{ color: '#fff', fontSize: '1rem' }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>Werkbon koppelen of aanmaken</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>Koppel een bestaande werkbon of maak een nieuwe aan — handig voor losse klussen zonder vast project</div>
+                                        </div>
+                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.75rem' }} />
+                                    </button>
+                                    <button onClick={() => {
+                                        const vrijTaskId = `vrij-${dagKiezer.date}`;
+                                        setDagKiezer(null);
+                                        openDetail({ taskId: vrijTaskId, projectName: 'Nog in te vullen project', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }, dagKiezer.date, 'uren');
+                                    }} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}>
+                                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <i className="fa-solid fa-clock" style={{ color: '#fff', fontSize: '1rem' }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>Uren registreren</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>Vul direct uren in voor deze dag</div>
+                                        </div>
+                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.75rem' }} />
+                                    </button>
+                                </>)}
+
+                                {/* ── Stap 2: projecten kiezen ── */}
+                                {dagKiezer.step === 'project' && (
+                                    allProjects.length === 0
+                                        ? <div style={{ textAlign: 'center', padding: '30px 0', color: '#94a3b8', fontSize: '0.85rem' }}>Geen projecten gevonden</div>
+                                        : allProjects.map(p => (
+                                            <button key={p.id} onClick={() => setDagKiezer(dk => ({ ...dk, step: 'taak', project: p }))}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', cursor: 'pointer', textAlign: 'left' }}>
+                                                <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: p.color || '#F5850A', flexShrink: 0, display: 'inline-block' }} />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                                    {p.client && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{p.client}</div>}
+                                                </div>
+                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.7rem', flexShrink: 0 }} />
+                                            </button>
+                                        ))
+                                )}
+
+                                {/* ── Stap 3: taak kiezen ── */}
+                                {dagKiezer.step === 'taak' && dagKiezer.project && (() => {
+                                    const taken = (dagKiezer.project.tasks || []).filter(t => t.name);
+                                    return taken.length === 0
+                                        ? <div style={{ textAlign: 'center', padding: '30px 0', color: '#94a3b8', fontSize: '0.85rem' }}>Geen taken gevonden voor dit project</div>
+                                        : taken.map(t => (
+                                            <button key={t.id} onClick={() => {
+                                                setDagKiezer(null);
+                                                openDetail({
+                                                    taskId: t.id,
+                                                    projectId: dagKiezer.project.id,
+                                                    projectName: dagKiezer.project.name,
+                                                    taskName: t.name,
+                                                    color: dagKiezer.project.color || '#F5850A',
+                                                    progress: t.progress || 0,
+                                                    completed: t.completed || false,
+                                                    notes: t.notes || [],
+                                                    client: dagKiezer.project.client || null,
+                                                }, dagKiezer.date, 'uren');
+                                            }} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: '#fff', border: `1.5px solid ${dagKiezer.project.color || '#F5850A'}22`, borderRadius: '12px', cursor: 'pointer', textAlign: 'left' }}>
+                                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dagKiezer.project.color || '#F5850A', flexShrink: 0 }} />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: t.completed ? '#94a3b8' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t.completed ? 'line-through' : 'none' }}>{t.name}</div>
+                                                    {(t.startDate || t.endDate) && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate} – {t.endDate}</div>}
+                                                </div>
+                                                {t.completed ? (
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#10b981', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
+                                                        <i className="fa-solid fa-check" style={{ marginRight: '3px' }} />Afgerond
+                                                    </span>
+                                                ) : (t.progress > 0) ? (
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: dagKiezer.project.color || '#F5850A', background: (dagKiezer.project.color || '#F5850A') + '18', border: `1px solid ${dagKiezer.project.color || '#F5850A'}44`, borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
+                                                        {t.progress}%
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#cbd5e1', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
+                                                        Nieuw
+                                                    </span>
+                                                )}
+                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.7rem', flexShrink: 0 }} />
+                                            </button>
+                                        ));
+                                })()}
+
+                            </div>
+                        </div>
+                    </>
+                );
+            })()}
 
             {/* Ziek bewerken modal */}
             {ziekEditEntry && (

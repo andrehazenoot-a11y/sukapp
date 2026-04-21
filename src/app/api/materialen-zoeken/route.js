@@ -15,7 +15,7 @@ export async function GET(req) {
              WHERE naam LIKE ?
              GROUP BY naam, hoeveelheid
              ORDER BY cnt DESC, naam ASC
-             LIMIT 15`,
+             LIMIT 30`,
             [`%${q}%`]
         );
         // Eén entry per naam (meest gebruikte eenheid)
