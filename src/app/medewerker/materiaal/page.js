@@ -93,20 +93,20 @@ function getInhoud(row, cols) {
     return null;
 }
 
-function getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, rowIndex) {
+function getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, rowIndex, afronden) {
     // Sleutel op artikelcode (zelfde als admin), fallback op naam dan index
     const rk = row[cols.code] || row[cols.naam] || String(rowIndex);
     // 1. Handmatige verkoopprijs (beheerder) — altijd prioriteit
     if (verkoopprijzen[rk] != null && verkoopprijzen[rk] !== '') {
         const v = parseFloat(verkoopprijzen[rk]);
-        if (v > 0) return { prijs: v, bron: 'verkoop' };
+        if (v > 0) return { prijs: afronden ? Math.ceil(v) : v, bron: 'verkoop' };
     }
     // 2. Bereken via inkoop + inkoop×BTW% + inkoop×opslag% (zelfde formule als Materiaalzoeker)
     const raw = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
     if (raw > 0) {
         const rijOpslag = parseFloat(opslagen[rk]) || 0;
         const verkoop   = raw + raw * BTW + raw * rijOpslag / 100;
-        return { prijs: verkoop, bron: 'berekend' };
+        return { prijs: afronden ? Math.ceil(verkoop) : verkoop, bron: 'berekend' };
     }
     return null;
 }
@@ -138,6 +138,7 @@ export default function MateriaalBotPage() {
     const [verkoopprijzen, setVp]       = useState({});
     const [opslagen, setOp]             = useState({});
     const [prijzen, setPrijzen]         = useState({});
+    const [afronden, setAfronden]       = useState(false);
     const [messages, setMessages]       = useState([]);
     const [input, setInput]             = useState('');
     const [typing, setTyping]           = useState(false);
@@ -179,6 +180,7 @@ export default function MateriaalBotPage() {
         setVp(loadLS('schildersapp_materiaal_verkoop', {}));
         setOp(loadLS('schildersapp_materiaal_opslagen', {}));
         setPrijzen(loadLS('schildersapp_materiaal_prijzen', {}));
+        setAfronden(loadLS('schildersapp_materiaal_afronden', false));
         setProjecten(loadLS('schildersapp_projecten', []));
         setTdsLinks(loadLS('schildersapp_materiaal_tds', {}));
         setFieldOrder(loadLS('schildersapp_materiaal_volgorde', ['naam','code','categorie','eenheid','prijs']));
@@ -259,7 +261,7 @@ export default function MateriaalBotPage() {
 
                 // Bereken totaalprijs per product en sorteer op prijs
                 const berekend = bron.map(({ row, i }) => {
-                    const prijsInfo = getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, i);
+                    const prijsInfo = getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, i, afronden);
                     const inhoud = getInhoud(row, cols) ?? gekozen;
                     const aantal = aantalVerpakkingen(inhoud);
                     const totaal = prijsInfo ? prijsInfo.prijs * aantal : null;
@@ -322,7 +324,7 @@ export default function MateriaalBotPage() {
             } else {
                 // Bereken prijs per eenheid voor eerlijke vergelijking
                 const metPrijs = results.map(({ row, i }) => {
-                    const prijsInfo = getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, i);
+                    const prijsInfo = getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, i, afronden);
                     const inhoud    = getInhoud(row, cols);
                     const perEenheid = prijsInfo && inhoud ? prijsInfo.prijs / inhoud : prijsInfo?.prijs ?? null;
                     return { row, i, prijsInfo, inhoud, perEenheid };
@@ -763,7 +765,7 @@ export default function MateriaalBotPage() {
                                 {msg.results.map(({ row, i, beste, inhoud, perEenheid }) => {
                                     const naam      = row[cols.naam]      ?? '—';
                                     const eenheid   = row[cols.eenheid]   ?? '';
-                                    const prijsInfo = getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, i);
+                                    const prijsInfo = getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, i, afronden);
                                     const badgeFields = fieldOrder.filter(f => f !== 'naam' && f !== 'prijs' && f !== 'verkoopprijs');
                                     const badgeStyles = {
                                         categorie: { bg: '#eef2ff', clr: '#6366f1' },
