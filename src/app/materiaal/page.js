@@ -17,10 +17,24 @@ const FIELD_LABELS = {
     categorie:    { label: 'Categorie',          icon: 'fa-layer-group',      color: '#6366f1' },
     eenheid:      { label: 'Eenheid',            icon: 'fa-ruler',            color: '#10b981' },
     prijs:        { label: 'Inkoopprijs (excl.)',icon: 'fa-euro-sign',        color: '#94a3b8' },
+    prijs_incl:   { label: 'Prijs incl. BTW',   icon: 'fa-euro-sign',        color: '#10b981' },
     verkoopprijs: { label: 'Verkoopprijs',       icon: 'fa-euro-sign',        color: '#F5850A' },
+    btw_pct:      { label: 'BTW %',             icon: 'fa-percent',          color: '#6366f1' },
+    btw_bedrag:   { label: 'BTW bedrag',        icon: 'fa-receipt',          color: '#6366f1' },
+    opslag_pct:   { label: 'Opslag %',          icon: 'fa-arrow-trend-up',   color: '#f59e0b' },
+    marge:        { label: 'Winstmarge',         icon: 'fa-chart-line',       color: '#10b981' },
     inhoud:       { label: 'Inhoud / verpakking',icon: 'fa-fill-drip',        color: '#06b6d4' },
+    leverancier:  { label: 'Leverancier / merk', icon: 'fa-truck',            color: '#8b5cf6' },
+    levertijd:    { label: 'Levertijd',          icon: 'fa-clock',            color: '#06b6d4' },
+    voorraad:     { label: 'Voorraad',           icon: 'fa-boxes-stacked',    color: '#10b981' },
+    kleur:        { label: 'Kleur / variant',    icon: 'fa-palette',          color: '#ec4899' },
 };
-const ALL_FIELDS = ['naam','code','categorie','eenheid','prijs','verkoopprijs','inhoud'];
+const ALL_FIELDS = [
+    'naam','code','categorie','eenheid',
+    'prijs','prijs_incl','verkoopprijs',
+    'btw_pct','btw_bedrag','opslag_pct','marge',
+    'inhoud','leverancier','levertijd','voorraad','kleur',
+];
 
 function loadLS(key, fallback) {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -36,7 +50,7 @@ export default function MateriaalPage() {
     const fileRef = useRef(null);
 
     const [rows, setRows]         = useState([]);
-    const [cols, setCols]         = useState({ naam: '', prijs: '', eenheid: '', code: '', categorie: '', verkoopprijs: '' });
+    const [cols, setCols]         = useState({ naam: '', prijs: '', eenheid: '', code: '', categorie: '', verkoopprijs: '', inhoud: '', leverancier: '', levertijd: '', voorraad: '', kleur: '' });
     const [headers, setHeaders]   = useState(() => { try { return JSON.parse(localStorage.getItem(LS_HEADERS) || '[]'); } catch { return []; } });
     const [zoek, setZoek]         = useState('');
     const [tab, setTab]           = useState('zoeken'); // zoeken | instellingen
@@ -525,14 +539,25 @@ export default function MateriaalPage() {
                                         const gi = rows.indexOf(row);
                                         const rk = row[cols.code] || row[cols.naam] || String(gi); // rij-sleutel op code
                                         const { excl, incl, verkoop } = getPrijs(row);
+                                        const raw = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
+                                        const opslagArt = parseFloat(opslagen[rk]) || 0;
                                         const fieldValues = {
                                             naam:         row[cols.naam]         ?? '—',
                                             code:         row[cols.code]         ?? '',
                                             eenheid:      row[cols.eenheid]      ?? '',
                                             categorie:    row[cols.categorie]    ?? '',
-                                            inhoud:       cols.inhoud ? (row[cols.inhoud] ?? '') : '',
+                                            inhoud:       cols.inhoud       ? (row[cols.inhoud]       ?? '') : '',
                                             verkoopprijs: cols.verkoopprijs ? (row[cols.verkoopprijs] ?? '') : '',
                                             prijs:        cols.prijs && row[cols.prijs] !== '' && row[cols.prijs] !== undefined,
+                                            prijs_incl:   incl ? fmt(incl) : '',
+                                            btw_pct:      '21% BTW',
+                                            btw_bedrag:   incl && raw ? fmt(incl - excl) : '',
+                                            opslag_pct:   opslagArt > 0 ? `+${opslagArt}% opslag` : '',
+                                            marge:        incl && raw ? fmt(incl - raw) : '',
+                                            leverancier:  cols.leverancier ? (row[cols.leverancier] ?? '') : '',
+                                            levertijd:    cols.levertijd   ? (row[cols.levertijd]   ?? '') : '',
+                                            voorraad:     cols.voorraad    ? (row[cols.voorraad]    ?? '') : '',
+                                            kleur:        cols.kleur       ? (row[cols.kleur]       ?? '') : '',
                                         };
                                         const naamVal = fieldValues.naam;
                                         // Velden in volgorde minus naam (apart weergegeven) en prijs (rechts)
@@ -579,6 +604,15 @@ export default function MateriaalPage() {
                                                                 eenheid:      { bg: '#f0fdf4', clr: '#10b981' },
                                                                 inhoud:       { bg: '#ecfeff', clr: '#06b6d4' },
                                                                 code:         { bg: '#f1f5f9', clr: '#64748b' },
+                                                                prijs_incl:   { bg: '#f0fdf4', clr: '#10b981' },
+                                                                btw_pct:      { bg: '#eef2ff', clr: '#6366f1' },
+                                                                btw_bedrag:   { bg: '#eef2ff', clr: '#6366f1' },
+                                                                opslag_pct:   { bg: '#fffbeb', clr: '#f59e0b' },
+                                                                marge:        { bg: '#f0fdf4', clr: '#10b981' },
+                                                                leverancier:  { bg: '#f5f3ff', clr: '#8b5cf6' },
+                                                                levertijd:    { bg: '#ecfeff', clr: '#06b6d4' },
+                                                                voorraad:     { bg: '#f0fdf4', clr: '#10b981' },
+                                                                kleur:        { bg: '#fdf2f8', clr: '#ec4899' },
                                                             };
                                                             const { bg, clr } = styles[f] || { bg: '#f1f5f9', clr: '#64748b' };
                                                             const txt = f === 'eenheid' ? `per ${val}` : f === 'inhoud' ? `${val}L` : val;
@@ -837,7 +871,8 @@ export default function MateriaalPage() {
                                 const gi  = previewIdx >= 0 ? previewIdx : 0;
                                 const row = rows[gi];
                                 const rk  = row[cols.code] || row[cols.naam] || String(gi);
-                                const { incl } = getPrijs(row);
+                                const { excl, incl } = getPrijs(row);
+                                const rawPrev  = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
                                 const opslag   = parseFloat(opslagen[rk]) || 0;
                                 const berekend = opslag > 0 ? incl * (1 + opslag / 100) : incl;
                                 const verkPrijsRaw = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : berekend;
@@ -847,52 +882,94 @@ export default function MateriaalPage() {
                                     code:         row[cols.code]         ?? '',
                                     eenheid:      row[cols.eenheid]      ?? '',
                                     categorie:    row[cols.categorie]    ?? '',
-                                    inhoud:       cols.inhoud ? (row[cols.inhoud] ?? '') : '',
+                                    inhoud:       cols.inhoud       ? (row[cols.inhoud]       ?? '') : '',
                                     verkoopprijs: cols.verkoopprijs ? (row[cols.verkoopprijs] ?? '') : '',
+                                    prijs_incl:   incl ? fmt(incl) : '',
+                                    btw_pct:      '21% BTW',
+                                    btw_bedrag:   incl && rawPrev ? fmt(incl - excl) : '',
+                                    opslag_pct:   opslag > 0 ? `+${opslag}% opslag` : '',
+                                    marge:        incl && rawPrev ? fmt(incl - rawPrev) : '',
+                                    leverancier:  cols.leverancier ? (row[cols.leverancier] ?? '') : '',
+                                    levertijd:    cols.levertijd   ? (row[cols.levertijd]   ?? '') : '',
+                                    voorraad:     cols.voorraad    ? (row[cols.voorraad]    ?? '') : '',
+                                    kleur:        cols.kleur       ? (row[cols.kleur]       ?? '') : '',
                                 };
                                 const badgeFields = fieldOrder.filter(f => f !== 'naam' && f !== 'prijs' && f !== 'verkoopprijs');
                                 const badgeStyles = {
-                                    categorie: { bg: '#eef2ff', clr: '#6366f1' },
-                                    eenheid:   { bg: '#f0fdf4', clr: '#10b981' },
-                                    inhoud:    { bg: '#ecfeff', clr: '#06b6d4' },
-                                    code:      { bg: '#f1f5f9', clr: '#64748b' },
+                                    categorie:    { bg: '#eef2ff', clr: '#6366f1' },
+                                    eenheid:      { bg: '#f0fdf4', clr: '#10b981' },
+                                    inhoud:       { bg: '#ecfeff', clr: '#06b6d4' },
+                                    code:         { bg: '#f1f5f9', clr: '#64748b' },
+                                    prijs_incl:   { bg: '#f0fdf4', clr: '#10b981' },
+                                    btw_pct:      { bg: '#eef2ff', clr: '#6366f1' },
+                                    btw_bedrag:   { bg: '#eef2ff', clr: '#6366f1' },
+                                    opslag_pct:   { bg: '#fffbeb', clr: '#f59e0b' },
+                                    marge:        { bg: '#f0fdf4', clr: '#10b981' },
+                                    leverancier:  { bg: '#f5f3ff', clr: '#8b5cf6' },
+                                    levertijd:    { bg: '#ecfeff', clr: '#06b6d4' },
+                                    voorraad:     { bg: '#f0fdf4', clr: '#10b981' },
+                                    kleur:        { bg: '#fdf2f8', clr: '#ec4899' },
                                 };
                                 const tdsEntry = parseEntry(tdsLinks[getBasisNaam(fv.naam)]);
+                                const prevBadgeFields = fieldOrder.filter(f => !['naam','prijs','verkoopprijs'].includes(f));
+                                const prevBadgeStyles = badgeStyles;
                                 return (
-                                    <div style={{ marginTop: '16px' }}>
-                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Voorbeeld (medewerker ziet dit)</div>
-                                        <div style={{ background: '#fff', borderRadius: '12px', border: '1.5px solid #f1f5f9', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-                                            <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: '#fff8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                <i className="fa-solid fa-cube" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
+                                    <div style={{ marginTop: '20px' }}>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fa-solid fa-eye" style={{ fontSize: '0.7rem' }} />
+                                            Voorbeeld — zo ziet de medewerker dit artikel
+                                        </div>
+                                        {/* Exacte kopie van de artikelkaart */}
+                                        <div style={{ background: '#fff', borderRadius: '12px', border: '1.5px solid #f1f5f9', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#fff8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                <i className="fa-solid fa-cube" style={{ color: '#F5850A', fontSize: '1rem' }} />
                                             </div>
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                                    {fieldOrder.includes('naam') && (
-                                                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.35, flex: 1 }}>{fv.naam}</div>
-                                                    )}
-                                                    {(tdsEntry.tds || tdsEntry.msds || tdsEntry.certs?.length || tdsEntry.leaflet) && (
-                                                        <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
-                                                            {tdsEntry.tds      && <span style={{ color: '#ef4444', fontSize: '0.85rem' }}><i className="fa-solid fa-file-pdf" /></span>}
-                                                            {tdsEntry.msds     && <span style={{ color: '#F5850A', fontSize: '0.85rem' }}><i className="fa-solid fa-triangle-exclamation" /></span>}
-                                                            {tdsEntry.certs?.length > 0 && <span style={{ color: '#10b981', fontSize: '0.85rem' }}><i className="fa-solid fa-certificate" /></span>}
-                                                            {tdsEntry.leaflet  && <span style={{ color: '#6366f1', fontSize: '0.85rem' }}><i className="fa-solid fa-newspaper" /></span>}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div style={{ display: 'flex', gap: '5px', marginTop: '3px', flexWrap: 'wrap' }}>
-                                                    {badgeFields.map(f => {
+                                                {fieldOrder.includes('naam') && (
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', lineHeight: 1.35, flex: 1 }}>{fv.naam}</div>
+                                                        {(tdsEntry.tds || tdsEntry.msds || tdsEntry.certs?.length || tdsEntry.leaflet) && (
+                                                            <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
+                                                                {tdsEntry.tds && <span style={{ color: '#ef4444', fontSize: '0.85rem' }}><i className="fa-solid fa-file-pdf" /></span>}
+                                                                {tdsEntry.msds && <span style={{ color: '#F5850A', fontSize: '0.85rem' }}><i className="fa-solid fa-triangle-exclamation" /></span>}
+                                                                {tdsEntry.certs?.length > 0 && <span style={{ color: '#10b981', fontSize: '0.85rem' }}><i className="fa-solid fa-certificate" /></span>}
+                                                                {tdsEntry.leaflet && <span style={{ color: '#6366f1', fontSize: '0.85rem' }}><i className="fa-solid fa-newspaper" /></span>}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                                    {prevBadgeFields.map(f => {
                                                         const val = fv[f];
                                                         if (!val) return null;
-                                                        const { bg, clr } = badgeStyles[f] || { bg: '#f1f5f9', clr: '#64748b' };
+                                                        const { bg, clr } = prevBadgeStyles[f] || { bg: '#f1f5f9', clr: '#64748b' };
                                                         const txt = f === 'eenheid' ? `per ${val}` : f === 'inhoud' ? `${val}L` : val;
-                                                        return <span key={f} style={{ fontSize: '0.65rem', color: clr, background: bg, borderRadius: '5px', padding: '1px 5px' }}>{txt}</span>;
+                                                        return <span key={f} style={{ fontSize: '0.7rem', color: clr, background: bg, borderRadius: '6px', padding: '2px 7px', fontWeight: 600 }}>{txt}</span>;
                                                     })}
                                                 </div>
                                             </div>
+                                            {/* Prijssectie — zelfde als echte kaart */}
                                             {fieldOrder.includes('prijs') && (
-                                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                                    <div style={{ fontWeight: 800, fontSize: '1rem', color: '#F5850A' }}>{fmt(verkPrijs)}</div>
-                                                    <div style={{ fontSize: '0.62rem', color: '#F5850A', opacity: 0.7 }}>{fv.eenheid ? `per ${fv.eenheid}` : 'verkoopprijs'}</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                                                    <div style={{ textAlign: 'right' }}>
+                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginBottom: '2px' }}>INKOOP</div>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#64748b' }}>{fmt(incl)}</div>
+                                                        <div style={{ fontSize: '0.6rem', color: '#cbd5e1' }}>excl. {fmt(excl)}</div>
+                                                    </div>
+                                                    <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <div style={{ fontSize: '0.6rem', color: '#6366f1', fontWeight: 600, marginBottom: '2px' }}>OPSLAG</div>
+                                                        <div style={{ width: '60px', padding: '5px 8px', border: `1.5px solid ${opslag > 0 ? '#6366f1' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.85rem', textAlign: 'center', color: '#1e293b', background: opslag > 0 ? '#eef2ff' : '#f8fafc', fontWeight: 700 }}>
+                                                            {opslag > 0 ? `${opslag}%` : '—'}
+                                                        </div>
+                                                    </div>
+                                                    <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>
+                                                    <div style={{ textAlign: 'right' }}>
+                                                        <div style={{ fontSize: '0.6rem', color: '#F5850A', fontWeight: 600, marginBottom: '2px' }}>VERKOOP</div>
+                                                        <div style={{ width: '72px', padding: '5px 8px', border: `1.5px solid ${verkPrijs ? '#F5850A' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.85rem', textAlign: 'right', color: '#1e293b', background: verkPrijs ? '#fff8f0' : '#f8fafc', fontWeight: 700 }}>
+                                                            {verkPrijs ? fmt(verkPrijs) : '—'}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -910,13 +987,17 @@ export default function MateriaalPage() {
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                     {[
-                                        ['naam',      'Artikelnaam / omschrijving'],
-                                        ['code',      'Artikelcode / nummer'],
-                                        ['prijs',     'Basisprijs (excl. BTW)'],
-                                        ['eenheid',   'Eenheid / verpakking'],
+                                        ['naam',         'Artikelnaam / omschrijving'],
+                                        ['code',         'Artikelcode / nummer'],
+                                        ['prijs',        'Basisprijs (excl. BTW)'],
+                                        ['eenheid',      'Eenheid / verpakking'],
                                         ['categorie',    'Categorie / groep'],
                                         ['verkoopprijs', 'Verkoopprijs / eindprijs'],
                                         ['inhoud',       'Inhoud / verpakkingsgrootte (bijv. 5 voor 5L)'],
+                                        ['leverancier',  'Leverancier / merk'],
+                                        ['levertijd',    'Levertijd'],
+                                        ['voorraad',     'Voorraad / beschikbaarheid'],
+                                        ['kleur',        'Kleur / variant'],
                                     ].map(([key, label]) => (
                                         <div key={key}>
                                             <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '4px' }}>{label}</label>
