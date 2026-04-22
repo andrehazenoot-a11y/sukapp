@@ -631,44 +631,46 @@ export default function MateriaalPage() {
                                                     const verkPrijs = verkPrijsManual ?? (raw > 0 ? verkPrijsBerekend : null);
                                                     return (
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                                                            {/* Inkoopprijs excl. BTW — alleen tonen als prijs kolom gekoppeld is */}
-                                                            {raw > 0 && <>
-                                                            <div style={{ textAlign: 'right' }}>
-                                                                <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginBottom: '2px' }}>INKOOP</div>
-                                                                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#64748b' }}>{fmt(raw)}</div>
-                                                                {isBeheerder && (
-                                                                    <div style={{ fontSize: '0.6rem', color: '#6366f1', marginTop: '1px' }}>BTW {fmt(btwBedrag)}</div>
-                                                                )}
-                                                            </div>
-                                                            <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>
-                                                            {/* Opslag % op inkoopprijs */}
-                                                            <div style={{ textAlign: 'center' }}>
-                                                                <div style={{ fontSize: '0.6rem', color: '#6366f1', fontWeight: 600, marginBottom: '2px' }}>OPSLAG</div>
-                                                                <div style={{ position: 'relative' }}>
-                                                                    <input
-                                                                        type="number" min="0" step="0.01"
-                                                                        value={opslagen[rk] != null && opslagen[rk] !== '' ? parseFloat(opslagen[rk]).toFixed(2) : ''}
-                                                                        placeholder="0"
-                                                                        onChange={e => {
-                                                                            const updated = { ...opslagen, [rk]: e.target.value };
-                                                                            setOpslagen(updated);
-                                                                            localStorage.setItem('schildersapp_materiaal_opslagen', JSON.stringify(updated));
-                                                                            if (e.target.value) {
-                                                                                const vUpdated = { ...verkoopprijzen };
-                                                                                delete vUpdated[rk];
-                                                                                setVerkoopprijzen(vUpdated);
-                                                                                localStorage.setItem('schildersapp_materiaal_verkoop', JSON.stringify(vUpdated));
-                                                                            }
-                                                                        }}
-                                                                        style={{ width: '84px', padding: '5px 20px 5px 6px', border: `1.5px solid ${opslagen[rk] ? '#6366f1' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', textAlign: 'right', color: '#1e293b', background: opslagen[rk] ? '#eef2ff' : '#f8fafc', fontWeight: 700 }}
-                                                                    />
-                                                                    <span style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', color: '#6366f1', fontSize: '0.75rem', fontWeight: 700 }}>%</span>
+                                                            {/* Inkoopprijs excl. BTW */}
+                                                            {raw > 0 && (
+                                                                <div style={{ textAlign: 'right' }}>
+                                                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginBottom: '2px' }}>INKOOP</div>
+                                                                    <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#64748b' }}>{fmt(raw)}</div>
+                                                                    {isBeheerder && (
+                                                                        <div style={{ fontSize: '0.6rem', color: '#6366f1', marginTop: '1px' }}>BTW {fmt(btwBedrag)}</div>
+                                                                    )}
                                                                 </div>
-                                                                {isBeheerder && opslagArt > 0 && (
-                                                                    <div style={{ fontSize: '0.6rem', color: '#f59e0b', marginTop: '2px' }}>{fmt(opslagBedragArt)}</div>
-                                                                )}
-                                                            </div>
-                                                            </>}
+                                                            )}
+                                                            {raw > 0 && <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>}
+                                                            {/* Opslag % op inkoopprijs */}
+                                                            {raw > 0 && (
+                                                                <div style={{ textAlign: 'center' }}>
+                                                                    <div style={{ fontSize: '0.6rem', color: '#6366f1', fontWeight: 600, marginBottom: '2px' }}>OPSLAG</div>
+                                                                    <div style={{ position: 'relative' }}>
+                                                                        <input
+                                                                            type="number" min="0" step="0.01"
+                                                                            value={opslagen[rk] != null && opslagen[rk] !== '' ? parseFloat(opslagen[rk]).toFixed(2) : ''}
+                                                                            placeholder="0"
+                                                                            onChange={e => {
+                                                                                const updated = { ...opslagen, [rk]: e.target.value };
+                                                                                setOpslagen(updated);
+                                                                                localStorage.setItem('schildersapp_materiaal_opslagen', JSON.stringify(updated));
+                                                                                if (e.target.value) {
+                                                                                    const vUpdated = { ...verkoopprijzen };
+                                                                                    delete vUpdated[rk];
+                                                                                    setVerkoopprijzen(vUpdated);
+                                                                                    localStorage.setItem('schildersapp_materiaal_verkoop', JSON.stringify(vUpdated));
+                                                                                }
+                                                                            }}
+                                                                            style={{ width: '84px', padding: '5px 20px 5px 6px', border: `1.5px solid ${opslagen[rk] ? '#6366f1' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', textAlign: 'right', color: '#1e293b', background: opslagen[rk] ? '#eef2ff' : '#f8fafc', fontWeight: 700 }}
+                                                                        />
+                                                                        <span style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', color: '#6366f1', fontSize: '0.75rem', fontWeight: 700 }}>%</span>
+                                                                    </div>
+                                                                    {isBeheerder && opslagArt > 0 && (
+                                                                        <div style={{ fontSize: '0.6rem', color: '#f59e0b', marginTop: '2px' }}>{fmt(opslagBedragArt)}</div>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                             {raw > 0 && <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>}
                                                             {/* Verkoopprijs — altijd aanpasbaar voor beheerder */}
                                                             <div style={{ textAlign: 'right' }}>
