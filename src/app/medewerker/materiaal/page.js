@@ -359,21 +359,36 @@ export default function MateriaalBotPage() {
         sendQuery(q);
     }
 
-    const suggestions = [
-        'Pure mat',
-        'Pure mat 5 liter W05',
-        'Pure mat 5 liter N00',
-        'Extreme mat plafond',
-        'XD',
-        'SB',
-        'Primer Extra',
-        'Primer',
-        'BL Uniprimer',
-        'BL Primer',
-        'BL Rezisto Primer',
-        'BL Rezisto Satin',
-        'BL Satura',
-    ];
+    // Suggesties: gebaseerd op wat er echt in de materiaallijst staat
+    // "liter" staat als getal in naam, zoek op deelterm die zeker matcht
+    const suggestions = useMemo(() => {
+        const kandidaten = [
+            'Pure mat',
+            'Pure mat 5',
+            'Pure mat 10',
+            'Extreme mat plafond',
+            'Extreme mat',
+            'XD',
+            'SB',
+            'Primer Extra',
+            'Primer',
+            'BL Uniprimer',
+            'BL Primer',
+            'BL Rezisto Primer',
+            'BL Rezisto Satin',
+            'BL Satura',
+        ];
+        if (rows.length === 0) return kandidaten.slice(0, 8);
+        // Filter op zoektermen die daadwerkelijk resultaat geven
+        return kandidaten.filter(s => {
+            const woorden = s.toLowerCase().split(/\s+/).filter(Boolean);
+            return rows.some(row => {
+                const naam = String(row[cols.naam] ?? '').toLowerCase();
+                const alleVelden = Object.values(row).map(v => String(v ?? '').toLowerCase()).join(' ');
+                return woorden.every(w => naam.includes(w) || alleVelden.includes(w));
+            });
+        });
+    }, [rows, cols]);
 
     const WIZARD_STAPPEN = [
         { key: 'aard',       label: 'Aard van het werk',    opties: ['Bestaande ondergrond', 'Nieuwe ondergrond'] },
