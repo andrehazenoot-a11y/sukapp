@@ -282,14 +282,11 @@ export default function MateriaalPage() {
     // ── Prijs berekening ──────────────────────────────────────────
     function getPrijs(row) {
         const raw = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
-        const globalOpslag = parseFloat(prijzen[user?.id]?.opslag ?? 0);
-        // inkoop + BTW + opslag = verkoopprijs
-        const btwBedrag    = raw * BTW;
-        const opslagBedrag = raw * globalOpslag / 100;
-        const inclBtw      = raw + btwBedrag + opslagBedrag;
+        // inkoop + BTW (per-artikel opslag wordt apart verwerkt in kaartweergave)
+        const btwBedrag = raw * BTW;
         // Verkoopprijs kolom overschrijft berekende prijs
         const verkoop = cols.verkoopprijs ? parseFloat(String(row[cols.verkoopprijs] ?? '').replace(',', '.')) || null : null;
-        return { raw, excl: raw, btwBedrag, incl: raw + btwBedrag, verkCalc: inclBtw, verkoop, opslag: globalOpslag };
+        return { raw, excl: raw, btwBedrag, incl: raw + btwBedrag, verkoop };
     }
 
     function fmt(n) {
@@ -541,7 +538,7 @@ export default function MateriaalPage() {
                                     {filtered.map((row, i) => {
                                         const gi = rows.indexOf(row);
                                         const rk = row[cols.code] || row[cols.naam] || String(gi); // rij-sleutel op code
-                                        const { raw, excl, btwBedrag, incl, verkCalc, verkoop } = getPrijs(row);
+                                        const { raw, excl, btwBedrag, incl, verkoop } = getPrijs(row);
                                         const opslagArt = parseFloat(opslagen[rk]) || 0;
                                         // inkoop + BTW + opslag = verkoopprijs
                                         const opslagBedragArt = raw * opslagArt / 100;
