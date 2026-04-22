@@ -781,17 +781,28 @@ export default function MateriaalBotPage() {
                                         inhoud:    cols.inhoud ? (row[cols.inhoud] ?? '') : '',
                                     };
                                     return (
-                                        <div key={i} style={{ background: beste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${beste ? '#86efac' : '#f1f5f9'}`, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                        <div key={i} style={{ background: beste ? '#f0fdf4' : '#fff', borderRadius: '14px', border: `1.5px solid ${beste ? '#86efac' : '#f1f5f9'}`, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', transition: 'box-shadow 0.15s' }}
+                                            onMouseOver={e => e.currentTarget.style.boxShadow = '0 3px 12px rgba(0,0,0,0.1)'}
+                                            onMouseOut={e => e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.06)'}>
+                                            {/* Cube icoon */}
+                                            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: beste ? '#dcfce7' : '#fff8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                <i className="fa-solid fa-cube" style={{ color: beste ? '#10b981' : '#F5850A', fontSize: '0.95rem' }} />
+                                            </div>
                                             {/* Naam + badges */}
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                                {beste && <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#10b981', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-crown" />BESTE PRIJS/EEN.</div>}
+                                                {beste && (
+                                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#dcfce7', borderRadius: '6px', padding: '2px 7px', marginBottom: '4px' }}>
+                                                        <i className="fa-solid fa-crown" style={{ color: '#15803d', fontSize: '0.65rem' }} />
+                                                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#15803d' }}>BESTE PRIJS</span>
+                                                    </div>
+                                                )}
                                                 <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
-                                                <div style={{ display: 'flex', gap: '4px', marginTop: '3px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                                <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                                                     {badgeFields.map(f => {
                                                         const val = fv[f]; if (!val) return null;
                                                         const { bg, clr } = badgeStyles[f] || { bg: '#f1f5f9', clr: '#64748b' };
                                                         const txt = f === 'eenheid' ? `per ${val}` : f === 'inhoud' ? `${val}L` : val;
-                                                        return <span key={f} style={{ fontSize: '0.62rem', color: clr, background: bg, borderRadius: '4px', padding: '1px 5px' }}>{txt}</span>;
+                                                        return <span key={f} style={{ fontSize: '0.62rem', color: clr, background: bg, borderRadius: '5px', padding: '2px 6px', fontWeight: 600 }}>{txt}</span>;
                                                     })}
                                                     {(() => {
                                                         const entry = parseEntry(tdsLinks[getBasisNaam(naam)]);
@@ -805,30 +816,30 @@ export default function MateriaalBotPage() {
                                                     })()}
                                                 </div>
                                             </div>
-                                            {/* Prijs */}
+                                            {/* Prijs blok */}
                                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
                                                 {prijsInfo
                                                     ? <>
-                                                        <div style={{ fontWeight: 800, fontSize: '0.95rem', color: beste ? '#10b981' : '#F5850A' }}>{fmt(prijsInfo.prijs)}</div>
+                                                        <div style={{ fontWeight: 800, fontSize: '1rem', color: beste ? '#15803d' : '#F5850A' }}>{fmt(prijsInfo.prijs)}</div>
                                                         <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>{eenheid ? `per ${eenheid}` : 'per stuk'}</div>
+                                                        <div style={{ fontSize: '0.58rem', color: '#cbd5e1', marginTop: '1px' }}>incl. BTW</div>
                                                       </>
-                                                    : <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Op aanvraag</div>}
+                                                    : <div style={{ fontSize: '0.72rem', color: '#94a3b8', background: '#f8fafc', borderRadius: '6px', padding: '4px 8px' }}>Op aanvraag</div>}
                                             </div>
-                                            {/* Actie-iconen */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                                            {/* Actieknoppen — horizontaal onderaan, of verticaal smal */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flexShrink: 0 }}>
                                                 <button onClick={() => laadSysteem(naam, wizard?.keuzes || {})}
-                                                    title="Systeemopbouw"
-                                                    style={{ width: '28px', height: '28px', borderRadius: '7px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#6366f1', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    title="Systeemopbouw bekijken"
+                                                    style={{ width: '32px', height: '32px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#6366f1', fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.15s' }}
+                                                    onMouseOver={e => e.currentTarget.style.background = '#eef2ff'}
+                                                    onMouseOut={e => e.currentTarget.style.background = '#f8fafc'}>
                                                     <i className="fa-solid fa-layer-group" />
                                                 </button>
-                                                <button onClick={() => setOpslaanModal({ product: naam, verpakking: eenheid || 'stuk', aantalEmmers: null, totaalprijs: prijsInfo ? fmt(prijsInfo.prijs) : null, datum: new Date().toLocaleDateString('nl-NL') })}
-                                                    title="Extra materiaal project"
-                                                    style={{ width: '28px', height: '28px', borderRadius: '7px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#F5850A', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <i className="fa-solid fa-floppy-disk" />
-                                                </button>
                                                 <button onClick={() => voegToeAanBestellijst({ product: naam, aantal: 1, eenheid: eenheid || 'stuk', opmerking: prijsInfo ? `Prijs: ${fmt(prijsInfo.prijs)} per ${eenheid || 'stuk'}` : '', prijs: prijsInfo?.prijs || null })}
-                                                    title="Bestelijst prive"
-                                                    style={{ width: '28px', height: '28px', borderRadius: '7px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    title="Toevoegen aan bestellijst"
+                                                    style={{ width: '32px', height: '32px', borderRadius: '9px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(245,133,10,0.35)', transition: 'transform 0.15s' }}
+                                                    onMouseOver={e => e.currentTarget.style.transform = 'scale(1.08)'}
+                                                    onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}>
                                                     <i className="fa-solid fa-cart-plus" />
                                                 </button>
                                             </div>
@@ -1006,10 +1017,13 @@ export default function MateriaalBotPage() {
 
                 {/* Typing indicator */}
                 {typing && (
-                    <div style={{ display: 'flex', alignItems: 'flex-start' }}>
-                        <div style={{ background: '#fff', borderRadius: '18px 18px 18px 4px', padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                        <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'linear-gradient(135deg,#F5850A,#D96800)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <i className="fa-solid fa-box-open" style={{ color: '#fff', fontSize: '0.7rem' }} />
+                        </div>
+                        <div style={{ background: '#fff', borderRadius: '18px 18px 18px 4px', padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', display: 'flex', gap: '5px', alignItems: 'center' }}>
                             {[0,1,2].map(n => (
-                                <div key={n} style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#cbd5e1', animation: `bounce 1s ${n * 0.15}s infinite` }} />
+                                <div key={n} style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#F5850A', opacity: 0.4, animation: `bounce 1s ${n * 0.2}s infinite` }} />
                             ))}
                         </div>
                     </div>
@@ -1029,7 +1043,9 @@ export default function MateriaalBotPage() {
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {suggestions.map(s => (
                             <button key={s} onClick={() => sendQuery(s)}
-                                style={{ padding: '5px 12px', borderRadius: '20px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
+                                style={{ padding: '6px 13px', borderRadius: '20px', border: '1.5px solid #fed7aa', background: '#fff8f0', color: '#c2410c', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                                onMouseOver={e => { e.currentTarget.style.background = '#F5850A'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#F5850A'; }}
+                                onMouseOut={e => { e.currentTarget.style.background = '#fff8f0'; e.currentTarget.style.color = '#c2410c'; e.currentTarget.style.borderColor = '#fed7aa'; }}>
                                 {s}
                             </button>
                         ))}
