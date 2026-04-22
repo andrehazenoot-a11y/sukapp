@@ -199,12 +199,14 @@ export default function MateriaalBotPage() {
     function search(query) {
         const q = query.toLowerCase().trim();
         if (!q || rows.length === 0) return [];
+        const woorden = q.split(/\s+/).filter(Boolean);
         return rows.map((row, i) => ({ row, i })).filter(({ row }) => {
             const naam = String(row[cols.naam] ?? '').toLowerCase();
             const code = String(row[cols.code] ?? '').toLowerCase();
             const cat  = String(row[cols.categorie] ?? '').toLowerCase();
-            if (naam.includes(q) || code.includes(q) || cat.includes(q)) return true;
-            return Object.values(row).some(v => String(v ?? '').toLowerCase().includes(q));
+            const alleVelden = Object.values(row).map(v => String(v ?? '').toLowerCase()).join(' ');
+            // Alle woorden moeten voorkomen in de naam of één van de andere velden
+            return woorden.every(w => naam.includes(w) || code.includes(w) || cat.includes(w) || alleVelden.includes(w));
         }).slice(0, 20);
     }
 
@@ -311,7 +313,7 @@ export default function MateriaalBotPage() {
                 text = 'Er is nog geen materiaallijst beschikbaar. Vraag de beheerder om de lijst in te laden.';
             } else if (results.length === 0) {
                 text = `Ik kon niets vinden voor "${q}". Probeer een andere zoekterm, zoals een deel van de productnaam of artikelcode.`;
-            } else if (results.length > 0 && (() => { const k = detectKleurTypes(results); return [k.heeftDonker, k.heeftMidden, k.heeftLicht].filter(Boolean).length >= 2; })()) {
+            } else if (results.length > 0 && !['n00','w05','m15','donker','licht','midden','zwart','wit'].some(k => q.toLowerCase().includes(k)) && (() => { const k = detectKleurTypes(results); return [k.heeftDonker, k.heeftMidden, k.heeftLicht].filter(Boolean).length >= 2; })()) {
                 const { heeftDonker, heeftMidden, heeftLicht } = detectKleurTypes(results);
                 const kleurOpties = [
                     ...(heeftDonker ? [{ label: 'Donker (N00)', waarde: 'donker' }] : []),
