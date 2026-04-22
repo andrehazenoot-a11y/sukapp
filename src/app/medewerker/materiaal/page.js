@@ -101,14 +101,11 @@ function getVerkoopprijs(row, cols, verkoopprijzen, opslagen, prijzen, rowIndex)
         const v = parseFloat(verkoopprijzen[rk]);
         if (v > 0) return { prijs: v, bron: 'verkoop' };
     }
-    // 2. Bereken via inkoopprijs + globale opslag + BTW + per-rij opslag
+    // 2. Bereken via inkoop + inkoop×BTW% + inkoop×opslag% (zelfde formule als Materiaalzoeker)
     const raw = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
     if (raw > 0) {
-        const globalOpslag = parseFloat(Object.values(prijzen ?? {})[0]?.opslag ?? 0);
-        const metGlobaal   = raw * (1 + globalOpslag / 100);
-        const inclBtw      = metGlobaal * (1 + BTW);
-        const rijOpslag    = parseFloat(opslagen[rk]) || 0;
-        const verkoop      = rijOpslag > 0 ? inclBtw * (1 + rijOpslag / 100) : inclBtw;
+        const rijOpslag = parseFloat(opslagen[rk]) || 0;
+        const verkoop   = raw + raw * BTW + raw * rijOpslag / 100;
         return { prijs: verkoop, bron: 'berekend' };
     }
     return null;
