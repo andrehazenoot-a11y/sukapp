@@ -364,8 +364,12 @@ export default function MateriaalBotPage() {
     const suggestions = useMemo(() => {
         const kandidaten = [
             'Pure mat',
-            'Pure mat 5',
-            'Pure mat 10',
+            'Pure mat 5 N00',
+            'Pure mat 5 M15',
+            'Pure mat 5 W05',
+            'Pure mat 10 N00',
+            'Pure mat 10 M15',
+            'Pure mat 10 W05',
             'Extreme mat plafond',
             'Extreme mat',
             'XD',
