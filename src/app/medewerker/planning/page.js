@@ -200,6 +200,8 @@ export default function MedewerkerPlanning() {
     const [matRijen, setMatRijen] = useState([]);
     const [matKolommen, setMatKolommen] = useState({});
     const [matZoekResultaten, setMatZoekResultaten] = useState([]);
+    const [matOpslagen, setMatOpslagen] = useState({});
+    const [matVerkoop, setMatVerkoop] = useState({});
     // Standalone materialen (los van meerwerk)
     const [losMateriaalLijst, setLosMateriaalLijst] = useState([]);
     const [losMatNaam, setLosMatNaam] = useState('');
@@ -465,6 +467,13 @@ export default function MedewerkerPlanning() {
             });
             setMatRijen(actieveRijen);
             setMatKolommen(colMap);
+            // Opslagen en verkoopprijzen ingesteld door beheerder in Materiaalzoeker
+            try {
+                const oRaw = localStorage.getItem('schildersapp_materiaal_opslagen');
+                const vRaw = localStorage.getItem('schildersapp_materiaal_verkoop');
+                setMatOpslagen(oRaw ? JSON.parse(oRaw) : {});
+                setMatVerkoop(vRaw ? JSON.parse(vRaw) : {});
+            } catch {}
         } catch {}
     }, []);
 
@@ -1370,11 +1379,12 @@ export default function MedewerkerPlanning() {
         const inkoop = losMatPrijs ? parseFloat(String(losMatPrijs).replace(',', '.')) : null;
         const btwPct = inkoop != null ? parseInt(losMatBtw) : null;
         const opslagPct = losMatOpslag ? parseFloat(String(losMatOpslag).replace(',', '.')) : null;
+        // Formule: inkoop + inkoop×BTW% + inkoop×opslag% (zelfde als Materiaalzoeker)
         const verkoopExcl = inkoop != null
             ? Math.round(inkoop * (1 + (opslagPct ?? 0) / 100) * 100) / 100
             : null;
-        const verkoopIncl = verkoopExcl != null && btwPct != null
-            ? Math.round(verkoopExcl * (1 + btwPct / 100) * 100) / 100
+        const verkoopIncl = inkoop != null && btwPct != null
+            ? Math.round((inkoop + inkoop * btwPct / 100 + inkoop * (opslagPct ?? 0) / 100) * 100) / 100
             : null;
         const entry = {
             id: Date.now(),
@@ -3563,11 +3573,21 @@ export default function MedewerkerPlanning() {
                                                         const prijs = matKolommen.prijs ? String(r[matKolommen.prijs] ?? '') : '';
                                                         return (
                                                             <button key={i} onClick={() => {
+                                                                const rk = code || naam;
+                                                                const behOpslag = matOpslagen[rk];
+                                                                const behVerkoop = matVerkoop[rk];
                                                                 setLosMatNaam(naam);
                                                                 setLosMatHoeveelheid(eenheid || '1 stuk');
                                                                 setLosMatCode(code);
                                                                 setLosMatEenheid(eenheid);
                                                                 setLosMatPrijs(prijs);
+                                                                // Opslag en BTW uit Materiaalzoeker instellingen overnemen
+                                                                if (behOpslag != null && behOpslag !== '') {
+                                                                    setLosMatOpslag(String(parseFloat(behOpslag).toFixed(2)));
+                                                                } else {
+                                                                    setLosMatOpslag('');
+                                                                }
+                                                                setLosMatBtw('21');
                                                                 setLosMatZoek([]);
                                                             }}
                                                                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', textAlign: 'left' }}>
@@ -3622,14 +3642,17 @@ export default function MedewerkerPlanning() {
                                             if (isNaN(ink)) return null;
                                             const opl = losMatOpslag ? parseFloat(String(losMatOpslag).replace(',', '.')) : 0;
                                             const btw = parseInt(losMatBtw);
-                                            const vkExcl = Math.round(ink * (1 + opl / 100) * 100) / 100;
-                                            const vkIncl = Math.round(vkExcl * (1 + btw / 100) * 100) / 100;
+                                            // Formule: inkoop + inkoop×BTW% + inkoop×opslag% (zelfde als Materiaalzoeker)
+                                            const btwBedrag = Math.round(ink * btw / 100 * 100) / 100;
+                                            const opslagBedrag = Math.round(ink * opl / 100 * 100) / 100;
+                                            const vkIncl = Math.round((ink + btwBedrag + opslagBedrag) * 100) / 100;
                                             return (
                                                 <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '8px 10px', marginBottom: '6px', fontSize: '0.75rem', color: '#64748b' }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Inkoop excl. BTW</span><span>€ {ink.toFixed(2)}</span></div>
-                                                    {opl > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Verkoop excl. BTW (+{opl}%)</span><span>€ {vkExcl.toFixed(2)}</span></div>}
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>BTW {btw}%</span><span>€ {btwBedrag.toFixed(2)}</span></div>
+                                                    {opl > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Opslag {opl}%</span><span>€ {opslagBedrag.toFixed(2)}</span></div>}
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#10b981', marginTop: '3px', borderTop: '1px solid #e2e8f0', paddingTop: '4px' }}>
-                                                        <span>Verkoopprijs incl. {btw}% BTW</span><span>€ {vkIncl.toFixed(2)}</span>
+                                                        <span>Verkoopprijs</span><span>€ {vkIncl.toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                             );
