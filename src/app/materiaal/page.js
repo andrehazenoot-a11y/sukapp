@@ -220,9 +220,9 @@ export default function MateriaalPage() {
         const XLSX = await import('xlsx');
         const data = rows.map((row, gi) => {
             const rk = row[cols.code] || row[cols.naam] || String(gi);
-            const { incl } = getPrijs(row);
+            const { raw, btwBedrag } = getPrijs(row);
             const opslag   = parseFloat(opslagen[rk]) || 0;
-            const berekend = opslag > 0 ? incl * (1 + opslag / 100) : incl;
+            const berekend = raw > 0 ? raw + btwBedrag + raw * opslag / 100 : 0;
             const verkoop  = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : berekend;
             return {
                 ...row,
@@ -282,12 +282,14 @@ export default function MateriaalPage() {
     // ── Prijs berekening ──────────────────────────────────────────
     function getPrijs(row) {
         const raw = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
-        const opslag = parseFloat(prijzen[user?.id]?.opslag ?? 0);
-        const metOpslag = raw * (1 + opslag / 100);
-        const inclBtw   = metOpslag * (1 + BTW);
+        const globalOpslag = parseFloat(prijzen[user?.id]?.opslag ?? 0);
+        // inkoop + BTW + opslag = verkoopprijs
+        const btwBedrag    = raw * BTW;
+        const opslagBedrag = raw * globalOpslag / 100;
+        const inclBtw      = raw + btwBedrag + opslagBedrag;
         // Verkoopprijs kolom overschrijft berekende prijs
         const verkoop = cols.verkoopprijs ? parseFloat(String(row[cols.verkoopprijs] ?? '').replace(',', '.')) || null : null;
-        return { excl: metOpslag, incl: verkoop ?? inclBtw, verkoop, opslag };
+        return { raw, excl: raw, btwBedrag, incl: raw + btwBedrag, verkCalc: inclBtw, verkoop, opslag: globalOpslag };
     }
 
     function fmt(n) {
@@ -488,13 +490,14 @@ export default function MateriaalPage() {
                                             const vUpdated = { ...verkoopprijzen };
                                             rows.forEach((row, gi) => {
                                                 const rk = row[cols.code] || row[cols.naam] || String(gi);
-                                                const { incl } = getPrijs(row);
-                                                if (!incl) return;
+                                                const { raw, btwBedrag } = getPrijs(row);
+                                                if (!raw) return;
                                                 const rijOpslag = parseFloat(opslagen[rk]) || 0;
-                                                const berekend  = rijOpslag > 0 ? incl * (1 + rijOpslag / 100) : incl;
+                                                const berekend  = raw + btwBedrag + raw * rijOpslag / 100;
                                                 const ceiled    = Math.ceil(berekend);
                                                 vUpdated[rk]    = String(ceiled);
-                                                oUpdated[rk]    = ((ceiled / incl - 1) * 100).toFixed(2);
+                                                // terugrekenen: opslag% = (ceiled/raw - 1 - BTW) * 100
+                                                oUpdated[rk]    = Math.max(0, (ceiled / raw - 1 - BTW) * 100).toFixed(2);
                                             });
                                             setVerkoopprijzen(vUpdated);
                                             setOpslagen(oUpdated);
@@ -510,9 +513,9 @@ export default function MateriaalPage() {
                                             rows.forEach((row, gi) => {
                                                 const rk = row[cols.code] || row[cols.naam] || String(gi);
                                                 if (vUpdated[rk] == null) return;
-                                                const { incl } = getPrijs(row);
+                                                const { raw, btwBedrag } = getPrijs(row);
                                                 const rijOpslag = parseFloat(herstel[rk]) || 0;
-                                                const berekend  = rijOpslag > 0 ? incl * (1 + rijOpslag / 100) : incl;
+                                                const berekend  = raw + btwBedrag + raw * rijOpslag / 100;
                                                 if (berekend && Math.ceil(berekend) === parseFloat(vUpdated[rk])) {
                                                     delete vUpdated[rk];
                                                 }
@@ -538,9 +541,11 @@ export default function MateriaalPage() {
                                     {filtered.map((row, i) => {
                                         const gi = rows.indexOf(row);
                                         const rk = row[cols.code] || row[cols.naam] || String(gi); // rij-sleutel op code
-                                        const { excl, incl, verkoop } = getPrijs(row);
-                                        const raw = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
+                                        const { raw, excl, btwBedrag, incl, verkCalc, verkoop } = getPrijs(row);
                                         const opslagArt = parseFloat(opslagen[rk]) || 0;
+                                        // inkoop + BTW + opslag = verkoopprijs
+                                        const opslagBedragArt = raw * opslagArt / 100;
+                                        const verkPrijsBerekend = raw > 0 ? raw + btwBedrag + opslagBedragArt : null;
                                         const fieldValues = {
                                             naam:         row[cols.naam]         ?? '—',
                                             code:         row[cols.code]         ?? '',
@@ -551,9 +556,9 @@ export default function MateriaalPage() {
                                             prijs:        cols.prijs && row[cols.prijs] !== '' && row[cols.prijs] !== undefined,
                                             prijs_incl:   incl ? fmt(incl) : '',
                                             btw_pct:      '21% BTW',
-                                            btw_bedrag:   incl && raw ? fmt(incl - excl) : '',
+                                            btw_bedrag:   raw ? fmt(btwBedrag) : '',
                                             opslag_pct:   opslagArt > 0 ? `+${opslagArt}% opslag` : '',
-                                            marge:        incl && raw ? fmt(incl - raw) : '',
+                                            marge:        raw && opslagArt > 0 ? fmt(opslagBedragArt) : '',
                                             leverancier:  cols.leverancier ? (row[cols.leverancier] ?? '') : '',
                                             levertijd:    cols.levertijd   ? (row[cols.levertijd]   ?? '') : '',
                                             voorraad:     cols.voorraad    ? (row[cols.voorraad]    ?? '') : '',
@@ -621,21 +626,21 @@ export default function MateriaalPage() {
                                                     </div>
                                                 </div>
                                                 {toonPrijs && (() => {
-                                                    const opslag = parseFloat(opslagen[rk]) || 0;
-                                                    const berekend = opslag > 0 ? incl * (1 + opslag / 100) : null;
-                                                    const verkPrijs = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : berekend;
+                                                    // inkoop (excl. BTW) + BTW + opslag = verkoopprijs
+                                                    const verkPrijsManual = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : null;
+                                                    const verkPrijs = verkPrijsManual ?? (raw > 0 ? verkPrijsBerekend : null);
                                                     return (
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                                                            {/* Inkoopprijs */}
+                                                            {/* Inkoopprijs excl. BTW */}
                                                             <div style={{ textAlign: 'right' }}>
                                                                 <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginBottom: '2px' }}>INKOOP</div>
-                                                                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#64748b' }}>{fmt(incl)}</div>
-                                                                {isBeheerder && !verkoop && (
-                                                                    <div style={{ fontSize: '0.6rem', color: '#cbd5e1' }}>excl. {fmt(excl)}</div>
+                                                                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#64748b' }}>{raw ? fmt(raw) : '—'}</div>
+                                                                {isBeheerder && raw > 0 && (
+                                                                    <div style={{ fontSize: '0.6rem', color: '#6366f1', marginTop: '1px' }}>BTW {fmt(btwBedrag)}</div>
                                                                 )}
                                                             </div>
                                                             <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>
-                                                            {/* Opslag % */}
+                                                            {/* Opslag % op inkoopprijs */}
                                                             <div style={{ textAlign: 'center' }}>
                                                                 <div style={{ fontSize: '0.6rem', color: '#6366f1', fontWeight: 600, marginBottom: '2px' }}>OPSLAG</div>
                                                                 <div style={{ position: 'relative' }}>
@@ -658,9 +663,12 @@ export default function MateriaalPage() {
                                                                     />
                                                                     <span style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', color: '#6366f1', fontSize: '0.75rem', fontWeight: 700 }}>%</span>
                                                                 </div>
+                                                                {isBeheerder && opslagArt > 0 && raw > 0 && (
+                                                                    <div style={{ fontSize: '0.6rem', color: '#f59e0b', marginTop: '2px' }}>{fmt(opslagBedragArt)}</div>
+                                                                )}
                                                             </div>
                                                             <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>
-                                                            {/* Verkoopprijs */}
+                                                            {/* Verkoopprijs = inkoop + BTW + opslag */}
                                                             <div style={{ textAlign: 'right' }}>
                                                                 <div style={{ fontSize: '0.6rem', color: '#F5850A', fontWeight: 600, marginBottom: '2px' }}>VERKOOP</div>
                                                                 <div style={{ position: 'relative' }}>
@@ -668,20 +676,19 @@ export default function MateriaalPage() {
                                                                     <input
                                                                         type="number" min="0" step="0.01"
                                                                         value={(() => {
-                                                                            const raw = verkoopprijzen[rk] != null ? parseFloat(verkoopprijzen[rk]) : berekend;
-                                                                            if (!raw) return '';
-                                                                            return afronden ? String(Math.ceil(raw)) : (verkoopprijzen[rk] ?? berekend.toFixed(2));
+                                                                            if (!verkPrijs) return '';
+                                                                            return afronden ? String(Math.ceil(verkPrijs)) : (verkPrijsManual != null ? String(verkPrijsManual) : verkPrijs.toFixed(2));
                                                                         })()}
                                                                         placeholder="—"
                                                                         onChange={e => {
                                                                             const updated = { ...verkoopprijzen, [rk]: e.target.value };
                                                                             setVerkoopprijzen(updated);
                                                                             localStorage.setItem('schildersapp_materiaal_verkoop', JSON.stringify(updated));
-                                                                            // Herbereken opslag% op basis van nieuwe verkoopprijs
+                                                                            // Herbereken opslag% op basis van nieuwe verkoopprijs: vp = raw + raw*BTW + raw*opslag% → opslag% = (vp/raw - 1 - BTW)*100
                                                                             const vp = parseFloat(e.target.value);
-                                                                            if (vp > 0 && incl > 0) {
-                                                                                const nieuwOpslag = ((vp / incl - 1) * 100).toFixed(2);
-                                                                                const oUpdated = { ...opslagen, [rk]: nieuwOpslag };
+                                                                            if (vp > 0 && raw > 0) {
+                                                                                const nieuwOpslag = ((vp / raw - 1 - BTW) * 100).toFixed(2);
+                                                                                const oUpdated = { ...opslagen, [rk]: Math.max(0, parseFloat(nieuwOpslag)).toFixed(2) };
                                                                                 setOpslagen(oUpdated);
                                                                                 localStorage.setItem('schildersapp_materiaal_opslagen', JSON.stringify(oUpdated));
                                                                             }
@@ -871,10 +878,10 @@ export default function MateriaalPage() {
                                 const gi  = previewIdx >= 0 ? previewIdx : 0;
                                 const row = rows[gi];
                                 const rk  = row[cols.code] || row[cols.naam] || String(gi);
-                                const { excl, incl } = getPrijs(row);
-                                const rawPrev  = parseFloat(String(row[cols.prijs] ?? '').replace(',', '.')) || 0;
+                                const { raw: rawPrev, btwBedrag: btwPrev, incl: inclPrev } = getPrijs(row);
                                 const opslag   = parseFloat(opslagen[rk]) || 0;
-                                const berekend = opslag > 0 ? incl * (1 + opslag / 100) : incl;
+                                const opslagBedragPrev = rawPrev * opslag / 100;
+                                const berekend = rawPrev > 0 ? rawPrev + btwPrev + opslagBedragPrev : 0;
                                 const verkPrijsRaw = verkoopprijzen[rk] ? parseFloat(verkoopprijzen[rk]) : berekend;
                                 const verkPrijs = afronden && verkPrijsRaw ? Math.ceil(verkPrijsRaw) : verkPrijsRaw;
                                 const fv = {
@@ -884,11 +891,11 @@ export default function MateriaalPage() {
                                     categorie:    row[cols.categorie]    ?? '',
                                     inhoud:       cols.inhoud       ? (row[cols.inhoud]       ?? '') : '',
                                     verkoopprijs: cols.verkoopprijs ? (row[cols.verkoopprijs] ?? '') : '',
-                                    prijs_incl:   incl ? fmt(incl) : '',
+                                    prijs_incl:   inclPrev ? fmt(inclPrev) : '',
                                     btw_pct:      '21% BTW',
-                                    btw_bedrag:   incl && rawPrev ? fmt(incl - excl) : '',
+                                    btw_bedrag:   rawPrev ? fmt(btwPrev) : '',
                                     opslag_pct:   opslag > 0 ? `+${opslag}% opslag` : '',
-                                    marge:        incl && rawPrev ? fmt(incl - rawPrev) : '',
+                                    marge:        rawPrev && opslag > 0 ? fmt(opslagBedragPrev) : '',
                                     leverancier:  cols.leverancier ? (row[cols.leverancier] ?? '') : '',
                                     levertijd:    cols.levertijd   ? (row[cols.levertijd]   ?? '') : '',
                                     voorraad:     cols.voorraad    ? (row[cols.voorraad]    ?? '') : '',
@@ -953,8 +960,8 @@ export default function MateriaalPage() {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                                                     <div style={{ textAlign: 'right' }}>
                                                         <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginBottom: '2px' }}>INKOOP</div>
-                                                        <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#64748b' }}>{fmt(incl)}</div>
-                                                        <div style={{ fontSize: '0.6rem', color: '#cbd5e1' }}>excl. {fmt(excl)}</div>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#64748b' }}>{rawPrev ? fmt(rawPrev) : '—'}</div>
+                                                        {rawPrev > 0 && <div style={{ fontSize: '0.6rem', color: '#6366f1' }}>BTW {fmt(btwPrev)}</div>}
                                                     </div>
                                                     <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>
                                                     <div style={{ textAlign: 'center' }}>
@@ -962,6 +969,7 @@ export default function MateriaalPage() {
                                                         <div style={{ width: '60px', padding: '5px 8px', border: `1.5px solid ${opslag > 0 ? '#6366f1' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.85rem', textAlign: 'center', color: '#1e293b', background: opslag > 0 ? '#eef2ff' : '#f8fafc', fontWeight: 700 }}>
                                                             {opslag > 0 ? `${opslag}%` : '—'}
                                                         </div>
+                                                        {opslag > 0 && rawPrev > 0 && <div style={{ fontSize: '0.6rem', color: '#f59e0b', marginTop: '2px' }}>{fmt(opslagBedragPrev)}</div>}
                                                     </div>
                                                     <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>→</span>
                                                     <div style={{ textAlign: 'right' }}>
