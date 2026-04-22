@@ -893,7 +893,14 @@ export default function MateriaalBotPage() {
                                         }, 0);
                                     }}
                                         style={{ padding: '9px 18px', borderRadius: '20px', border: '2px solid #F5850A', background: knop.waarde === 'donker' ? '#1e293b' : knop.waarde === 'midden' ? '#f59e0b' : '#fff', color: knop.waarde === 'donker' ? '#fff' : knop.waarde === 'midden' ? '#fff' : '#F5850A', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className={`fa-solid ${knop.waarde === 'donker' ? 'fa-moon' : knop.waarde === 'midden' ? 'fa-circle-half-stroke' : 'fa-sun'}`} />
+                                        {knop.waarde === 'midden'
+                                            ? <span style={{ width: '14px', height: '14px', borderRadius: '50%', overflow: 'hidden', display: 'inline-flex', flexShrink: 0 }}>
+                                                <span style={{ flex: 1, background: '#ef4444' }} />
+                                                <span style={{ flex: 1, background: '#3b82f6' }} />
+                                                <span style={{ flex: 1, background: '#facc15' }} />
+                                              </span>
+                                            : <i className={`fa-solid ${knop.waarde === 'donker' ? 'fa-moon' : 'fa-sun'}`} />
+                                        }
                                         {knop.label}
                                     </button>
                                 ))}
