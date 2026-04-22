@@ -796,7 +796,7 @@ export default function MateriaalBotPage() {
                                                         <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#15803d' }}>BESTE PRIJS</span>
                                                     </div>
                                                 )}
-                                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
+                                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', lineHeight: 1.3 }}>{naam}</div>
                                                 <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                                                     {badgeFields.map(f => {
                                                         const val = fv[f]; if (!val) return null;
@@ -890,7 +890,7 @@ export default function MateriaalBotPage() {
                                         <div key={i} style={{ background: isBeste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${isBeste ? '#86efac' : '#f1f5f9'}`, padding: '12px 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
                                             {isBeste && <div style={{ fontSize: '0.6rem', fontWeight: 800, color: '#10b981', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-crown" />BESTE DEAL</div>}
                                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', gap: '8px' }}>
-                                                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{naam}</div>
+                                                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', flex: 1 }}>{naam}</div>
                                                 <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
                                                     <button onClick={() => setOpslaanModal({ product: naam, verpakking: `${inhoud ?? msg.gekozenMaat}L`, aantalEmmers: aantal, totaalprijs: totaal ? fmt(totaal) : null, datum: new Date().toLocaleDateString('nl-NL') })}
                                                         style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#475569', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
