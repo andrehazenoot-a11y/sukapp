@@ -159,6 +159,8 @@ export default function MijnSuk() {
 
     // ── Toolbox ──
     const [tbMeetings, setTbMeetings]           = useState([]);
+    const [tbDocs, setTbDocs]                   = useState([]);
+    const [tbGelezen, setTbGelezen]             = useState({}); // { [meetingId]: timestamp }
     const [tbView, setTbView]                   = useState('lijst'); // 'lijst' | 'nieuw' | 'detail'
     const [tbSelected, setTbSelected]           = useState(null);
     const [tbForm, setTbForm]                   = useState({ datum: new Date().toISOString().slice(0,10), project:'', onderwerp:'', notities:'' });
@@ -179,6 +181,18 @@ export default function MijnSuk() {
             .then(r => r.json())
             .then(data => { if (Array.isArray(data) && data.length > 0) setTbMeetings(data); })
             .catch(() => {});
+        // Laad toolbox documenten (alleen al zichtbare, niet geplande)
+        fetch('/api/documenten')
+            .then(r => r.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    const nu = new Date();
+                    setTbDocs(data.filter(d => !d.zichtbaarVanaf || new Date(d.zichtbaarVanaf) <= nu));
+                }
+            })
+            .catch(() => {});
+        // Laad gelezen-status per meeting uit localStorage
+        try { setTbGelezen(JSON.parse(localStorage.getItem(`schildersapp_tb_gelezen_${user.id}`) || '{}')); } catch {}
         const h = getEnabledHolidays();
         setHolidays(h);
         // Sync bestaande verlofaanvragen direct naar dashboard bij laden
@@ -382,6 +396,22 @@ export default function MijnSuk() {
         saveLS(`schildersapp_bestellingen_${user.id}`, updated);
     }
     // ── Toolbox functies ──
+    function tbMarkeerGelezen(meetingId) {
+        const updated = { ...tbGelezen, [meetingId]: new Date().toISOString() };
+        setTbGelezen(updated);
+        try { localStorage.setItem(`schildersapp_tb_gelezen_${user.id}`, JSON.stringify(updated)); } catch {}
+    }
+    function tbOpenDetail(m) {
+        setTbSelected(m);
+        setTbView('detail');
+        if (!tbGelezen[m.id]) tbMarkeerGelezen(m.id);
+    }
+    function tbOndertekend(m) {
+        // Controleer of de huidige gebruiker in de aanwezig-lijst staat en getekend heeft
+        if (!m.aanwezig?.length) return false;
+        const entry = m.aanwezig.find(a => a.naam?.toLowerCase() === (user?.name || '').toLowerCase());
+        return entry?.getekend === true;
+    }
     function tbOpslaan() {
         if (!tbForm.project.trim() || !tbForm.onderwerp) return;
         const meeting = { id: Date.now(), datum: tbForm.datum, project: tbForm.project, onderwerp: tbForm.onderwerp, notities: tbForm.notities, aanwezig: tbHandtekeningen, aangemaaktDoor: user?.name ?? 'Onbekend' };
@@ -487,7 +517,7 @@ export default function MijnSuk() {
                     {[
                         ['verlof',     'fa-umbrella-beach', 'Verlof'],
                         ['materialen', 'fa-box-open',       'Materialen'],
-                        ['toolbox',    'fa-toolbox',        'Toolbox'],
+                        ['toolbox',    'fa-toolbox',        'Bestanden'],
                     ].map(([t,ic,l]) => (
                         <button key={t} onClick={() => setTab(t)}
                             style={{ flex:1, padding:'8px 4px', borderRadius:'9px', border:'none',
@@ -616,26 +646,28 @@ export default function MijnSuk() {
 
                         {/* Aanvragenlijst */}
                         {verlofLijst.length > 0 && (
-                            <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
-                                {verlofLijst.map(v => {
+                            <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
+                                {[...verlofLijst].sort((a, b) => (a.van || '') > (b.van || '') ? 1 : -1).map(v => {
                                     const st = STATUS_STYLE[v.status]||STATUS_STYLE['In behandeling'];
                                     return (
-                                        <div key={v.id} style={{ background:'#fff', borderRadius:'13px', padding:'11px 14px', boxShadow:'0 1px 5px rgba(0,0,0,0.05)', border:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:'10px' }}>
-                                            <div style={{ flex:1 }}>
-                                                <div style={{ fontSize:'0.85rem', fontWeight:800, color:'#1e293b' }}>{v.type}</div>
-                                                <div style={{ fontSize:'0.72rem', color:'#64748b', marginTop:'1px' }}>
+                                        <div key={v.id} style={{ background:'#fff', borderRadius:'10px', padding:'7px 10px', border:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:'8px' }}>
+                                            <div style={{ flex:1, minWidth:0 }}>
+                                                <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                                                    <span style={{ fontSize:'0.78rem', fontWeight:700, color:'#1e293b' }}>{v.type}</span>
+                                                    {v.status === 'Afgewezen' && (
+                                                        <span style={{ background:st.bg, border:`1px solid ${st.border}`, borderRadius:'999px', padding:'1px 6px', fontSize:'0.6rem', fontWeight:700, color:st.color }}>{v.status}</span>
+                                                    )}
+                                                </div>
+                                                <div style={{ fontSize:'0.7rem', color:'#94a3b8', marginTop:'1px' }}>
                                                     {fmtDate(v.van)}{v.tot&&v.tot!==v.van?` → ${fmtDate(v.tot)}`:''}
                                                     {v.opmerking && ` · ${v.opmerking}`}
                                                 </div>
                                             </div>
-                                            {v.status === 'Afgewezen' && (
-                                                <div style={{ background:st.bg, border:`1px solid ${st.border}`, borderRadius:'999px', padding:'3px 9px', fontSize:'0.63rem', fontWeight:700, color:st.color, whiteSpace:'nowrap' }}>{v.status}</div>
-                                            )}
-                                            <div style={{ display:'flex', gap:'2px' }}>
-                                                <button onClick={() => openEdit(v)} style={{ background:'#f1f5f9', border:'none', borderRadius:'7px', padding:'5px 7px', cursor:'pointer', color:'#475569', fontSize:'0.75rem' }}>
+                                            <div style={{ display:'flex', gap:'2px', flexShrink:0 }}>
+                                                <button onClick={() => openEdit(v)} style={{ background:'none', border:'none', borderRadius:'6px', padding:'4px 6px', cursor:'pointer', color:'#94a3b8', fontSize:'0.7rem' }}>
                                                     <i className="fa-solid fa-pen" />
                                                 </button>
-                                                <button onClick={() => deleteVerlof(v.id)} style={{ background:'#fef2f2', border:'none', borderRadius:'7px', padding:'5px 7px', cursor:'pointer', color:'#ef4444', fontSize:'0.75rem' }}>
+                                                <button onClick={() => deleteVerlof(v.id)} style={{ background:'none', border:'none', borderRadius:'6px', padding:'4px 6px', cursor:'pointer', color:'#fca5a5', fontSize:'0.7rem' }}>
                                                     <i className="fa-solid fa-trash" />
                                                 </button>
                                             </div>
@@ -822,7 +854,7 @@ export default function MijnSuk() {
                                 <i className="fa-solid fa-arrow-left" /> Terug
                             </button>
                             <div style={{ background:'#fff', borderRadius:'14px', padding:'20px', boxShadow:'0 2px 8px rgba(0,0,0,0.07)' }}>
-                                <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'16px' }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'12px' }}>
                                     <div style={{ background:'#FFF3E0', borderRadius:'10px', width:'40px', height:'40px', display:'flex', alignItems:'center', justifyContent:'center' }}>
                                         <i className="fa-solid fa-toolbox" style={{ color:'#F5850A', fontSize:'1.1rem' }} />
                                     </div>
@@ -830,6 +862,18 @@ export default function MijnSuk() {
                                         <div style={{ fontWeight:800, fontSize:'1rem', color:'#1e293b' }}>{tbSelected.titel || tbSelected.onderwerp}</div>
                                         <div style={{ fontSize:'0.78rem', color:'#64748b' }}>{tbSelected.datum}{tbSelected.project ? ` · ${tbSelected.project}` : ''}</div>
                                     </div>
+                                </div>
+                                {/* Gelezen / ondertekend badges */}
+                                <div style={{ display:'flex', gap:'6px', marginBottom:'16px', flexWrap:'wrap' }}>
+                                    <span style={{ fontSize:'0.72rem', fontWeight:700, color:'#10b981', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:'999px', padding:'3px 10px', display:'flex', alignItems:'center', gap:'4px' }}>
+                                        <i className="fa-solid fa-eye" style={{ fontSize:'0.65rem' }} />Gelezen
+                                        {tbGelezen[tbSelected.id] && <span style={{ fontWeight:400, color:'#6ee7b7', marginLeft:'2px' }}>· {new Date(tbGelezen[tbSelected.id]).toLocaleDateString('nl-NL', { day:'numeric', month:'short' })} {new Date(tbGelezen[tbSelected.id]).toLocaleTimeString('nl-NL', { hour:'2-digit', minute:'2-digit' })}</span>}
+                                    </span>
+                                    {tbOndertekend(tbSelected) && (
+                                        <span style={{ fontSize:'0.72rem', fontWeight:700, color:'#22c55e', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:'999px', padding:'3px 10px', display:'flex', alignItems:'center', gap:'4px' }}>
+                                            <i className="fa-solid fa-signature" style={{ fontSize:'0.65rem' }} />Ondertekend
+                                        </span>
+                                    )}
                                 </div>
                                 {(tbSelected.aangemaaktDoor || tbSelected.aangemaakt_op) && <>
                                     <div style={{ fontSize:'0.8rem', color:'#64748b', marginBottom:'4px' }}>Aangemaakt door</div>
@@ -928,28 +972,88 @@ export default function MijnSuk() {
                                     <i className="fa-solid fa-plus" style={{ fontSize:'0.7rem' }} />Nieuw
                                 </button>
                             </div>
-                            {tbMeetings.length === 0 ? (
+                            {/* Toolbox documenten (van beheerder via documenten-systeem) */}
+                            {tbDocs.length > 0 && (
+                                <div style={{ marginBottom:'14px' }}>
+                                    <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'7px' }}>
+                                        <div style={{ width:'3px', height:'12px', background:'#3b82f6', borderRadius:'2px' }} />
+                                        <span style={{ fontSize:'0.68rem', fontWeight:800, color:'#334155', textTransform:'uppercase', letterSpacing:'0.06em' }}>Toolbox Bestanden</span>
+                                    </div>
+                                    {tbDocs.map(doc => {
+                                        const gelezenEntry = (doc.gelezen || []).find(g => String(g.userId) === String(user?.id));
+                                        const heeftGelezen = !!gelezenEntry;
+                                        async function markeerGelezen(e) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (heeftGelezen) return;
+                                            try {
+                                                const res = await fetch(`/api/documenten/${doc.id}/gelezen`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId:user.id, naam:user.name }) });
+                                                const data = await res.json();
+                                                if (data.ok) setTbDocs(prev => prev.map(d => d.id !== doc.id ? d : { ...d, gelezen:[...(d.gelezen||[]), { userId:user.id, naam:user.name, timestamp:data.timestamp||new Date().toISOString() }] }));
+                                            } catch {}
+                                        }
+                                        return (
+                                        <div key={doc.id} style={{ background:'#fff', borderRadius:'11px', marginBottom:'6px', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', border:`1px solid ${heeftGelezen ? '#f1f5f9' : '#fde8cc'}`, overflow:'hidden' }}>
+                                            <a href={`/api/documenten/${doc.id}/bestand`} target="_blank" rel="noreferrer"
+                                                style={{ display:'flex', alignItems:'center', gap:'10px', padding:'10px 13px', textDecoration:'none' }}>
+                                                <div style={{ background: heeftGelezen ? '#f0fdf4' : '#eff6ff', borderRadius:'8px', width:'34px', height:'34px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                                    <i className="fa-solid fa-file-pdf" style={{ color: heeftGelezen ? '#10b981' : '#3b82f6', fontSize:'0.95rem' }} />
+                                                </div>
+                                                <div style={{ flex:1, minWidth:0 }}>
+                                                    <div style={{ fontWeight:700, fontSize:'0.85rem', color:'#1e293b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{doc.titel}</div>
+                                                    <div style={{ fontSize:'0.68rem', color:'#94a3b8' }}>{doc.datum ? new Date(doc.datum).toLocaleDateString('nl-NL', { day:'numeric', month:'short', year:'numeric' }) : ''}</div>
+                                                </div>
+                                                <i className="fa-solid fa-arrow-up-right-from-square" style={{ color:'#94a3b8', fontSize:'0.8rem', flexShrink:0 }} />
+                                            </a>
+                                            <div style={{ borderTop:'1px solid #f1f5f9', display:'flex' }}>
+                                                {heeftGelezen ? (
+                                                    <div style={{ flex:1, padding:'7px 13px', display:'flex', alignItems:'center', gap:'5px', color:'#10b981', fontSize:'0.78rem', fontWeight:700 }}>
+                                                        <i className="fa-solid fa-circle-check" />Gelezen · {new Date(gelezenEntry.timestamp).toLocaleDateString('nl-NL', { day:'numeric', month:'short' })} {new Date(gelezenEntry.timestamp).toLocaleTimeString('nl-NL', { hour:'2-digit', minute:'2-digit' })}
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={markeerGelezen} style={{ flex:1, padding:'7px 13px', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', color:'#F5850A', fontSize:'0.78rem', fontWeight:700, textAlign:'left' }}>
+                                                        <i className="fa-solid fa-circle-check" />Aanvinken als gelezen
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            {tbMeetings.length === 0 && tbDocs.length === 0 ? (
                                 <div style={{ background:'#fff', borderRadius:'14px', padding:'32px 16px', textAlign:'center', border:'1.5px dashed #e2e8f0' }}>
                                     <i className="fa-solid fa-toolbox" style={{ fontSize:'2rem', color:'#e2e8f0', display:'block', marginBottom:'8px' }} />
                                     <div style={{ fontSize:'0.85rem', color:'#94a3b8', fontWeight:600 }}>Nog geen meetings</div>
                                 </div>
-                            ) : tbMeetings.map(m => (
-                                <button key={m.id} onClick={()=>{setTbSelected(m);setTbView('detail');}} style={{ width:'100%', background:'#fff', border:'none', borderRadius:'14px', padding:'14px 16px', marginBottom:'8px', cursor:'pointer', textAlign:'left', boxShadow:'0 2px 8px rgba(0,0,0,0.07)', display:'flex', alignItems:'center', gap:'12px' }}>
-                                    <div style={{ background:'#FFF3E0', borderRadius:'10px', width:'38px', height:'38px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                                        <i className="fa-solid fa-toolbox" style={{ color:'#F5850A', fontSize:'1rem' }} />
+                            ) : tbMeetings.map(m => {
+                                const gelezen = !!tbGelezen[m.id];
+                                const ondertekend = tbOndertekend(m);
+                                // centrale meetings (aangemaakt_op = DB timestamp) hebben geen aanwezig array
+                                const isCentraal = !!m.aangemaakt_op && !m.aangemaaktDoor;
+                                return (
+                                <button key={m.id} onClick={()=>tbOpenDetail(m)} style={{ width:'100%', background:'#fff', border:`1px solid ${!gelezen && isCentraal ? '#fde8cc' : '#f1f5f9'}`, borderRadius:'14px', padding:'12px 14px', marginBottom:'8px', cursor:'pointer', textAlign:'left', boxShadow:'0 2px 8px rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:'12px' }}>
+                                    <div style={{ background: gelezen ? '#f0fdf4' : '#FFF3E0', borderRadius:'10px', width:'38px', height:'38px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                        <i className="fa-solid fa-toolbox" style={{ color: gelezen ? '#10b981' : '#F5850A', fontSize:'1rem' }} />
                                     </div>
                                     <div style={{ flex:1, minWidth:0 }}>
-                                        <div style={{ fontWeight:700, fontSize:'0.9rem', color:'#1e293b', marginBottom:'2px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.titel || m.onderwerp}</div>
-                                        <div style={{ fontSize:'0.82rem', color:'#64748b' }}>{m.datum}{m.project ? ` · ${m.project}` : ''}</div>
-                                    </div>
-                                    <div style={{ textAlign:'right', flexShrink:0 }}>
-                                        <div style={{ fontSize:'0.72rem', color: m.aanwezig.filter(a=>a.getekend).length===m.aanwezig.length&&m.aanwezig.length>0?'#22c55e':'#94a3b8', fontWeight:600 }}>
-                                            {m.aanwezig.filter(a=>a.getekend).length}/{m.aanwezig.length} getekend
+                                        <div style={{ fontWeight:700, fontSize:'0.9rem', color:'#1e293b', marginBottom:'3px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.titel || m.onderwerp}</div>
+                                        <div style={{ fontSize:'0.75rem', color:'#94a3b8' }}>{m.datum}{m.project ? ` · ${m.project}` : ''}</div>
+                                        <div style={{ display:'flex', gap:'5px', marginTop:'5px', flexWrap:'wrap' }}>
+                                            {gelezen
+                                                ? <span style={{ fontSize:'0.63rem', fontWeight:700, color:'#10b981', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:'999px', padding:'1px 7px', display:'flex', alignItems:'center', gap:'3px' }}><i className="fa-solid fa-eye" style={{ fontSize:'0.55rem' }} />Gelezen</span>
+                                                : <span style={{ fontSize:'0.63rem', fontWeight:700, color:'#f59e0b', background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'999px', padding:'1px 7px', display:'flex', alignItems:'center', gap:'3px' }}><i className="fa-solid fa-circle-exclamation" style={{ fontSize:'0.55rem' }} />Nieuw</span>
+                                            }
+                                            {!isCentraal && (ondertekend
+                                                ? <span style={{ fontSize:'0.63rem', fontWeight:700, color:'#22c55e', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:'999px', padding:'1px 7px', display:'flex', alignItems:'center', gap:'3px' }}><i className="fa-solid fa-signature" style={{ fontSize:'0.55rem' }} />Ondertekend</span>
+                                                : m.aanwezig?.length > 0 ? <span style={{ fontSize:'0.63rem', fontWeight:700, color:'#94a3b8', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:'999px', padding:'1px 7px', display:'flex', alignItems:'center', gap:'3px' }}><i className="fa-solid fa-pen-to-square" style={{ fontSize:'0.55rem' }} />Niet ondertekend</span> : null
+                                            )}
                                         </div>
-                                        <i className="fa-solid fa-chevron-right" style={{ color:'#cbd5e1', fontSize:'0.75rem', marginTop:'4px' }} />
                                     </div>
+                                    <i className="fa-solid fa-chevron-right" style={{ color:'#cbd5e1', fontSize:'0.75rem', flexShrink:0 }} />
                                 </button>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>

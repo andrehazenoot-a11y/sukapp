@@ -491,7 +491,7 @@ export default function ProjectenPage() {
 
     // ===== ADD PROJECT =====
     const addProject = async () => {
-        if (!newProject.name || !newProject.startDate || !newProject.endDate) return;
+        if (!newProject.name) return;
         const p = {
             id: Date.now(),
             ...newProject,
@@ -1849,11 +1849,11 @@ export default function ProjectenPage() {
                             <input type="number" placeholder="bijv. 200" value={newProject.estimatedHours} onChange={e => setNewProject({ ...newProject, estimatedHours: e.target.value })} />
                         </div>
                         <div>
-                            <label>Startdatum *</label>
+                            <label>Startdatum</label>
                             <input type="date" value={newProject.startDate} onChange={e => setNewProject({ ...newProject, startDate: e.target.value })} />
                         </div>
                         <div>
-                            <label>Einddatum *</label>
+                            <label>Einddatum</label>
                             <input type="date" value={newProject.endDate} onChange={e => setNewProject({ ...newProject, endDate: e.target.value })} />
                         </div>
                         <div className="full-width" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>

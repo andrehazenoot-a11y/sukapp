@@ -8,6 +8,7 @@ import { useAuth } from '@/components/AuthContext';
 const NAV = [
     { label: 'Vandaag',   icon: 'fa-house',         path: '/medewerker' },
     { label: 'Planning',  icon: 'fa-calendar-days', path: '/medewerker/planning' },
+    { label: 'Chat',      icon: 'fa-comments',      path: '/medewerker/chat' },
     { label: 'Materiaal', icon: 'fa-box-open',      path: '/medewerker/materiaal' },
     { label: 'Mijn Suk',  icon: 'fa-user-circle',   path: '/medewerker/mijn-suk' },
     { label: 'Meer',      icon: 'fa-bars',           path: null },

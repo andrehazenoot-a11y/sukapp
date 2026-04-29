@@ -235,6 +235,12 @@ export default function MedewerkerWerkbon() {
         saveProject({ ...project, fotos: (project.fotos || []).filter(f => f.id !== id) });
     };
 
+    const deleteBestand = (idx) => {
+        if (!project) return;
+        const updated = (project.bestanden || []).filter((_, i) => i !== idx);
+        saveProject({ ...project, bestanden: updated });
+    };
+
     const NOTE_TYPES_MW = {
         info:     { label: 'Info',     color: '#3b82f6', bg: '#eff6ff', icon: 'fa-circle-info' },
         actie:    { label: 'Actie',    color: '#f59e0b', bg: '#fffbeb', icon: 'fa-bolt' },
@@ -361,10 +367,21 @@ export default function MedewerkerWerkbon() {
 
 
     return (
-        <div style={{ padding: '0', background: '#f1f5f9', minHeight: '100%' }}>
-            {/* Header */}
-            <div style={{ padding: '16px 16px 12px', background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: projects.length > 1 ? '12px' : 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9', minHeight: '100%' }}>
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-folder-tree" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Project Informatie</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Details van jouw projecten</div>
+                    </div>
+                </div>
+            </div>
+        <div style={{ padding: '0', background: '#f1f5f9' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: projects.length > 1 ? '12px' : 0, padding: '16px 16px 0' }}>
                     <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
                     <h2 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Project Informatie</h2>
                 </div>
@@ -390,8 +407,6 @@ export default function MedewerkerWerkbon() {
                         {[
                             ['kaart',        'fa-id-card',    'Kaart',        null],
                             ['info',         'fa-align-left', 'Omschrijving', localChecklist.length > 0 ? `${localChecklist.filter(c => c.done).length}/${localChecklist.length}` : null],
-                            ['notities',     'fa-note-sticky','Notities',     notities.length > 0 ? notities.length : null],
-                            ['media',        'fa-photo-film', 'Media',        ((project?.bestanden||[]).length + allFotosCount) > 0 ? (project?.bestanden||[]).length + allFotosCount : null],
                         ].map(([key, icon, label, badge]) => (
                             <button key={key} onClick={() => setWerkbonTab(key)}
                                 style={{ flexShrink: 0, padding: '11px 10px 9px', background: 'none', border: 'none', borderBottom: werkbonTab === key ? '2.5px solid #F5850A' : '2.5px solid transparent', color: werkbonTab === key ? '#F5850A' : '#64748b', fontWeight: werkbonTab === key ? 700 : 500, fontSize: '0.74rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -497,209 +512,6 @@ export default function MedewerkerWerkbon() {
                         </div>
                     )}
 
-                    {/* ── Notities tab ── */}
-                    {werkbonTab === 'notities' && (
-                        <div>
-                            {/* Invoer bovenaan */}
-                            <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '12px', marginBottom: '16px', border: '1.5px solid #e2e8f0' }}>
-                                <textarea value={poNoteText} onChange={e => setPoNoteText(e.target.value)}
-                                    placeholder="Nieuwe notitie… (Enter om op te slaan)" rows={2}
-                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (poNoteText.trim() || poNoteMedia) addNotitie(); } }}
-                                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1.5px solid #e2e8f0', fontSize: '0.88rem', color: '#1e293b', fontFamily: 'inherit', resize: 'none', boxSizing: 'border-box', outline: 'none', marginBottom: '8px', background: '#fff' }} />
-                                {poNoteMedia && (
-                                    <div style={{ marginBottom: '8px', position: 'relative', display: 'inline-block' }}>
-                                        {poNoteMedia.mediaType === 'video'
-                                            ? <video src={poNoteMedia.url} style={{ maxHeight: '80px', borderRadius: '6px', display: 'block' }} />
-                                            : <img src={poNoteMedia.url} alt="" style={{ maxHeight: '80px', borderRadius: '6px', display: 'block' }} />}
-                                        <button onClick={() => setPoNoteMedia(null)} style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '18px', height: '18px', color: '#fff', cursor: 'pointer', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fa-solid fa-xmark" /></button>
-                                    </div>
-                                )}
-                                <input ref={noteMediaInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleNoteMedia} />
-                                <input ref={noteAddMediaInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleAddMediaToNote} />
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
-                                    {Object.entries(NOTE_TYPES_MW).map(([key, nt]) => (
-                                        <button key={key} onClick={() => setPoNoteType(key)}
-                                            style={{ padding: '3px 9px', borderRadius: '20px', border: `1.5px solid ${nt.color + (poNoteType === key ? '' : '55')}`, background: poNoteType === key ? nt.bg : nt.color + '12', color: nt.color, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', opacity: poNoteType === key ? 1 : 0.65 }}>
-                                            {nt.label}
-                                        </button>
-                                    ))}
-                                    <button type="button" onClick={() => noteMediaInputRef.current?.click()} disabled={poNoteMediaUploading}
-                                        style={{ padding: '3px 9px', borderRadius: '20px', border: `1.5px solid ${poNoteMedia ? '#10b981' : '#e2e8f0'}`, background: poNoteMedia ? '#f0fdf4' : 'transparent', color: poNoteMedia ? '#10b981' : '#94a3b8', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        {poNoteMediaUploading ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-paperclip" />}
-                                        {poNoteMedia ? '✓' : 'Bijlage'}
-                                    </button>
-                                    <button onClick={addNotitie} disabled={!poNoteText.trim() && !poNoteMedia}
-                                        style={{ marginLeft: 'auto', padding: '6px 14px', borderRadius: '8px', border: 'none', background: (poNoteText.trim() || poNoteMedia) ? '#F5850A' : '#e2e8f0', color: (poNoteText.trim() || poNoteMedia) ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.78rem', cursor: (poNoteText.trim() || poNoteMedia) ? 'pointer' : 'default' }}>
-                                        <i className="fa-solid fa-paper-plane" />
-                                    </button>
-                                </div>
-                            </div>
-                            {/* Lijst */}
-                            {notities.length === 0 && (
-                                <div style={{ textAlign: 'center', padding: '40px 0', color: '#cbd5e1', fontSize: '0.85rem' }}>
-                                    <i className="fa-solid fa-note-sticky" style={{ fontSize: '2rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
-                                    Nog geen notities
-                                </div>
-                            )}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {notities.map(note => {
-                                    const nt = NOTE_TYPES_MW[note.type] || NOTE_TYPES_MW.info;
-                                    const isAuthor = note.author === (user?.name || 'Medewerker');
-                                    return (
-                                        <div key={note.id} style={{ background: nt.bg, borderRadius: '10px', padding: '10px 12px', border: `1.5px solid ${nt.color}33` }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '20px', background: nt.color, color: '#fff', fontSize: '0.65rem', fontWeight: 700 }}>
-                                                    <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.6rem' }} />
-                                                    {nt.label}
-                                                </span>
-                                                <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{note.author} · {note.date}</span>
-                                                <div style={{ marginLeft: 'auto', display: 'flex', gap: '2px' }}>
-                                                    <button onClick={() => { setAddingMediaToNoteId(note.id); noteAddMediaInputRef.current?.click(); }}
-                                                        disabled={addMediaUploading && addingMediaToNoteId === note.id}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.72rem', padding: '0 2px', opacity: 0.5 }}>
-                                                        {addMediaUploading && addingMediaToNoteId === note.id ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-camera" />}
-                                                    </button>
-                                                    {isAuthor && editingNoteId !== note.id && (
-                                                        <button onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.text); }}
-                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.72rem', padding: '0 2px', opacity: 0.5 }}>
-                                                            <i className="fa-solid fa-pencil" />
-                                                        </button>
-                                                    )}
-                                                    {user?.role === 'Beheerder' && (
-                                                        <button onClick={() => deleteNote(note.id)}
-                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.72rem', padding: '0 2px', opacity: 0.6 }}>
-                                                            <i className="fa-solid fa-trash" />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {editingNoteId === note.id ? (
-                                                <textarea autoFocus value={editingNoteText} onChange={e => setEditingNoteText(e.target.value)}
-                                                    onBlur={() => saveNoteEdit(note.id)}
-                                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNoteEdit(note.id); } if (e.key === 'Escape') { setEditingNoteId(null); setEditingNoteText(''); } }}
-                                                    style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: `1.5px solid ${nt.color}`, fontSize: '0.85rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', background: '#fff', outline: 'none' }} />
-                                            ) : (
-                                                <div style={{ fontSize: '0.88rem', color: '#1e293b', lineHeight: '1.55', whiteSpace: 'pre-wrap' }}>{note.text}</div>
-                                            )}
-                                            {note.photo && (
-                                                <div style={{ marginTop: '8px' }}>
-                                                    {note.mediaType === 'video'
-                                                        ? <video src={note.photo} controls style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '8px', display: 'block' }} />
-                                                        : <img src={note.photo} alt="" style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => openPreview({ url: note.photo, data: note.photo, name: 'notitie-foto', type: 'image/jpeg' })} />}
-                                                </div>
-                                            )}
-                                            {(note.replies?.length > 0 || replyingToNoteId === note.id) && (
-                                                <div style={{ marginTop: '8px', borderLeft: `2px solid ${nt.color}44`, paddingLeft: '10px' }}>
-                                                    {(note.replies || []).map(r => (
-                                                        <div key={r.id} style={{ marginBottom: '5px' }}>
-                                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{r.author}</span>
-                                                            <span style={{ fontSize: '0.68rem', color: '#94a3b8', marginLeft: '5px' }}>{r.created_at ? new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                                                            <div style={{ fontSize: '0.82rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>{r.text}</div>
-                                                        </div>
-                                                    ))}
-                                                    {replyingToNoteId === note.id && (
-                                                        <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
-                                                            <input autoFocus value={replyText} onChange={e => setReplyText(e.target.value)}
-                                                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReply(note.id); } if (e.key === 'Escape') { setReplyingToNoteId(null); setReplyText(''); } }}
-                                                                placeholder="Typ reactie… (Enter)"
-                                                                style={{ flex: 1, padding: '4px 8px', borderRadius: '6px', border: `1.5px solid ${nt.color}88`, fontSize: '0.8rem', fontFamily: 'inherit', outline: 'none' }} />
-                                                            <button onClick={() => addReply(note.id)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: nt.color, color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>↵</button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {replyingToNoteId !== note.id && (
-                                                <button onClick={() => { setReplyingToNoteId(note.id); setReplyText(''); }}
-                                                    style={{ marginTop: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.72rem', padding: 0, display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                                    <i className="fa-regular fa-comment" /> Reageer {note.replies?.length > 0 && `(${note.replies.length})`}
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ── Media tab (bestanden + foto's) ── */}
-                    {werkbonTab === 'media' && (
-                        <div>
-                            {/* Foto maken knop */}
-                            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFoto} style={{ display: 'none' }} />
-                            <button onClick={() => cameraInputRef.current?.click()} disabled={fotoUploading}
-                                style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#F5850A', color: '#fff', cursor: fotoUploading ? 'default' : 'pointer', fontSize: '0.92rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '20px', opacity: fotoUploading ? 0.7 : 1 }}>
-                                {fotoUploading ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-camera" />}
-                                {fotoUploading ? 'Bezig met uploaden…' : 'Foto maken'}
-                            </button>
-
-                            {/* Foto's */}
-                            {allFotos.length > 0 && (
-                                <div style={{ marginBottom: '24px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                                        <i className="fa-solid fa-camera" style={{ color: '#F5850A', fontSize: '0.82rem' }} />
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto's</span>
-                                        <span style={{ fontSize: '0.68rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 6px', fontWeight: 700 }}>{allFotos.length}</span>
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                                        {allFotos.map((foto, idx) => (
-                                            <div key={foto.id || idx} style={{ position: 'relative', aspectRatio: '1', borderRadius: '8px', overflow: 'hidden', background: '#f1f5f9', cursor: 'pointer' }}
-                                                onClick={() => openPreview({ name: foto.name, type: foto.type || 'image/jpeg', data: foto.src, url: foto.src, label: foto.name, auteur: foto.auteur, datum: foto.datum || foto.date, tijd: foto.tijd })}>
-                                                <img src={foto.src} alt={foto.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.65))', padding: '16px 6px 4px', pointerEvents: 'none' }}>
-                                                    {foto.auteur && <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foto.auteur}</div>}
-                                                    {foto.tijd && <div style={{ color: '#fff', fontSize: '0.6rem', fontWeight: 600 }}>{foto.tijd}</div>}
-                                                </div>
-                                                {!foto.isAdmin && (
-                                                    <button onClick={e => { e.stopPropagation(); if (window.confirm('Foto verwijderen?')) deleteFoto(foto.id); }}
-                                                        style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', color: '#fff', cursor: 'pointer', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <i className="fa-solid fa-xmark" />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {allFotos.length === 0 && (project?.bestanden||[]).length === 0 && (
-                                <div style={{ textAlign: 'center', padding: '24px 0', color: '#cbd5e1', fontSize: '0.85rem' }}>
-                                    <i className="fa-solid fa-photo-film" style={{ fontSize: '2rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
-                                    Nog geen bestanden of foto's
-                                </div>
-                            )}
-
-                            {/* Bestanden */}
-                            {(project?.bestanden||[]).length > 0 && (
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                                        <i className="fa-solid fa-paperclip" style={{ color: '#F5850A', fontSize: '0.82rem' }} />
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bestanden</span>
-                                        <span style={{ fontSize: '0.68rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 6px', fontWeight: 700 }}>{(project?.bestanden||[]).length}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        {(project?.bestanden || []).map((b, idx) => {
-                                            const isImg = b.type?.startsWith('image/');
-                                            const isPdf = b.type === 'application/pdf' || b.name?.toLowerCase().endsWith('.pdf');
-                                            const arr = project?.bestanden || [];
-                                            return (
-                                                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 0', borderBottom: idx < arr.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-                                                    <i className={`fa-solid ${isImg ? 'fa-image' : isPdf ? 'fa-file-pdf' : 'fa-file'}`}
-                                                        style={{ color: isImg ? '#10b981' : isPdf ? '#ef4444' : '#64748b', fontSize: '1.2rem', width: '22px', flexShrink: 0 }} />
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.label || b.name}</div>
-                                                        {b.label && b.name !== b.label && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{b.name}</div>}
-                                                    </div>
-                                                    <button onClick={() => openPreview(b)}
-                                                        style={{ padding: '7px 14px', borderRadius: '8px', border: 'none', background: '#f1f5f9', color: '#64748b', cursor: 'pointer', fontSize: '0.85rem' }}>
-                                                        <i className="fa-solid fa-eye" />
-                                                    </button>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
 
                 </div>
             )}

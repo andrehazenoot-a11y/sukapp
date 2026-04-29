@@ -1234,7 +1234,7 @@ export default function ProjectDossierPage() {
 
     // Planner → Palet sync: haal notities + controlelijst op voor taken die al in Planner staan
     useEffect(() => {
-        if (!plannerTaken || plannerTaken.length === 0) return;
+        if (!plannerTaken || plannerTaken.length === 0 || !myOutlookEmail) return;
         const huidigSjabloon = plannerSjablonenState.find(s => s.id === plannerPaletSjabloon) || plannerSjablonenState[0];
         if (!huidigSjabloon) return;
         const alleTaken = huidigSjabloon.buckets.flatMap(b => b.taken.map(t => ({ key: b.naam + '|' + t, titel: t })));
@@ -1294,7 +1294,7 @@ export default function ProjectDossierPage() {
 
     // Auto-laden Planner bord + buckets aanmaken als ze ontbreken
     useEffect(() => {
-        if (!project?.plannerPlanId || plannerTaken !== null || plannerTakenBezig) return;
+        if (!project?.plannerPlanId || plannerTaken !== null || plannerTakenBezig || !myOutlookEmail) return;
         setPlannerTakenBezig(true);
         Promise.all([
             fetch(`/api/teams/planner-taken?planId=${project.plannerPlanId}`),
