@@ -6,7 +6,7 @@
     "phone": "0715678901",
     "email": "beheer@woonstichting-leiden.nl",
     "address": "Rapenburg 100, Leiden",
-    "startDate": "2026-03-09",
+    "startDate": "2026-03-10",
     "endDate": "2026-07-10",
     "estimatedHours": 480,
     "hourlyRate": 55,
@@ -82,7 +82,7 @@
             "endDate": "2026-04-13"
           }
         },
-        "progress": 30
+        "progress": 50
       },
       {
         "id": "t7",
@@ -94,8 +94,9 @@
           3,
           4
         ],
-        "completed": false,
-        "kanbanStatus": "todo"
+        "completed": true,
+        "kanbanStatus": "todo",
+        "progress": 100
       },
       {
         "id": "t8",
@@ -143,7 +144,18 @@
         "startDate": "2026-04-01",
         "endDate": "2026-04-09",
         "assignedTo": [],
-        "completed": false
+        "completed": false,
+        "progress": 25
+      },
+      {
+        "id": "t1777406429258",
+        "name": "Situatie / ondergrond beoordelen",
+        "startDate": "",
+        "endDate": "",
+        "assignedTo": [],
+        "completed": false,
+        "bucketNaam": "Voorbereiding",
+        "plannerTaskId": "BuoULjHxrUWg2k0WQIbVhJgABQtz"
       }
     ],
     "emails": [
@@ -564,9 +576,9 @@
         ]
       }
     ],
-    "teamsKanaalId": "19:fdca50110fb442c28b8e38aa08f72a5d@thread.tacv2",
-    "teamsKanaalUrl": null,
-    "plannerPlanId": "5t6CMICrZ0i4mGcbLwDdcpgACKvE",
+    "teamsKanaalId": "19:4c7c1a979e4341f1a0e6ffa7e4bd60ed@thread.tacv2",
+    "teamsKanaalUrl": "https://teams.microsoft.com/l/channel/19%3a4c7c1a979e4341f1a0e6ffa7e4bd60ed%40thread.tacv2/Onderhoud+Rijtjeshuizen+Leiden?groupId=161a767f-d868-4cdd-b581-b2a632df4622&tenantId=cd3d3914-6711-4801-9d09-f83f5a0645d3",
+    "plannerPlanId": "k39HC7LEpka2WE-hvSxOv5gADN-w",
     "teamsPlanAangemaakt": true,
     "bestanden": [
       {
@@ -578,26 +590,7 @@
         "uploadedAt": "2026-04-01T14:39:14.475Z"
       }
     ],
-    "fotos": [
-      {
-        "id": 1775241228432,
-        "name": "Jan_2026-04-03_20-33.jpg",
-        "type": "image/png",
-        "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fmedewerker-fotos%2F1775241227917_image011.png",
-        "datum": "3-4-2026",
-        "tijd": "20:33",
-        "auteur": "Jan Modaal"
-      },
-      {
-        "id": 1776170665815,
-        "name": "Jan_2026-04-14_14-44.jpg",
-        "type": "image/jpeg",
-        "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F2%2Fmedewerker-fotos%2F1776170648892_WhatsApp_Image_2026-04-01_at_10.50.55.jpeg",
-        "datum": "14-4-2026",
-        "tijd": "14:44",
-        "auteur": "Jan Modaal"
-      }
-    ],
+    "fotos": [],
     "checklist": [
       {
         "id": 1775240613967,
@@ -607,11 +600,16 @@
       {
         "id": 1775240636765,
         "text": "wbakcb",
-        "done": false
+        "done": true
       },
       {
         "id": 1775241127430,
         "text": "fgff",
+        "done": false
+      },
+      {
+        "id": 1776802158093,
+        "text": "schilderwerk",
         "done": false
       }
     ],
@@ -642,6 +640,116 @@
         "totaalprijs": "€ 216,00",
         "datum": "14-4-2026",
         "opgeslagenDoor": "Jan Modaal"
+      }
+    ]
+  },
+  {
+    "id": 1777406922579,
+    "name": "katwijkaan zee",
+    "client": "hazenoot",
+    "address": "remisestraat 1a",
+    "startDate": "2026-04-28",
+    "endDate": "2026-05-28",
+    "estimatedHours": 0,
+    "color": "#8b5cf6",
+    "status": "planning",
+    "kanbanStatus": "uitvoering",
+    "tasks": [
+      {
+        "id": "t1777407073992",
+        "name": "Situatie / ondergrond beoordelen",
+        "startDate": "2026-04-29",
+        "endDate": "",
+        "assignedTo": [
+          "e77a2259-b906-4747-8263-f9d4ac507135"
+        ],
+        "completed": false,
+        "bucketNaam": "Voorbereiding",
+        "plannerTaskId": "xmtpcTf-NEa4Jzfh2Qm41JgAAzj1",
+        "labels": {
+          "category1": true
+        }
+      },
+      {
+        "id": "t1777407606097",
+        "name": "Houtrot & schadecheck",
+        "startDate": "",
+        "endDate": "",
+        "assignedTo": [
+          "e77a2259-b906-4747-8263-f9d4ac507135"
+        ],
+        "completed": false,
+        "bucketNaam": "Voorbereiding",
+        "plannerTaskId": "DL6kUiQxdkq8SA_TUwgXE5gAMy8z",
+        "labels": {
+          "category2": true
+        }
+      },
+      {
+        "id": "t1777407850979",
+        "name": "VGM-plan opstellen",
+        "startDate": "2026-04-29",
+        "endDate": "",
+        "assignedTo": [
+          "e77a2259-b906-4747-8263-f9d4ac507135"
+        ],
+        "completed": false,
+        "bucketNaam": "Voorbereiding",
+        "plannerTaskId": "-QbrMwuddU2HeqQMFsHIZZgAF705"
+      },
+      {
+        "id": "t1777407862627",
+        "name": "Houtrot repareren",
+        "startDate": "",
+        "endDate": "",
+        "assignedTo": [],
+        "completed": false,
+        "bucketNaam": "Uitvoering",
+        "plannerTaskId": "uoFOPoSFk02eR5GC1BjTMpgAFxJD"
+      },
+      {
+        "id": "t1777407932164",
+        "name": "Grondverf aanbrengen",
+        "startDate": "",
+        "endDate": "",
+        "assignedTo": [],
+        "completed": false,
+        "bucketNaam": "Uitvoering",
+        "plannerTaskId": "Dxoga-9Yl0GFF1nJftuRZpgAPOCG"
+      },
+      {
+        "id": "t1777407973427",
+        "name": "Latex wanden",
+        "startDate": "",
+        "endDate": "",
+        "assignedTo": [],
+        "completed": false,
+        "bucketNaam": "Uitvoering",
+        "plannerTaskId": "NP8hTxzki0O-jVeiJ89yAJgALat6"
+      },
+      {
+        "id": "t1777437433913",
+        "name": "Startdatum bevestigen",
+        "startDate": "",
+        "endDate": "",
+        "assignedTo": [],
+        "completed": true,
+        "bucketNaam": "Planning",
+        "plannerTaskId": "fh5e6MEz4kCmEvZZFo2NZJgAFAzC"
+      }
+    ],
+    "teamsKanaalId": "19:48b6c7580ee349e580ac2fc6a6327ad8@thread.tacv2",
+    "teamsKanaalUrl": "https://teams.microsoft.com/l/channel/19%3a48b6c7580ee349e580ac2fc6a6327ad8%40thread.tacv2/katwijkaan+zee?groupId=161a767f-d868-4cdd-b581-b2a632df4622&tenantId=cd3d3914-6711-4801-9d09-f83f5a0645d3",
+    "plannerPlanId": "Sht-vtBt_UOmXMkppczJOpgAHvfO",
+    "teamsPlanAangemaakt": true,
+    "bestanden": [
+      {
+        "name": "Batch urenstaten.pdf",
+        "type": "application/pdf",
+        "size": 154328,
+        "url": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F1777406922579%2Fbestanden%2F1777616352570_Batch_urenstaten.pdf",
+        "data": "/api/file?path=%2Fhome%2Fschildersapp%2Fprojecten%2F1777406922579%2Fbestanden%2F1777616352570_Batch_urenstaten.pdf",
+        "uploadedAt": "2026-05-01T06:19:13.115Z"
       }
     ]
   }

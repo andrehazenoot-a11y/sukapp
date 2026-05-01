@@ -143,13 +143,21 @@ export default function KmPage() {
     const kanOpslaan = form.van && form.naar && form.kmStart && form.kmEind && Number(form.kmEind) >= Number(form.kmStart);
 
     return (
-        <div style={{ padding: '14px 16px 8px' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '4px', height: '22px', background: 'linear-gradient(180deg,#F5850A,#D96800)', borderRadius: '2px' }} />
-                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>Kilometeradministratie</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-car" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Kilometeradministratie</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Registreer gereden kilometers</div>
+                    </div>
                 </div>
+            </div>
+        <div style={{ padding: '14px 16px 8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
                 <button onClick={() => { setForm(leegForm()); setRouteKm(null); setRouteError(null); setModal(true); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 13px', background: 'linear-gradient(135deg,#F5850A,#D96800)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', boxShadow: '0 2px 8px rgba(245,133,10,0.3)' }}>
                     <i className="fa-solid fa-plus" style={{ fontSize: '0.75rem' }} />Rit
@@ -349,6 +357,7 @@ export default function KmPage() {
                     </div>
                 </>
             )}
+        </div>
         </div>
     );
 }

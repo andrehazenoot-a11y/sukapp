@@ -96,6 +96,19 @@ export default function MedewerkerTaken() {
     const doneCount = tasks.filter(t => t.completed).length;
 
     return (
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-list-check" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Mijn Taken</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Beheer je openstaande taken</div>
+                    </div>
+                </div>
+            </div>
         <div style={{ padding: '16px' }}>
             {/* Filter tabs */}
             <div style={{ display: 'flex', gap: '7px', marginBottom: '18px' }}>
@@ -182,6 +195,7 @@ export default function MedewerkerTaken() {
                     {openCount} taak{openCount !== 1 ? 'en' : ''} open
                 </div>
             )}
+        </div>
         </div>
     );
 }

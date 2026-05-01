@@ -378,10 +378,10 @@ export default function MateriaalPage() {
                     </div>
 
                     {/* Tabs */}
-                    <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.15)', borderRadius: '10px', padding: '3px', width: 'fit-content' }}>
+                    <div className="tab-nav" style={{ width: 'fit-content' }}>
                         {[['zoeken','fa-magnifying-glass','Zoeken'], ...(isBeheerder ? [['informatiebladen','fa-file-pdf','Informatiebladen'],['bestek','fa-link','Bestek'],['instellingen','fa-sliders','Instellingen']] : [])].map(([t,ic,l]) => (
                             <button key={t} onClick={() => setTab(t)}
-                                style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#F5850A' : 'rgba(255,255,255,0.85)', fontWeight: tab === t ? 700 : 500, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                className={`tab-btn${tab === t ? ' active' : ''}`}>
                                 <i className={`fa-solid ${ic}`} style={{ fontSize: '0.72rem' }} />{l}
                             </button>
                         ))}

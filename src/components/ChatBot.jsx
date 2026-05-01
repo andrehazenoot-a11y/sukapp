@@ -315,19 +315,19 @@ function InlineUrenstaat({ onSave, onCancel, allowedTypes }) {
         const file = e.target.files[0];
         if (!file) return;
         if (file.type.startsWith('image/')) {
-            // Comprimeer foto naar max 400x400 zodat localStorage niet vol raakt
+            // Comprimeer foto naar max 1200px zodat localStorage niet vol raakt
             const reader = new FileReader();
             reader.onload = (ev) => {
                 const img = new Image();
                 img.onload = () => {
-                    const MAX = 400;
+                    const MAX = 1200;
                     let w = img.width, h = img.height;
                     if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
                     else { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
                     const canvas = document.createElement('canvas');
                     canvas.width = w; canvas.height = h;
                     canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                    const compressed = canvas.toDataURL('image/jpeg', 0.5); // 50% kwaliteit
+                    const compressed = canvas.toDataURL('image/jpeg', 0.82);
                     setRows(prev => prev.map((r, i) => i === ri ? { ...r, photo: compressed } : r));
                 };
                 img.src = ev.target.result;
@@ -709,8 +709,8 @@ function InlineNotitie({ onSave, onCancel }) {
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        const MAX_WIDTH = 800;
-                        const MAX_HEIGHT = 800;
+                        const MAX_WIDTH = 1200;
+                        const MAX_HEIGHT = 1200;
                         let width = img.width;
                         let height = img.height;
 
@@ -723,7 +723,7 @@ function InlineNotitie({ onSave, onCancel }) {
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        setPhoto(canvas.toDataURL('image/jpeg', 0.6));
+                        setPhoto(canvas.toDataURL('image/jpeg', 0.82));
                     };
                     img.src = ev.target.result;
                 };

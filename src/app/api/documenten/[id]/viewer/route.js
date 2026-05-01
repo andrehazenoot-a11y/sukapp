@@ -72,9 +72,12 @@ export async function GET(req, { params }) {
       border-top: 1px solid rgba(255,255,255,0.2);
       transition: background 0.2s;
     }
-    #aanvinken-bar:hover { background: rgba(5,150,105,0.97); }
+    #aanvinken-bar:hover:not(.wachten):not(.gelezen) { background: rgba(5,150,105,0.97); }
     #aanvinken-bar.gelezen {
       background: rgba(15,118,110,0.7); cursor: default; font-size: 13px;
+    }
+    #aanvinken-bar.wachten {
+      background: rgba(100,116,139,0.85); cursor: default; font-size: 13px;
     }
     #rotate-hint {
       display: none;
@@ -118,7 +121,7 @@ export async function GET(req, { params }) {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
-    let pdf = null, page = 1, scale = 1, baseScale = 1, renderTask = null;
+    let pdf = null, page = 1, scale = 1, baseScale = 1, renderTask = null, reachedLastPage = false;
     const canvas = document.getElementById('cv');
     const ctx = canvas.getContext('2d');
     const wrap = document.getElementById('canvas-wrap');
@@ -150,6 +153,8 @@ export async function GET(req, { params }) {
         document.getElementById('prev').disabled = num <= 1;
         document.getElementById('next').disabled = num >= pdf.numPages;
         wrap.scrollTo({ top: 0, behavior: 'smooth' });
+        if (num >= pdf.numPages) { reachedLastPage = true; }
+        updateAanvinkenBar();
       });
     }
 
@@ -172,39 +177,56 @@ export async function GET(req, { params }) {
     const bar = document.getElementById('aanvinken-bar');
     const tekst = document.getElementById('aanvinken-tekst');
     const icon = document.getElementById('aanvinken-icon');
+    let isGelezen = sp.get('gelezen') === '1';
 
     if (!userId) { bar.style.display = 'none'; }
 
-    if (sp.get('gelezen') === '1') {
+    function updateAanvinkenBar() {
+      if (!userId) return;
+      if (isGelezen) {
+        bar.className = 'gelezen';
+        icon.textContent = '✓';
+      } else if (reachedLastPage) {
+        bar.className = '';
+        icon.textContent = '✓';
+        tekst.textContent = 'Aanvinken als gelezen';
+      } else {
+        bar.className = 'wachten';
+        icon.textContent = '📖';
+        tekst.textContent = "Lees alle pagina\u2019s om te mogen aanvinken";
+      }
+    }
+
+    if (isGelezen) {
       bar.className = 'gelezen';
       icon.textContent = '✓';
       tekst.textContent = 'Al gelezen';
-      bar.style.cursor = 'default';
-    } else {
-      bar.onclick = async () => {
-        if (bar.classList.contains('gelezen')) return;
-        bar.style.opacity = '0.7';
-        try {
-          const res = await fetch('/api/documenten/${id}/gelezen', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: Number(userId), naam })
-          });
-          const data = await res.json();
-          if (data.ok) {
-            bar.className = 'gelezen';
-            icon.textContent = '✓';
-            const ts = data.timestamp ? new Date(data.timestamp) : new Date();
-            const dag = ts.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
-            const tijd = ts.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
-            tekst.textContent = 'Gelezen door ' + naam + ' · ' + dag + ' ' + tijd;
-            // Stuur bericht naar parent app zodat het kaartje groen wordt
-            window.parent.postMessage({ type: 'gelezen', docId: ${id}, userId: Number(userId), naam, timestamp: data.timestamp }, '*');
-          }
-        } catch {}
-        bar.style.opacity = '1';
-      };
     }
+
+    bar.onclick = async () => {
+      if (!reachedLastPage || isGelezen || bar.classList.contains('gelezen') || bar.classList.contains('wachten')) return;
+      bar.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/documenten/${id}/gelezen', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: Number(userId), naam })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          isGelezen = true;
+          bar.className = 'gelezen';
+          icon.textContent = '✓';
+          const ts = data.timestamp ? new Date(data.timestamp) : new Date();
+          const dag = ts.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
+          const tijd = ts.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+          tekst.textContent = 'Gelezen door ' + naam + ' · ' + dag + ' ' + tijd;
+          // Stuur bericht naar parent app zodat het kaartje groen wordt
+          window.parent.postMessage({ type: 'gelezen', docId: ${id}, userId: Number(userId), naam, timestamp: data.timestamp }, '*');
+        }
+      } catch {}
+      bar.style.opacity = '1';
+    };
 
     // Toon rotate hint alleen op mobiel in portrait
     const hint = document.getElementById('rotate-hint');

@@ -248,6 +248,19 @@ export default function MedewerkerWerkbonnen() {
 
     // Lijst view
     return (
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-file-pen" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Werkbonnen</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Maak werkbonnen aan en beheer ze</div>
+                    </div>
+                </div>
+            </div>
         <div style={{ padding: '16px' }}>
             {/* Tab switcher */}
             <div style={{ display: 'flex', gap: '0', marginBottom: '18px', background: '#f1f5f9', borderRadius: '12px', padding: '4px' }}>
@@ -377,6 +390,7 @@ export default function MedewerkerWerkbonnen() {
                 </div>
             ))}
             </>)}
+        </div>
         </div>
     );
 }

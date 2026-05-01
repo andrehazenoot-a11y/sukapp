@@ -19,9 +19,8 @@ function AppContent({ children }) {
     const [isMobile, setIsMobile] = useState(false);
     const currentLang = languages.find(l => l.code === language);
 
-    // Public routes werken zonder login en zonder sidebar
     const isPublic = PUBLIC_ROUTES.some(r => pathname?.startsWith(r));
-    if (isPublic) return <>{children}</>;
+    const isMedewerker = pathname?.startsWith('/medewerker');
 
     useEffect(() => {
         const check = () => setIsMobile(window.innerWidth <= 768);
@@ -29,6 +28,9 @@ function AppContent({ children }) {
         window.addEventListener('resize', check);
         return () => window.removeEventListener('resize', check);
     }, []);
+
+    // Public routes en medewerker app — geen admin sidebar
+    if (isPublic || isMedewerker) return <>{children}</>;
 
     // Laad scherm
     if (loading) {

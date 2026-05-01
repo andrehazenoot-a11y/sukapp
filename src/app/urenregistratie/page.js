@@ -1863,10 +1863,10 @@ export default function UrenregistratiePage() {
                 </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#f1f5f9', borderRadius: '12px', padding: '4px', width: 'fit-content' }}>
+            <div className="tab-nav" style={{ marginBottom: '20px', width: 'fit-content' }}>
                 {tabs.map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                        style={{ padding: '8px 20px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '7px', transition: 'all 0.15s', background: activeTab === tab.id ? '#fff' : 'transparent', color: activeTab === tab.id ? '#F5850A' : '#64748b', boxShadow: activeTab === tab.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none' }}>
+                        className={`tab-btn${activeTab === tab.id ? ' active' : ''}`}>
                         <i className={`fa-solid ${tab.icon}`} style={{ fontSize: '0.8rem' }} />
                         {tab.label}
                     </button>

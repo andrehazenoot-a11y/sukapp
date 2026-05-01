@@ -2218,6 +2218,10 @@ export default function ProjectDossierPage() {
                 if (serverFound) {
                     setProject(serverFound);
                     setOfferteBedrag(String(serverFound.estimatedHours * (serverFound.hourlyRate || 55)));
+                    if (serverFound.adminFotos?.length > 0) {
+                        setPhotos(serverFound.adminFotos);
+                        try { localStorage.setItem(`schildersapp_photos_${id}`, JSON.stringify(serverFound.adminFotos)); } catch {}
+                    }
                 }
                 localStorage.setItem('schildersapp_projecten', JSON.stringify(serverProjs));
             }
@@ -2734,20 +2738,35 @@ export default function ProjectDossierPage() {
         setEditTermijnId(null);
     };
 
-    const handlePhotoUpload = (e) => {
+    const handlePhotoUpload = async (e) => {
         const files = Array.from(e.target.files);
-        files.forEach(file => {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                const photo = { id: Date.now() + Math.random(), url: ev.target.result, name: file.name, category: 'voortgang', date: new Date().toISOString().split('T')[0] };
-                setPhotos(prev => {
-                    const upd = [...prev, photo];
-                    localStorage.setItem(`schildersapp_photos_${id}`, JSON.stringify(upd));
-                    return upd;
+        e.target.value = '';
+        const newPhotos = [];
+        for (const file of files) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('projectId', String(id));
+                formData.append('category', 'admin-fotos');
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!data.success) continue;
+                newPhotos.push({
+                    id: Date.now() + Math.random(),
+                    url: data.url,
+                    name: file.name,
+                    category: 'voortgang',
+                    date: new Date().toISOString().split('T')[0],
                 });
-            };
-            reader.readAsDataURL(file);
+            } catch {}
+        }
+        if (newPhotos.length === 0) return;
+        setPhotos(prev => {
+            const upd = [...prev, ...newPhotos];
+            try { localStorage.setItem(`schildersapp_photos_${id}`, JSON.stringify(upd)); } catch {}
+            return upd;
         });
+        saveProject({ ...project, adminFotos: [...(project.adminFotos || []), ...newPhotos] });
     };
 
     if (!project) return (
@@ -2864,16 +2883,12 @@ export default function ProjectDossierPage() {
             </div>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: '#f1f5f9', borderRadius: '12px', padding: '4px' }}>
+            <div className="tab-nav">
                 {TABS.map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-                        flex: 1, padding: '9px 12px', border: 'none', borderRadius: '9px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem',
-                        background: activeTab === tab.id ? '#fff' : 'transparent',
-                        color: activeTab === tab.id ? '#F5850A' : '#64748b',
-                        boxShadow: activeTab === tab.id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                        transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
-                    }}>
-                        <i className={`fa-solid ${tab.icon}`} /> <span style={{ display: 'inline' }}>{tab.label}</span>
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                        className={`tab-btn${activeTab === tab.id ? ' active' : ''}`}
+                        style={{ flex: 1, justifyContent: 'center' }}>
+                        <i className={`fa-solid ${tab.icon}`} /> {tab.label}
                     </button>
                 ))}
             </div>
@@ -3281,10 +3296,6 @@ export default function ProjectDossierPage() {
                                             <div key={note.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: nt.bg, borderRadius: '10px', padding: '10px 12px', border: `1px solid ${nt.color}22` }}>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '20px', background: nt.color, color: '#fff', fontSize: '0.65rem', fontWeight: 700 }}>
-                                                            <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.6rem' }} />
-                                                            {nt.label}
-                                                        </span>
                                                         <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{note.author} · {note.date}</span>
                                                     </div>
                                                     {editingNoteId === note.id ? (
@@ -3333,6 +3344,9 @@ export default function ProjectDossierPage() {
                                                                 <i className="fa-regular fa-comment" /> Reageer {note.replies?.length > 0 && `(${note.replies.length})`}
                                                             </button>
                                                         )}
+                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '20px', background: nt.color + '18', color: nt.color, fontSize: '0.63rem', fontWeight: 700 }}>
+                                                            <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.58rem' }} />{nt.label}
+                                                        </span>
                                                         {(note.type === 'actie' || note.type === 'planning') && (
                                                             <button onClick={() => {
                                                                 const taskName = note.text.split('\n')[0].slice(0, 80);
@@ -3413,12 +3427,6 @@ export default function ProjectDossierPage() {
                                             <input ref={noteMediaInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleNoteMedia} />
                                             <input ref={noteAddMediaInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleAddMediaToNote} />
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                                {Object.entries(NOTE_TYPES).map(([key, nt]) => (
-                                                    <button key={key} onClick={() => setPoNoteType(key)}
-                                                        style={{ padding: '3px 10px', borderRadius: '20px', border: `1.5px solid ${poNoteType === key ? nt.color : '#e2e8f0'}`, background: poNoteType === key ? nt.bg : 'transparent', color: poNoteType === key ? nt.color : '#94a3b8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
-                                                        {nt.label}
-                                                    </button>
-                                                ))}
                                                 <button type="button" onClick={() => noteMediaInputRef.current?.click()} disabled={poNoteMediaUploading}
                                                     style={{ padding: '3px 10px', borderRadius: '20px', border: `1.5px solid ${poNoteMedia ? '#10b981' : '#e2e8f0'}`, background: poNoteMedia ? '#f0fdf4' : 'transparent', color: poNoteMedia ? '#10b981' : '#94a3b8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     {poNoteMediaUploading ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-paperclip" />}
@@ -3577,9 +3585,10 @@ export default function ProjectDossierPage() {
                                                         } else {
                                                             setPhotos(prev => {
                                                                 const upd = prev.filter(f => f.id !== foto.id);
-                                                                localStorage.setItem(`schildersapp_photos_${id}`, JSON.stringify(upd));
+                                                                try { localStorage.setItem(`schildersapp_photos_${id}`, JSON.stringify(upd)); } catch {}
                                                                 return upd;
                                                             });
+                                                            saveProject({ ...project, adminFotos: (project.adminFotos || []).filter(f => f.id !== foto.id) });
                                                         }
                                                     }}
                                                     style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(239,68,68,0.85)', border: 'none', borderRadius: '50%', width: '22px', height: '22px', color: '#fff', cursor: 'pointer', fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
@@ -3985,14 +3994,7 @@ export default function ProjectDossierPage() {
                                 </span>
                             )}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                                {Object.entries(NOTE_TYPES).map(([key, cfg]) => (
-                                    <button key={key} onClick={() => setNoteType(key)} style={{ padding: '5px 12px', borderRadius: '20px', border: `2px solid ${noteType === key ? cfg.color : cfg.color + '55'}`, background: noteType === key ? cfg.color : cfg.color + '12', color: noteType === key ? '#fff' : cfg.color, fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', opacity: noteType === key ? 1 : 0.65, transition: 'all 0.15s' }}>
-                                        <i className={`fa-solid ${cfg.icon}`} /> {cfg.label}
-                                    </button>
-                                ))}
-                            </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
                             <button onClick={addNote} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#F5850A', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className="fa-solid fa-plus" /> Opslaan
                             </button>
@@ -4017,11 +4019,7 @@ export default function ProjectDossierPage() {
                                 <div key={note.id} style={{ background: cfg.bg, borderRadius: '14px', border: `1.5px solid ${cfg.color}30`, overflow: 'hidden' }}>
                                     {/* Header balk */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderBottom: `1px solid ${cfg.color}18` }}>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', background: cfg.color, color: '#fff', fontSize: '0.68rem', fontWeight: 700 }}>
-                                            <i className={`fa-solid ${cfg.icon}`} style={{ fontSize: '0.62rem' }} />
-                                            {cfg.label}
-                                        </span>
-                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', marginLeft: '2px' }}>{note.author} · {formatDate(note.date)}</span>
+                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{note.author} · {formatDate(note.date)}</span>
                                         <div style={{ marginLeft: 'auto', display: 'flex', gap: '2px' }}>
                                             <button onClick={() => deleteNote(note.id)}
                                                 style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', padding: '3px 5px', borderRadius: '6px', fontSize: '0.78rem' }}
@@ -5861,7 +5859,7 @@ export default function ProjectDossierPage() {
                                                         {/* Verwijder taak + ga naar email */}
                                                         <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                                             {linkedEmail && <button onClick={() => { setDossierFilter('emails'); setSelectedEmailId(linkedEmail.id); setTimeout(() => document.getElementById(`dossier-item-${linkedEmail.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); }} style={{ fontSize: '0.7rem', color: '#3b82f6', background: 'none', border: '1px solid #bfdbfe', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><i className="fa-regular fa-envelope" /> Ga naar email in dossier</button>}
-                                                            <button onClick={() => { if (window.confirm(`Taak "${task.name}" verwijderen?`)) saveProject({ ...project, tasks: tasks.filter(t => t.id !== task.id) }); }} style={{ fontSize: '0.7rem', color: '#ef4444', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><i className="fa-solid fa-trash" /> Verwijder taak</button>
+                                                            <button onClick={() => { if (tasks.length <= 1) { alert('Een project moet minimaal 1 taak hebben.'); return; } if (window.confirm(`Taak "${task.name}" verwijderen?`)) saveProject({ ...project, tasks: tasks.filter(t => t.id !== task.id) }); }} style={{ fontSize: '0.7rem', color: '#ef4444', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><i className="fa-solid fa-trash" /> Verwijder taak</button>
                                                         </div>
                                                     </div>
                                                 )}
@@ -8133,20 +8131,46 @@ export default function ProjectDossierPage() {
                 <div
                     onClick={() => { setPreviewAtt(null); setPreviewBlobUrl(null); setPreviewLoading(false); }}
                     onKeyDown={e => { if (e.key === 'Escape') { setPreviewAtt(null); setPreviewBlobUrl(null); setPreviewLoading(false); } }}
-                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+
+                    {/* ── Afbeelding: fullscreen zonder witte kaart ── */}
+                    {previewAtt.type?.startsWith('image/') ? (
+                        <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <img
+                                src={previewBlobUrl || previewAtt.data || previewAtt.url}
+                                alt={previewAtt.name}
+                                style={{ maxWidth: '95vw', maxHeight: '92vh', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block', borderRadius: '4px' }}
+                            />
+                            {/* Naam + downloaden onderaan */}
+                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
+                                <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewAtt.name}</span>
+                                {(previewAtt.data || previewAtt.url) && (
+                                    <a href={previewAtt.data || previewAtt.url} download={previewAtt.name}
+                                        onClick={e => e.stopPropagation()}
+                                        style={{ padding: '5px 12px', borderRadius: '7px', background: '#F5850A', color: '#fff', textDecoration: 'none', fontWeight: 700, fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, marginLeft: '12px' }}>
+                                        <i className="fa-solid fa-download" /> Download
+                                    </a>
+                                )}
+                            </div>
+                            {/* Sluiten */}
+                            <button onClick={() => { setPreviewAtt(null); setPreviewBlobUrl(null); setPreviewLoading(false); }}
+                                style={{ position: 'absolute', top: 0, right: 0, width: '38px', height: '38px', borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+                    ) : (
+
                     <div onClick={e => e.stopPropagation()}
                         style={{ background: '#fff', borderRadius: '16px', overflow: 'hidden', maxWidth: '90vw', maxHeight: '90vh', width: (previewAtt.type === 'message/rfc822' || previewAtt.type === 'application/vnd.ms-outlook') ? '860px' : undefined, display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.5)', minWidth: '320px' }}>
                         {/* Header */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', borderBottom: '1px solid #f1f5f9' }}>
                             <i className={`fa-solid ${
                                 previewAtt.type === 'message/rfc822' || previewAtt.name?.toLowerCase().endsWith('.msg') ? 'fa-envelope' :
-                                previewAtt.type.startsWith('image/') ? 'fa-image' :
                                 previewAtt.type.includes('pdf') ? 'fa-file-pdf' :
                                 previewAtt.type.includes('word') || previewAtt.name.endsWith('.docx') ? 'fa-file-word' :
                                 previewAtt.type.includes('sheet') || previewAtt.name.endsWith('.xlsx') ? 'fa-file-excel' : 'fa-file'
                             }`} style={{ fontSize: '1.1rem', color:
                                 previewAtt.type === 'message/rfc822' || previewAtt.name?.toLowerCase().endsWith('.msg') ? '#2563eb' :
-                                previewAtt.type.startsWith('image/') ? '#F5850A' :
                                 previewAtt.type.includes('pdf') ? '#ef4444' :
                                 previewAtt.type.includes('word') || previewAtt.name.endsWith('.docx') ? '#2563eb' :
                                 previewAtt.type.includes('sheet') ? '#16a34a' : '#64748b'
@@ -8168,11 +8192,7 @@ export default function ProjectDossierPage() {
                         </div>
                         {/* Preview body */}
                         <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', minHeight: '200px', maxHeight: 'calc(90vh - 70px)' }}>
-                            {previewAtt.type.startsWith('image/') ? (
-                                <img src={previewBlobUrl || previewAtt.data || previewAtt.url} alt={previewAtt.name}
-                                    style={{ maxWidth: '100%', maxHeight: 'calc(90vh - 70px)', objectFit: 'contain', display: 'block' }}
-                                    onError={e => { e.target.style.display='none'; e.target.nextSibling && (e.target.nextSibling.style.display='flex'); }} />
-                            ) : previewAtt.type === 'application/pdf' || previewAtt.name?.toLowerCase().endsWith('.pdf') ? (
+                            {previewAtt.type === 'application/pdf' || previewAtt.name?.toLowerCase().endsWith('.pdf') ? (
                                 previewLoading ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '60px 40px', textAlign: 'center' }}>
                                         <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2.5rem', color: '#ef4444' }} />
@@ -8285,6 +8305,7 @@ export default function ProjectDossierPage() {
                             )}
                         </div>
                     </div>
+                    )}
                 </div>
             )}
 

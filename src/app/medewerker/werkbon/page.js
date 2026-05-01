@@ -402,17 +402,18 @@ export default function MedewerkerWerkbon() {
 
             {/* ── Tabbar ── */}
             {project && (
-                <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', overflowX: 'auto', gap: '0', padding: '0 8px' }}>
+                <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '4px 8px' }}>
+                    <div className="tab-nav" style={{ marginBottom: 0 }}>
                         {[
                             ['kaart',        'fa-id-card',    'Kaart',        null],
                             ['info',         'fa-align-left', 'Omschrijving', localChecklist.length > 0 ? `${localChecklist.filter(c => c.done).length}/${localChecklist.length}` : null],
+                            ['bestanden',    'fa-paperclip',  'Bestanden',    (project?.bestanden?.length || 0) + allFotosCount > 0 ? String((project?.bestanden?.length || 0) + allFotosCount) : null],
                         ].map(([key, icon, label, badge]) => (
                             <button key={key} onClick={() => setWerkbonTab(key)}
-                                style={{ flexShrink: 0, padding: '11px 10px 9px', background: 'none', border: 'none', borderBottom: werkbonTab === key ? '2.5px solid #F5850A' : '2.5px solid transparent', color: werkbonTab === key ? '#F5850A' : '#64748b', fontWeight: werkbonTab === key ? 700 : 500, fontSize: '0.74rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <i className={`fa-solid ${icon}`} style={{ fontSize: '0.7rem' }} />
+                                className={`tab-btn${werkbonTab === key ? ' active' : ''}`}>
+                                <i className={`fa-solid ${icon}`} />
                                 {label}
-                                {badge != null && <span style={{ fontSize: '0.62rem', fontWeight: 700, background: werkbonTab === key ? '#fff8f0' : '#f1f5f9', color: werkbonTab === key ? '#F5850A' : '#64748b', borderRadius: '8px', padding: '1px 5px' }}>{badge}</span>}
+                                {badge != null && <span className="tab-badge">{badge}</span>}
                             </button>
                         ))}
                     </div>
@@ -467,6 +468,80 @@ export default function MedewerkerWerkbon() {
                             </div>
                         );
                     })()}
+
+                    {/* ── Bestanden & Foto's ── */}
+                    {werkbonTab === 'bestanden' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                            {/* Bestanden sectie */}
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                    <i className="fa-solid fa-paperclip" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
+                                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bestanden</span>
+                                    {(project.bestanden?.length || 0) > 0 &&
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>
+                                            {project.bestanden.length}
+                                        </span>}
+                                </div>
+                                {(project.bestanden?.length || 0) === 0
+                                    ? <div style={{ textAlign: 'center', padding: '24px 0', color: '#cbd5e1', fontSize: '0.85rem' }}>
+                                        <i className="fa-solid fa-paperclip" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '6px', opacity: 0.3 }} />
+                                        Geen bestanden beschikbaar.
+                                      </div>
+                                    : project.bestanden.map((b, idx) => {
+                                        const isImg = b.type?.startsWith('image/');
+                                        const isPdf = b.type === 'application/pdf' || b.name?.toLowerCase().endsWith('.pdf');
+                                        const iconColor = isImg ? '#10b981' : isPdf ? '#ef4444' : '#3b82f6';
+                                        const icon = isImg ? 'fa-image' : isPdf ? 'fa-file-pdf' : 'fa-file';
+                                        return (
+                                            <div key={b.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '6px' }}>
+                                                <i className={`fa-solid ${icon}`} style={{ color: iconColor, fontSize: '1.1rem', flexShrink: 0 }} />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {b.label || b.name}
+                                                    </div>
+                                                    {b.label && b.name !== b.label &&
+                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{b.name}</div>}
+                                                </div>
+                                                <button onClick={() => openPreview(b)}
+                                                    style={{ background: '#F5850A', border: 'none', borderRadius: '7px', color: '#fff', padding: '5px 10px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                                                    <i className="fa-solid fa-eye" />
+                                                </button>
+                                            </div>
+                                        );
+                                    })
+                                }
+                            </div>
+
+                            {/* Foto's sectie */}
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                    <i className="fa-solid fa-images" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
+                                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto's</span>
+                                    {allFotosCount > 0 &&
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>
+                                            {allFotosCount}
+                                        </span>}
+                                </div>
+                                {allFotosCount === 0
+                                    ? <div style={{ textAlign: 'center', padding: '24px 0', color: '#cbd5e1', fontSize: '0.85rem' }}>
+                                        <i className="fa-solid fa-images" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '6px', opacity: 0.3 }} />
+                                        Nog geen foto's beschikbaar.
+                                      </div>
+                                    : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                                        {allFotos.map((f, idx) => (
+                                            <div key={f.id || idx} onClick={() => openPreview({ ...f, type: f.type || 'image/jpeg' })}
+                                                style={{ aspectRatio: '1', borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', background: '#e2e8f0' }}>
+                                                <img src={f.src || f.url || f.data} alt={f.name || 'foto'}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            </div>
+                                        ))}
+                                      </div>
+                                }
+                            </div>
+
+                        </div>
+                    )}
 
                     {/* ── Omschrijving + Checklist ── */}
                     {werkbonTab === 'info' && (
@@ -537,7 +612,7 @@ export default function MedewerkerWerkbon() {
                         <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {previewAtt.type?.startsWith('image/') ? (
                                 <img src={previewBlobUrl || previewAtt.data || previewAtt.url} alt={previewAtt.name}
-                                    style={{ maxWidth: '90vw', maxHeight: 'calc(90vh - 70px)', objectFit: 'contain', display: 'block' }} />
+                                    style={{ width: '80vw', height: 'calc(90vh - 70px)', objectFit: 'contain', display: 'block' }} />
                             ) : previewLoading ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '60px 40px', textAlign: 'center' }}>
                                     <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '2.5rem', color: '#ef4444' }} />

@@ -998,9 +998,11 @@ Bedankt! Tot morgen 👋` }
     // ═════════════ RENDER ═════════════
     return (
         <div className="content-area">
-            <div className="page-header">
-                <h1><i className="fa-brands fa-whatsapp" style={{ color: '#25D366', marginRight: '10px' }}></i>WhatsApp Business</h1>
-                <p>Automatische urenregistratie, contracten en termijnbeheer via WhatsApp.</p>
+            <div className="page-header-bar">
+                <div>
+                    <h1><i className="fa-brands fa-whatsapp" style={{ color: '#25D366', marginRight: '8px' }}></i>WhatsApp Business</h1>
+                    <p>Automatische urenregistratie, contracten en termijnbeheer via WhatsApp.</p>
+                </div>
             </div>
 
             {/* Tab Navigation */}
@@ -1014,27 +1016,15 @@ Bedankt! Tot morgen 👋` }
                     { id: 'termijnen', icon: 'fa-chart-bar', label: 'Termijn & Factuur', badge: teOndertekenenCount > 0 ? teOndertekenenCount : null, badgeColor: '#f59e0b' },
                 ];
                 return (
-                    <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+                    <div className="tab-nav">
                         {tabs.map(tab => (
                             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                                style={{
-                                    flex: 1, padding: '10px 12px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-                                    fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-                                    background: activeTab === tab.id ? '#25D366' : 'transparent',
-                                    color: activeTab === tab.id ? '#fff' : '#64748b',
-                                    transition: 'all 0.15s', position: 'relative'
-                                }}>
+                                className={`tab-btn${activeTab === tab.id ? ' active' : ''}`}
+                                style={{ flex: 1, justifyContent: 'center', position: 'relative' }}>
                                 <i className={`fa-solid ${tab.icon}`}></i>
                                 {tab.label}
                                 {tab.badge && (
-                                    <span style={{
-                                        position: 'absolute', top: '4px', right: '6px',
-                                        background: activeTab === tab.id ? 'rgba(255,255,255,0.9)' : tab.badgeColor,
-                                        color: activeTab === tab.id ? tab.badgeColor : '#fff',
-                                        fontSize: '0.58rem', fontWeight: 800,
-                                        borderRadius: '99px', padding: '1px 5px',
-                                        minWidth: '16px', textAlign: 'center', lineHeight: '14px'
-                                    }}>{tab.badge}</span>
+                                    <span className="tab-badge">{tab.badge}</span>
                                 )}
                             </button>
                         ))}

@@ -1,153 +1,192 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthContext';
 
 const NAV = [
-    { label: 'Vandaag',   icon: 'fa-house',         path: '/medewerker' },
-    { label: 'Planning',  icon: 'fa-calendar-days', path: '/medewerker/planning' },
-    { label: 'Chat',      icon: 'fa-comments',      path: '/medewerker/chat' },
-    { label: 'Materiaal', icon: 'fa-box-open',      path: '/medewerker/materiaal' },
-    { label: 'Mijn Suk',  icon: 'fa-user-circle',   path: '/medewerker/mijn-suk' },
-    { label: 'Meer',      icon: 'fa-bars',           path: null },
+    { label: 'Vandaag',    icon: 'fa-house',          path: '/medewerker' },
+    { label: 'Planning',   icon: 'fa-calendar-days',  path: '/medewerker/planning' },
+    { label: 'Projectstatus', icon: 'fa-chart-line',  path: '/medewerker/status' },
+    { label: 'Project informatie', icon: 'fa-folder-tree',  path: '/medewerker/werkbon' },
+    { label: 'Chat',       icon: 'fa-comments',       path: '/medewerker/chat' },
+    { label: 'Materiaalbot', icon: 'fa-box-open',      path: '/medewerker/materiaal' },
+    { label: 'Bestellijst', icon: 'fa-cart-shopping',  path: '/medewerker/bestellijst' },
+    { label: 'Toolbox bestanden', icon: 'fa-toolbox', path: '/medewerker/mijn-suk' },
+    { label: 'Bouwinspectie', icon: 'fa-hard-hat',      path: '/medewerker/bouwinspectie' },
+    { label: 'Verlof',     icon: 'fa-umbrella-beach', path: '/medewerker/verlof' },
+    { label: 'Formulieren',      icon: 'fa-folder-open',   path: '/medewerker/formulieren' },
+    { label: 'Uren',             icon: 'fa-gauge-high',    path: '/medewerker/uren' },
 ];
 
 export default function MedewerkerLayout({ children }) {
     const pathname = usePathname();
-    const router = useRouter();
+    const router   = useRouter();
     const { user, logout } = useAuth();
-    const [meerOpen, setMeerOpen] = useState(false);
+    const [open, setOpen] = useState(false);
+
+    // Sluit drawer bij navigatie
+    useEffect(() => { setOpen(false); }, [pathname]);
 
     if (!user) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#f8fafc' }}>
                 <div style={{ textAlign: 'center', color: '#64748b' }}>
                     <i className="fa-solid fa-lock" style={{ fontSize: '2rem', marginBottom: '12px', display: 'block' }} />
-                    <p>Je bent niet ingelogd. <a href="/" style={{ color: '#F5850A' }}>Ga naar login</a></p>
+                    <p>Niet ingelogd. <a href="/" style={{ color: '#F5850A' }}>Login</a></p>
                 </div>
             </div>
         );
     }
 
+    const isActive = (path) =>
+        path === '/medewerker' ? pathname === '/medewerker' : pathname.startsWith(path);
+
     return (
         <div style={{ minHeight: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column', maxWidth: '480px', margin: '0 auto', position: 'relative' }}>
-            {/* Top header */}
+
+            {/* ── Header ── */}
             <header style={{
                 background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)',
-                padding: '12px 20px 14px',
+                padding: '0 16px',
+                height: 56,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                boxShadow: '0 4px 20px rgba(245,133,10,0.35)',
-                flexShrink: 0,
+                boxShadow: '0 2px 12px rgba(245,133,10,0.3)',
+                flexShrink: 0, zIndex: 10, position: 'relative',
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.18)', borderRadius: '12px', padding: '4px', display: 'flex' }}>
-                        <img src="/ds-logo-rond-nieuw.png" alt="Logo" style={{ height: '34px', filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.2))' }} />
-                    </div>
-                    <div>
-                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem', lineHeight: 1.15, letterSpacing: '-0.01em' }}>
-                            Medewerker Portaal
-                        </div>
-                        <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.72rem', fontWeight: 500, marginTop: '1px' }}>
-                            {user.name} · {user.role}
-                        </div>
-                    </div>
+                {/* Hamburger */}
+                <button onClick={() => setOpen(true)} style={{
+                    background: 'rgba(255,255,255,0.18)', border: 'none',
+                    borderRadius: 9, width: 38, height: 38,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', color: '#fff', fontSize: '1rem',
+                }}>
+                    <i className="fa-solid fa-bars" />
+                </button>
+
+                {/* Logo + naam */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+                    <img src="/ds-logo-rond-nieuw.png" alt="Logo" style={{ height: 30, borderRadius: '50%' }} />
+                    <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.9rem', letterSpacing: '-0.01em' }}>Medewerker</span>
                 </div>
-                <Link href="/" style={{ color: 'rgba(255,255,255,0.95)', fontSize: '0.78rem', textDecoration: 'none', background: 'rgba(255,255,255,0.18)', padding: '6px 12px', borderRadius: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                    <i className="fa-solid fa-arrow-left" style={{ fontSize: '0.7rem' }} />Beheer
-                </Link>
+
+                {/* Beheer */}
+                <button onClick={() => router.push('/')} style={{
+                    background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 8, padding: '6px 11px',
+                    color: '#fff', fontSize: '0.75rem', fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+                }}>
+                    <i className="fa-solid fa-arrow-left" style={{ fontSize: '0.65rem' }} />Beheer
+                </button>
             </header>
 
-            {/* Page content */}
-            <main style={{ flex: 1, overflowY: 'auto', paddingBottom: '80px' }}>
+            {/* ── Content ── */}
+            <main style={{ flex: 1, overflowY: 'auto' }}>
                 {children}
             </main>
 
-            {/* Bottom nav */}
-            <nav style={{
-                position: 'fixed',
-                bottom: 0,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: '100%',
-                maxWidth: '480px',
-                background: '#fff',
-                borderTop: '1px solid #f1f5f9',
-                display: 'flex',
-                boxShadow: '0 -6px 24px rgba(0,0,0,0.09)',
-                zIndex: 200,
-                paddingBottom: 'env(safe-area-inset-bottom)',
-            }}>
-                {NAV.map(item => {
-                    const isActive = item.path
-                        ? (item.path === '/medewerker' ? pathname === '/medewerker' : pathname.startsWith(item.path))
-                        : meerOpen;
-                    return (
-                        <button
-                            key={item.label}
-                            onClick={() => {
-                                if (item.path) { setMeerOpen(false); router.push(item.path); }
-                                else setMeerOpen(v => !v);
-                            }}
-                            style={{
-                                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-                                justifyContent: 'center', gap: '4px', padding: '10px 0 8px',
-                                background: 'transparent', border: 'none', cursor: 'pointer',
-                                color: isActive ? '#F5850A' : '#94a3b8',
-                                transition: 'color 0.15s',
-                                position: 'relative',
-                            }}
-                        >
-                            <div style={{
-                                width: '42px', height: '30px', borderRadius: '15px',
-                                background: isActive ? 'rgba(245,133,10,0.12)' : 'transparent',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                transition: 'background 0.2s',
-                            }}>
-                                <i className={`fa-solid ${item.icon}`} style={{ fontSize: '1.05rem' }} />
-                            </div>
-                            <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 700 : 500, letterSpacing: isActive ? '0.01em' : 0 }}>{item.label}</span>
-                        </button>
-                    );
-                })}
-            </nav>
-
-            {/* Meer sheet */}
-            {meerOpen && (
-                <>
-                    <div onClick={() => setMeerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 190, background: 'rgba(0,0,0,0.3)' }} />
-                    <div style={{
-                        position: 'fixed', bottom: '72px', left: '50%', transform: 'translateX(-50%)',
-                        width: '100%', maxWidth: '480px', background: '#fff',
-                        borderRadius: '20px 20px 0 0', padding: '8px 0 20px',
-                        boxShadow: '0 -8px 32px rgba(0,0,0,0.15)', zIndex: 195,
-                    }}>
-                        <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '8px auto 16px' }} />
-                        {[
-                            { icon: 'fa-folder-tree',  label: 'Project info',             path: '/medewerker/werkbon' },
-                            { icon: 'fa-folder-open',  label: 'Formulieren & Documenten', path: '/medewerker/formulieren' },
-                        ].map(item => (
-                            <button key={item.path} onClick={() => { setMeerOpen(false); router.push(item.path); }}
-                                onPointerDown={e => e.currentTarget.style.background = '#fff8f0'}
-                                onPointerUp={e => e.currentTarget.style.background = 'none'}
-                                onPointerLeave={e => e.currentTarget.style.background = 'none'}
-                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 24px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', color: '#1e293b', textAlign: 'left' }}
-                            >
-                                <i className={`fa-solid ${item.icon}`} style={{ width: '20px', color: '#F5850A', fontSize: '1rem' }} />
-                                {item.label}
-                            </button>
-                        ))}
-                        <hr style={{ border: 'none', borderTop: '1px solid #f1f5f9', margin: '8px 0' }} />
-                        <button onClick={() => { setMeerOpen(false); logout(); router.push('/'); }}
-                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 24px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', color: '#ef4444', textAlign: 'left' }}
-                        >
-                            <i className="fa-solid fa-right-from-bracket" style={{ width: '20px', fontSize: '1rem' }} />
-                            Uitloggen
-                        </button>
-                    </div>
-                </>
+            {/* ── Backdrop ── */}
+            {open && (
+                <div onClick={() => setOpen(false)} style={{
+                    position: 'fixed', inset: 0, zIndex: 200,
+                    background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+                }} />
             )}
+
+            {/* ── Slide-out drawer ── */}
+            <div style={{
+                position: 'fixed', top: 0, left: 0, bottom: 0,
+                width: 260, zIndex: 210,
+                background: '#0f172a',
+                transform: open ? 'translateX(0)' : 'translateX(-100%)',
+                transition: 'transform 0.25s ease',
+                display: 'flex', flexDirection: 'column',
+                boxShadow: open ? '4px 0 32px rgba(0,0,0,0.4)' : 'none',
+            }}>
+                {/* Drawer header */}
+                <div style={{
+                    background: '#F5850A',
+                    padding: '16px 16px 14px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    flexShrink: 0,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <img src="/ds-logo-rond-nieuw.png" alt="Logo" style={{ height: 38, borderRadius: '50%', filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.25))' }} />
+                        <div>
+                            <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{user.name}</div>
+                            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.68rem' }}>{user.role}</div>
+                        </div>
+                    </div>
+                    <button onClick={() => setOpen(false)} style={{
+                        background: 'rgba(255,255,255,0.15)', border: 'none',
+                        borderRadius: 7, width: 30, height: 30, color: '#fff',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', fontSize: '0.85rem',
+                    }}>
+                        <i className="fa-solid fa-xmark" />
+                    </button>
+                </div>
+
+                {/* Nav items */}
+                <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0', scrollbarWidth: 'none' }}>
+                    {NAV.map(item => {
+                        const active = isActive(item.path);
+                        return (
+                            <button key={item.path}
+                                onClick={() => router.push(item.path)}
+                                style={{
+                                    width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+                                    padding: '12px 18px',
+                                    background: active ? 'rgba(245,133,10,0.14)' : 'transparent',
+                                    borderTop: 'none', borderRight: 'none', borderBottom: 'none',
+                                    borderLeft: active ? '3px solid #F5850A' : '3px solid transparent',
+                                    cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+                                }}
+                                onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                                onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <div style={{
+                                    width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+                                    background: active ? 'rgba(245,133,10,0.2)' : 'rgba(255,255,255,0.06)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    <i className={`fa-solid ${item.icon}`} style={{
+                                        color: active ? '#F5850A' : 'rgba(255,255,255,0.45)',
+                                        fontSize: '0.85rem',
+                                    }} />
+                                </div>
+                                <span style={{
+                                    color: active ? '#fff' : 'rgba(255,255,255,0.65)',
+                                    fontSize: '0.88rem', fontWeight: active ? 700 : 500,
+                                }}>{item.label}</span>
+                                {active && <i className="fa-solid fa-chevron-right" style={{ marginLeft: 'auto', color: '#F5850A', fontSize: '0.6rem' }} />}
+                            </button>
+                        );
+                    })}
+                </nav>
+
+                {/* Uitloggen */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '8px 0' }}>
+                    <button onClick={() => { logout(); router.push('/'); }} style={{
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+                        padding: '12px 18px', background: 'transparent',
+                        border: 'none', cursor: 'pointer', textAlign: 'left',
+                    }}
+                    onMouseOver={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <div style={{
+                            width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+                            background: 'rgba(239,68,68,0.1)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <i className="fa-solid fa-right-from-bracket" style={{ color: '#ef4444', fontSize: '0.85rem' }} />
+                        </div>
+                        <span style={{ color: '#ef4444', fontSize: '0.88rem', fontWeight: 500 }}>Uitloggen</span>
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

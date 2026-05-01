@@ -1,29 +1,18 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthContext';
 
 const MONTH_NAMES = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
 const DAY_NAMES = ['Zo','Ma','Di','Wo','Do','Vr','Za'];
 
-const KLEUREN = [
-    { id: 'wit',   bg: '#ffffff', border: '#e2e8f0' },
-    { id: 'geel',  bg: '#fef9c3', border: '#fde047' },
-    { id: 'groen', bg: '#f0fdf4', border: '#86efac' },
-    { id: 'blauw', bg: '#eff6ff', border: '#93c5fd' },
-];
 
 function getISOWeek(date) {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
     d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-}
-
-function formatDate(iso) {
-    const d = new Date(iso + 'T00:00:00');
-    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
 }
 
 function isTodayInRange(startIso, endIso) {
@@ -165,11 +154,12 @@ function werkAdviesKort(current) {
 }
 
 export default function MedewerkerHome() {
-    const { user, getAllUsers } = useAuth();
+    const { user } = useAuth();
     const router = useRouter();
     const [vandaag, setVandaag] = useState([]);
     const [weekUren, setWeekUren] = useState(0);
     const [openTaken, setOpenTaken] = useState([]);
+    const [openTakenUitgeklapt, setOpenTakenUitgeklapt] = useState(false);
     const [ziekModal, setZiekModal] = useState(false);
     const [ziekForm, setZiekForm] = useState({ datum: new Date().toISOString().slice(0,10), reden: '' });
     const [ziekSaved, setZiekSaved] = useState(false);
@@ -177,30 +167,11 @@ export default function MedewerkerHome() {
     const [weerLoading, setWeerLoading] = useState(true);
     const [weerUitgeklapt, setWeerUitgeklapt] = useState(false);
     const [verjaardagen, setVerjaardagen] = useState([]);
-    const [nieuws, setNieuws] = useState([]);
-    const [nieuwsFormOpen, setNieuwsFormOpen] = useState(false);
-    const [nieuwsTitel, setNieuwsTitel] = useState('');
-    const [nieuwsBericht, setNieuwsBericht] = useState('');
-    const [nieuwsFoto, setNieuwsFoto] = useState(null);
-    const nieuwsFotoRef = useRef();
     const [toolboxMeetings, setToolboxMeetings] = useState([]);
     const [toolboxApiMeetings, setToolboxApiMeetings] = useState([]);
-    const [afgevinktOpen, setAfgevinktOpen] = useState(false);
     const [gelezenDocsOpen, setGelezenDocsOpen] = useState(false);
-    const [toolboxFormOpen, setToolboxFormOpen] = useState(false);
-    const [toolboxForm, setToolboxForm] = useState({ datum: new Date().toISOString().slice(0,10), project: '', onderwerp: '', notities: '' });
-    const [toolboxAanwezig, setToolboxAanwezig] = useState([]);
-    const [toolboxNaam, setToolboxNaam] = useState('');
     const [docs, setDocs]               = useState([]);
     const [docViewer, setDocViewer]     = useState(null);
-    const [notities, setNotities]                     = useState([]);
-    const [notitiesModal, setNotitiesModal]           = useState(null);
-    const [notitiesTitel, setNotitiesTitel]           = useState('');
-    const [notitiesInhoud, setNotitiesInhoud]         = useState('');
-    const [notitiesKleur, setNotitiesKleur]           = useState('wit');
-    const [notitiesCheckItems, setNotitiesCheckItems] = useState([]);
-    const [notitiesNieuwItem, setNotitiesNieuwItem]   = useState('');
-    const notitiesNieuwItemRef                        = useRef();
 
     useEffect(() => {
         if (!user) return;
@@ -210,8 +181,6 @@ export default function MedewerkerHome() {
 
         // Verjaardagen worden geladen via API hieronder
 
-        // Nieuws laden via API
-        fetch('/api/nieuws').then(r => r.json()).then(data => { if (Array.isArray(data)) setNieuws(data); }).catch(() => {});
 
         // Verjaardagen laden via API (alleen komende 14 dagen tonen)
         fetch('/api/verjaardagen').then(r => r.json()).then(data => {
@@ -225,10 +194,15 @@ export default function MedewerkerHome() {
         } catch {}
 
         // Documenten laden
-        fetch('/api/documenten').then(r => r.json()).then(data => { if (Array.isArray(data)) setDocs(data); }).catch(() => {});
+        fetch('/api/documenten').then(r => r.json()).then(data => {
+            if (Array.isArray(data)) {
+                const nu = new Date();
+                setDocs(data.filter(d => !d.zichtbaarVanaf || new Date(d.zichtbaarVanaf) <= nu));
+            }
+        }).catch(() => {});
 
         // Toolbox meetings van API laden (voor akkoordGegeven status)
-        fetch('/api/toolbox/meetings').then(r => r.json()).then(data => { if (Array.isArray(data)) setToolboxApiMeetings(data); }).catch(() => {});
+        fetch('/api/medewerker-toolbox').then(r => r.json()).then(data => { if (Array.isArray(data)) setToolboxApiMeetings(data); }).catch(() => {});
 
         // Luister naar aanvinken vanuit de PDF viewer iframe
         const onMsg = (e) => {
@@ -241,11 +215,6 @@ export default function MedewerkerHome() {
         window.addEventListener('message', onMsg);
         return () => window.removeEventListener('message', onMsg);
 
-        // Notities laden
-        try {
-            const rawNt = localStorage.getItem(`schildersapp_notities_${user.id}`);
-            setNotities(rawNt ? JSON.parse(rawNt) : []);
-        } catch {}
 
     }, [user]);
 
@@ -276,38 +245,6 @@ export default function MedewerkerHome() {
 
     const today = new Date();
     const todayLabel = `${DAY_NAMES[today.getDay()]} ${today.getDate()} ${MONTH_NAMES[today.getMonth()]} ${today.getFullYear()}`;
-    const TARGET = 37.5;
-    const pct = Math.min(100, Math.round((weekUren / TARGET) * 100));
-
-    async function handleNieuwsOpslaan() {
-        if (!nieuwsTitel.trim()) return;
-        try {
-            const res = await fetch('/api/nieuws', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ titel: nieuwsTitel, bericht: nieuwsBericht, foto: nieuwsFoto, auteur: user.name, auteur_id: user.id }),
-            });
-            const item = await res.json();
-            setNieuws(prev => [item, ...prev]);
-            setNieuwsTitel(''); setNieuwsBericht(''); setNieuwsFoto(null); setNieuwsFormOpen(false);
-        } catch {}
-    }
-
-    function handleNieuwsFoto(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = ev => setNieuwsFoto(ev.target.result);
-        reader.readAsDataURL(file);
-    }
-
-    async function handleNieuwsVerwijder(id) {
-        setNieuws(prev => prev.filter(n => n.id !== id));
-        await fetch(`/api/nieuws/${id}`, { method: 'DELETE' }).catch(() => {});
-    }
-
-    const TOOLBOX_ONDERWERPEN = ['Veilig werken op hoogte','Gevaarlijke stoffen / CMR','PBM gebruik','Valbeveiliging','Gereedschap & machines','LMRA (Laatste Minuut Risico Analyse)','Orde & netheid op de bouwplaats','Incident/bijna-incident melden','Ergonomie & tillen','Anders'];
-
     async function bevestigGelezen(id) {
         try {
             const res = await fetch(`/api/documenten/${id}/gelezen`, {
@@ -334,55 +271,6 @@ export default function MedewerkerHome() {
         setDocViewer({ id: doc.id, titel: doc.titel, url: viewerUrl, type: doc.type });
     }
 
-    function toolboxOpslaan() {
-        if (!toolboxForm.project || !toolboxForm.onderwerp) return;
-        const meeting = { id: Date.now(), datum: toolboxForm.datum, project: toolboxForm.project, onderwerp: toolboxForm.onderwerp, notities: toolboxForm.notities, aanwezig: toolboxAanwezig, aangemaaktDoor: user?.name ?? 'Onbekend' };
-        const updated = [meeting, ...toolboxMeetings];
-        setToolboxMeetings(updated);
-        localStorage.setItem('schildersapp_toolbox_meetings', JSON.stringify(updated));
-        setToolboxFormOpen(false);
-        setToolboxForm({ datum: new Date().toISOString().slice(0,10), project: '', onderwerp: '', notities: '' });
-        setToolboxAanwezig([]);
-        setToolboxNaam('');
-    }
-
-    function sluitNotitiesModal() {
-        setNotitiesModal(null); setNotitiesTitel(''); setNotitiesInhoud('');
-        setNotitiesKleur('wit'); setNotitiesCheckItems([]); setNotitiesNieuwItem('');
-    }
-    function opslaanNotitie() {
-        if (!notitiesTitel.trim()) return;
-        const item = {
-            id: Date.now(), type: notitiesModal,
-            titel: notitiesTitel.trim(),
-            inhoud: notitiesModal === 'memo' ? notitiesInhoud.trim() : '',
-            items: notitiesModal === 'checklist' ? notitiesCheckItems : [],
-            datum: new Date().toISOString(), kleur: notitiesKleur,
-        };
-        const updated = [item, ...notities];
-        setNotities(updated);
-        try { localStorage.setItem(`schildersapp_notities_${user.id}`, JSON.stringify(updated)); } catch {}
-        sluitNotitiesModal();
-    }
-    function deleteNotitie(id) {
-        const updated = notities.filter(n => n.id !== id);
-        setNotities(updated);
-        try { localStorage.setItem(`schildersapp_notities_${user.id}`, JSON.stringify(updated)); } catch {}
-    }
-    function toggleNotitieCheck(notitieId, itemIdx) {
-        const updated = notities.map(n => {
-            if (n.id !== notitieId) return n;
-            return { ...n, items: n.items.map((it, i) => i === itemIdx ? { ...it, gedaan: !it.gedaan } : it) };
-        });
-        setNotities(updated);
-        try { localStorage.setItem(`schildersapp_notities_${user.id}`, JSON.stringify(updated)); } catch {}
-    }
-    function voegNotitieItemToe() {
-        if (!notitiesNieuwItem.trim()) return;
-        setNotitiesCheckItems(prev => [...prev, { tekst: notitiesNieuwItem.trim(), gedaan: false }]);
-        setNotitiesNieuwItem('');
-        setTimeout(() => notitiesNieuwItemRef.current?.focus(), 50);
-    }
 
     function handleZiekMelden() {
         // Sla ziekmelding op
@@ -414,12 +302,97 @@ export default function MedewerkerHome() {
     }
 
     return (
-        <div style={{ padding: '16px 16px 8px' }}>
-            {/* Datum + Welkom */}
-            <div style={{ marginBottom: '18px', paddingTop: '4px' }}>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '3px', fontWeight: 500 }}>{todayLabel}</div>
-                <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#1e293b', letterSpacing: '-0.02em' }}>Hoi, {user?.name?.split(' ')[0]} 👋</div>
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-house" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Hoi, {user?.name?.split(' ')[0]} 👋</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>{todayLabel}</div>
+                    </div>
+                </div>
             </div>
+
+        <div style={{ padding: '16px 16px 8px' }}>
+            {/* Datum + Welkom verwijderd — staat nu in header */}
+
+            {/* Vandaag planning */}
+            <div style={{ marginBottom: '22px' }}>
+                <SectionHeader title="Vandaag" linkLabel="Planning" linkPath="/medewerker/planning" />
+                {vandaag.length === 0 ? (
+                    <div style={{ background: '#fff', borderRadius: '14px', border: '1.5px solid #f1f5f9', padding: '16px 16px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                        <div style={{ background: '#f8fafc', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <i className="fa-regular fa-calendar-check" style={{ color: '#cbd5e1', fontSize: '1rem' }} />
+                        </div>
+                        <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Geen taken ingepland voor vandaag</div>
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {vandaag.map(t => (
+                            <div key={t.taskId} onClick={() => router.push('/medewerker/planning')}
+                                style={{ background: '#fff', borderRadius: '14px', border: '1.5px solid #fde8cc', padding: '13px 15px', boxShadow: '0 1px 6px rgba(245,133,10,0.08)', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+                                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.color || '#F5850A', flexShrink: 0 }} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.taskName}</div>
+                                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>{t.projectName}</div>
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: '#F5850A', fontWeight: 700, flexShrink: 0 }}>
+                                    t/m {t.endDate ? new Date(t.endDate + 'T00:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Open taken */}
+            {openTaken.length > 0 && (() => {
+                const zichtbaar = openTakenUitgeklapt ? openTaken : openTaken.slice(0, 3);
+                const isLaat = (t) => t.endDate && new Date(t.endDate + 'T00:00:00') < new Date();
+                return (
+                    <div style={{ marginBottom: '22px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
+                                <h3 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Openstaande taken</h3>
+                            </div>
+                            <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: '0.65rem', fontWeight: 700, borderRadius: '999px', padding: '2px 8px' }}>
+                                {openTaken.length}
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                            {zichtbaar.map((t, i) => (
+                                <div key={i} onClick={() => router.push('/medewerker/planning')}
+                                    style={{ background: '#fff', borderRadius: '12px', border: `1.5px solid ${isLaat(t) ? '#fecaca' : '#f1f5f9'}`, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.color || '#F5850A', flexShrink: 0 }} />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 600, fontSize: '0.86rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.taskName}</div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '1px' }}>{t.projectName}</div>
+                                    </div>
+                                    {t.endDate && (
+                                        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: isLaat(t) ? '#ef4444' : '#94a3b8', flexShrink: 0 }}>
+                                            {isLaat(t) ? '⚠ ' : ''}{new Date(t.endDate + 'T00:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        {openTaken.length > 3 && (
+                            <button onClick={() => setOpenTakenUitgeklapt(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, marginTop: '6px', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <i className={`fa-solid fa-chevron-${openTakenUitgeklapt ? 'up' : 'down'}`} style={{ fontSize: '0.6rem' }} />
+                                {openTakenUitgeklapt ? 'Minder tonen' : `${openTaken.length - 3} meer taken`}
+                            </button>
+                        )}
+                        <div style={{ marginTop: '8px', fontSize: '0.72rem', color: '#94a3b8' }}>
+                            Deze week: <strong style={{ color: '#475569' }}>{weekUren}u</strong> geregistreerd
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Verjaardagen */}
             {verjaardagen.length > 0 && (
@@ -546,78 +519,58 @@ export default function MedewerkerHome() {
                 );
             })()}
 
-            {/* Nieuws */}
-            <div style={{ marginBottom: '22px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                        <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                        <h3 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Nieuws</h3>
-                    </div>
-                    {user?.role === 'Beheerder' && (
-                        <button onClick={() => setNieuwsFormOpen(v => !v)} style={{ background: '#fff8f0', border: '1.5px solid #fde8cc', borderRadius: '8px', cursor: 'pointer', color: '#F5850A', fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px' }}>
-                            {nieuwsFormOpen ? 'Annuleren' : '+ Nieuws'}
-                        </button>
-                    )}
-                </div>
-
-                {nieuwsFormOpen && (
-                    <div style={{ background: '#fff', borderRadius: '14px', border: '1.5px solid #fde8cc', padding: '14px', marginBottom: '10px' }}>
-                        <input
-                            type="text" placeholder="Titel..." value={nieuwsTitel}
-                            onChange={e => setNieuwsTitel(e.target.value)}
-                            style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.88rem', color: '#1e293b', boxSizing: 'border-box', marginBottom: '8px', fontFamily: 'inherit' }}
-                        />
-                        <textarea
-                            placeholder="Bericht..." value={nieuwsBericht}
-                            onChange={e => setNieuwsBericht(e.target.value)} rows={3}
-                            style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', color: '#1e293b', boxSizing: 'border-box', marginBottom: '8px', resize: 'none', fontFamily: 'inherit' }}
-                        />
-                        <input ref={nieuwsFotoRef} type="file" accept="image/*" onChange={handleNieuwsFoto} style={{ display: 'none' }} />
-                        {nieuwsFoto ? (
-                            <div style={{ position: 'relative', marginBottom: '10px' }}>
-                                <img src={nieuwsFoto} alt="" style={{ width: '100%', borderRadius: '9px', maxHeight: '160px', objectFit: 'cover', display: 'block' }} />
-                                <button onClick={() => setNieuwsFoto(null)} style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', color: '#fff', cursor: 'pointer', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <i className="fa-solid fa-xmark" />
-                                </button>
+            {/* Documenten */}
+            {docs.length > 0 && (() => {
+                const ongelezen = docs.filter(d => !(d.gelezen || []).some(g => g.userId === user?.id));
+                const gelezen   = docs.filter(d =>  (d.gelezen || []).some(g => g.userId === user?.id));
+                return (
+                    <div style={{ marginBottom: '22px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
+                                <h3 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Documenten</h3>
                             </div>
-                        ) : (
-                            <button onClick={() => nieuwsFotoRef.current?.click()} style={{ width: '100%', padding: '9px', borderRadius: '9px', border: '1.5px dashed #e2e8f0', background: '#f8fafc', color: '#94a3b8', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                <i className="fa-solid fa-camera" /> Foto toevoegen
-                            </button>
-                        )}
-                        <button onClick={handleNieuwsOpslaan} disabled={!nieuwsTitel.trim()}
-                            style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: nieuwsTitel.trim() ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: nieuwsTitel.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.9rem', cursor: nieuwsTitel.trim() ? 'pointer' : 'default' }}>
-                            Publiceren
-                        </button>
-                    </div>
-                )}
-
-                {nieuws.length === 0 ? (
-                    <div style={{ fontSize: '0.82rem', color: '#94a3b8', textAlign: 'center', padding: '14px 0' }}>Geen berichten</div>
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {nieuws.slice(0, 3).map(n => (
-                            <div key={n.id} style={{ background: '#fff', borderRadius: '12px', border: '1px solid #f1f5f9', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-                                {n.foto && <img src={n.foto} alt="" style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', display: 'block' }} />}
-                                <div style={{ padding: '12px 14px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
-                                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', flex: 1 }}>{n.titel}</div>
-                                        {user?.role === 'Beheerder' && (
-                                            <button onClick={() => handleNieuwsVerwijder(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: '0.75rem', padding: '0', flexShrink: 0 }}>
-                                                <i className="fa-solid fa-xmark" />
-                                            </button>
-                                        )}
+                            {ongelezen.length > 0 && (
+                                <span style={{ background: '#F5850A', color: '#fff', fontSize: '0.65rem', fontWeight: 700, borderRadius: '999px', padding: '2px 8px' }}>
+                                    {ongelezen.length} nieuw
+                                </span>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {ongelezen.map(doc => (
+                                <div key={doc.id} style={{ background: '#fff', borderRadius: '12px', border: '1.5px solid #fde8cc', padding: '11px 14px', boxShadow: '0 1px 6px rgba(245,133,10,0.08)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ background: '#FFF3E0', borderRadius: '9px', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <i className={`fa-solid ${doc.type === 'application/pdf' ? 'fa-file-pdf' : 'fa-file-image'}`} style={{ color: '#F5850A', fontSize: '0.9rem' }} />
                                     </div>
-                                    {n.bericht && <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px', lineHeight: 1.5 }}>{n.bericht}</div>}
-                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '6px' }}>
-                                        {n.auteur} · {new Date(n.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
+                                        {doc.omschrijving && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.omschrijving}</div>}
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                                        <button onClick={() => bekijkDoc(doc)} style={{ padding: '4px 10px', background: '#F5850A', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>Bekijk</button>
+                                        <button onClick={() => bevestigGelezen(doc.id)} style={{ padding: '4px 10px', background: '#f0fdf4', color: '#10b981', border: '1px solid #86efac', borderRadius: '7px', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>Aanvinken</button>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
+                            {gelezen.length > 0 && (
+                                <button onClick={() => setGelezenDocsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textAlign: 'left', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <i className={`fa-solid fa-chevron-${gelezenDocsOpen ? 'up' : 'down'}`} style={{ fontSize: '0.65rem' }} />
+                                    {gelezen.length} gelezen document{gelezen.length !== 1 ? 'en' : ''}
+                                </button>
+                            )}
+                            {gelezenDocsOpen && gelezen.map(doc => (
+                                <div key={doc.id} style={{ background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', opacity: 0.75 }}>
+                                    <i className="fa-solid fa-check-circle" style={{ color: '#10b981', fontSize: '0.9rem', flexShrink: 0 }} />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
+                                    </div>
+                                    <button onClick={() => bekijkDoc(doc)} style={{ padding: '4px 10px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '7px', fontWeight: 600, fontSize: '0.72rem', cursor: 'pointer' }}>Bekijk</button>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                )}
-            </div>
+                );
+            })()}
 
             {/* Toolbox Meetings — alleen niet-afgevinkt */}
             {(() => {
@@ -657,105 +610,9 @@ export default function MedewerkerHome() {
                 );
             })()}
 
-            <div style={{ marginBottom: '22px' }}>
-                {/* Documenten onder Toolbox Meetings */}
-                {docs.length > 0 && (() => {
-                    const ongelezen = docs.filter(doc => !(doc.gelezen || []).find(g => g.userId === user?.id));
-                    const gelezenDocs = docs.filter(doc => !!(doc.gelezen || []).find(g => g.userId === user?.id));
-                    const renderDoc = (doc) => {
-                        const gelezenEntry = (doc.gelezen || []).find(g => g.userId === user?.id);
-                        const heeftGelezen = !!gelezenEntry;
-                        const isPdf = doc.type === 'application/pdf';
-                        return (
-                            <div key={doc.id} style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '13px', padding: '12px 14px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isPdf ? '#fff1f2' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            <i className={`fa-solid ${isPdf ? 'fa-file-pdf' : 'fa-file-lines'}`} style={{ color: isPdf ? '#e11d48' : '#3b82f6', fontSize: '1rem' }} />
-                                        </div>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
-                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>
-                                                {new Date(doc.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '7px', marginTop: '10px' }}>
-                                        <button onClick={() => bekijkDoc(doc)}
-                                            style={{ flex: 1, padding: '8px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                                            <i className="fa-solid fa-eye" />Bekijken
-                                        </button>
-                                        {heeftGelezen ? (
-                                            <div style={{ flex: 1, padding: '8px 10px', borderRadius: '9px', border: '1.5px solid #86efac', background: '#f0fdf4', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#10b981', fontWeight: 700, fontSize: '0.8rem' }}>
-                                                    <i className="fa-solid fa-circle-check" />Gelezen ✓
-                                                </div>
-                                                <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
-                                                    {gelezenEntry.timestamp ? new Date(gelezenEntry.timestamp).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) + ' ' + new Date(gelezenEntry.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <button onClick={() => bevestigGelezen(doc.id)}
-                                                style={{ flex: 1, padding: '8px', borderRadius: '9px', border: '1.5px solid #fde8cc', background: '#fff8f0', color: '#F5850A', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                                                <i className="fa-solid fa-circle-check" />Aanvinken
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                        );
-                    };
-                    return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-                            {ongelezen.map(renderDoc)}
-
-                            {gelezenDocs.length > 0 && (
-                                <div style={{ marginTop: ongelezen.length > 0 ? '4px' : '0' }}>
-                                    <button onClick={() => setGelezenDocsOpen(v => !v)}
-                                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '10px', padding: '8px 12px', cursor: 'pointer', marginBottom: gelezenDocsOpen ? '6px' : '0' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                                            <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.9rem' }} />
-                                            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#065f46' }}>Gelezen ({gelezenDocs.length})</span>
-                                        </div>
-                                        <i className={`fa-solid fa-chevron-${gelezenDocsOpen ? 'up' : 'down'}`} style={{ color: '#10b981', fontSize: '0.75rem' }} />
-                                    </button>
-                                    {gelezenDocsOpen && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                            {gelezenDocs.map(doc => {
-                                                const gelezenEntry = (doc.gelezen || []).find(g => g.userId === user?.id);
-                                                const isPdf = doc.type === 'application/pdf';
-                                                return (
-                                                    <div key={doc.id} style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '13px', padding: '12px 14px' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isPdf ? '#fff1f2' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                                <i className={`fa-solid ${isPdf ? 'fa-file-pdf' : 'fa-file-lines'}`} style={{ color: isPdf ? '#e11d48' : '#3b82f6', fontSize: '1rem' }} />
-                                                            </div>
-                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#065f46', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
-                                                                <div style={{ fontSize: '0.68rem', color: '#6ee7b7', marginTop: '2px' }}>
-                                                                    Gelezen {gelezenEntry?.timestamp ? new Date(gelezenEntry.timestamp).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) + ' ' + new Date(gelezenEntry.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}
-                                                                </div>
-                                                            </div>
-                                                            <button onClick={() => bekijkDoc(doc)}
-                                                                style={{ padding: '6px 10px', borderRadius: '8px', border: '1.5px solid #bbf7d0', background: '#fff', color: '#10b981', fontWeight: 600, fontSize: '0.75rem', cursor: 'pointer', flexShrink: 0 }}>
-                                                                <i className="fa-solid fa-eye" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })()}
-            </div>
 
             {/* Document viewer modal */}
             {docViewer && (() => {
-                const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-                const isPdf = docViewer.type === 'application/pdf';
-                const gelezenEntry = (docs.find(d => d.id === docViewer.id)?.gelezen || []).find(g => g.userId === user?.id);
                 return (
                 <>
                     <div onClick={() => setDocViewer(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 400 }} />
@@ -778,125 +635,6 @@ export default function MedewerkerHome() {
                 );
             })()}
 
-            {/* Notities */}
-            <div style={{ marginBottom: '22px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                        <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                        <h3 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Mijn Notities</h3>
-                    </div>
-                    <div style={{ display: 'flex', gap: '5px' }}>
-                        <button onClick={() => setNotitiesModal('memo')} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 9px', background: '#fff8f0', border: '1.5px solid #fde8cc', borderRadius: '8px', color: '#F5850A', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>
-                            <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.62rem' }} />Memo
-                        </button>
-                        <button onClick={() => setNotitiesModal('checklist')} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 9px', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '8px', color: '#10b981', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>
-                            <i className="fa-solid fa-list-check" style={{ fontSize: '0.62rem' }} />Checklist
-                        </button>
-                    </div>
-                </div>
-
-                {notities.length === 0 ? (
-                    <div style={{ fontSize: '0.82rem', color: '#94a3b8', textAlign: 'center', padding: '14px 0' }}>Nog geen notities — tik op Memo of Checklist</div>
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {notities.map(n => {
-                            const kl = KLEUREN.find(k => k.id === (n.kleur || 'wit')) || KLEUREN[0];
-                            const gedaan = n.items?.filter(i => i.gedaan).length ?? 0;
-                            const totaal = n.items?.length ?? 0;
-                            return (
-                                <div key={n.id} style={{ background: kl.bg, border: `1.5px solid ${kl.border}`, borderRadius: '12px', padding: '12px', position: 'relative' }}>
-                                    <button onClick={() => deleteNotitie(n.id)} style={{ position: 'absolute', top: '8px', right: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: '0.8rem', padding: '2px 5px' }}>
-                                        <i className="fa-solid fa-xmark" />
-                                    </button>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', paddingRight: '22px' }}>
-                                        <i className={`fa-solid ${n.type === 'memo' ? 'fa-note-sticky' : 'fa-list-check'}`}
-                                            style={{ color: n.type === 'memo' ? '#F5850A' : '#10b981', fontSize: '0.7rem' }} />
-                                        <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#1e293b' }}>{n.titel}</span>
-                                    </div>
-                                    {n.type === 'memo' && n.inhoud && (
-                                        <div style={{ fontSize: '0.82rem', color: '#475569', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: '6px' }}>{n.inhoud}</div>
-                                    )}
-                                    {n.type === 'checklist' && n.items?.length > 0 && (
-                                        <>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '6px' }}>
-                                                {n.items.map((it, i) => (
-                                                    <div key={i} onClick={() => toggleNotitieCheck(n.id, i)} style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer' }}>
-                                                        <div style={{ width: '16px', height: '16px', borderRadius: '4px', flexShrink: 0, border: `2px solid ${it.gedaan ? '#10b981' : '#cbd5e1'}`, background: it.gedaan ? '#10b981' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                            {it.gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.5rem' }} />}
-                                                        </div>
-                                                        <span style={{ fontSize: '0.82rem', color: it.gedaan ? '#94a3b8' : '#334155', textDecoration: it.gedaan ? 'line-through' : 'none', flex: 1 }}>{it.tekst}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                                                <div style={{ flex: 1, height: '3px', borderRadius: '2px', background: '#e2e8f0', overflow: 'hidden' }}>
-                                                    <div style={{ height: '100%', width: `${totaal ? (gedaan/totaal)*100 : 0}%`, background: gedaan===totaal&&totaal>0 ? '#10b981' : '#F5850A', borderRadius: '2px' }} />
-                                                </div>
-                                                <span style={{ fontSize: '0.63rem', fontWeight: 700, color: gedaan===totaal&&totaal>0 ? '#10b981' : '#94a3b8' }}>{gedaan}/{totaal}</span>
-                                            </div>
-                                        </>
-                                    )}
-                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '5px' }}>
-                                        {new Date(n.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
-
-            {/* Notities modal */}
-            {notitiesModal && (
-                <>
-                    <div onClick={sluitNotitiesModal} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300 }} />
-                    <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', padding: '20px 20px 32px', zIndex: 310, maxHeight: '85vh', overflowY: 'auto' }}>
-                        <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '0 auto 16px' }} />
-                        <h3 style={{ margin: '0 0 14px', fontSize: '1rem', fontWeight: 800, color: notitiesModal === 'memo' ? '#F5850A' : '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className={`fa-solid ${notitiesModal === 'memo' ? 'fa-note-sticky' : 'fa-list-check'}`} />
-                            {notitiesModal === 'memo' ? 'Nieuwe memo' : 'Nieuwe checklist'}
-                        </h3>
-                        <input type="text" placeholder="Titel..." value={notitiesTitel} onChange={e => setNotitiesTitel(e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', color: '#1e293b', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none', marginBottom: '10px', fontWeight: 600 }} autoFocus />
-                        {notitiesModal === 'memo' && (
-                            <textarea placeholder="Schrijf hier je memo..." value={notitiesInhoud} onChange={e => setNotitiesInhoud(e.target.value)} rows={5}
-                                style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', color: '#1e293b', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none', resize: 'vertical', marginBottom: '10px' }} />
-                        )}
-                        {notitiesModal === 'checklist' && (
-                            <div style={{ marginBottom: '10px' }}>
-                                {notitiesCheckItems.map((it, i) => (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 0', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fa-regular fa-square" style={{ color: '#cbd5e1', fontSize: '0.85rem', flexShrink: 0 }} />
-                                        <span style={{ flex: 1, fontSize: '0.88rem', color: '#334155' }}>{it.tekst}</span>
-                                        <button onClick={() => setNotitiesCheckItems(p => p.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: '0.8rem', padding: 0 }}>
-                                            <i className="fa-solid fa-xmark" />
-                                        </button>
-                                    </div>
-                                ))}
-                                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-                                    <input ref={notitiesNieuwItemRef} type="text" placeholder="Item toevoegen..." value={notitiesNieuwItem}
-                                        onChange={e => setNotitiesNieuwItem(e.target.value)}
-                                        onKeyDown={e => e.key === 'Enter' && voegNotitieItemToe()}
-                                        style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', color: '#1e293b', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none' }} />
-                                    <button onClick={voegNotitieItemToe} style={{ padding: '0 14px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: 'pointer' }}>+</button>
-                                </div>
-                            </div>
-                        )}
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-                            {KLEUREN.map(k => (
-                                <button key={k.id} onClick={() => setNotitiesKleur(k.id)} style={{ width: '26px', height: '26px', borderRadius: '50%', background: k.bg, border: `2.5px solid ${notitiesKleur === k.id ? '#F5850A' : k.border}`, cursor: 'pointer' }} />
-                            ))}
-                            <span style={{ fontSize: '0.7rem', color: '#94a3b8', alignSelf: 'center', marginLeft: '4px' }}>kleur</span>
-                        </div>
-                        <button onClick={opslaanNotitie} disabled={!notitiesTitel.trim() || (notitiesModal === 'checklist' && notitiesCheckItems.length === 0)}
-                            style={{ width: '100%', padding: '12px', borderRadius: '12px', border: 'none', fontWeight: 700, fontSize: '0.95rem', cursor: notitiesTitel.trim() ? 'pointer' : 'default',
-                                background: notitiesTitel.trim() ? notitiesModal === 'memo' ? 'linear-gradient(135deg,#F5850A,#D96800)' : 'linear-gradient(135deg,#10b981,#059669)' : '#e2e8f0',
-                                color: notitiesTitel.trim() ? '#fff' : '#94a3b8' }}>
-                            <i className="fa-solid fa-floppy-disk" style={{ marginRight: '8px' }} />Opslaan
-                        </button>
-                    </div>
-                </>
-            )}
 
 
             {/* Snelknoppen */}
@@ -937,6 +675,7 @@ export default function MedewerkerHome() {
                     </div>
                 </>
             )}
+        </div>
         </div>
     );
 }

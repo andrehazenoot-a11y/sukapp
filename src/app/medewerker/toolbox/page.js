@@ -25,9 +25,74 @@ const ONDERWERPEN = [
     'Anders',
 ];
 
+const MIME_ICOON = {
+    'application/pdf': '📄',
+    'image/jpeg': '🖼️',
+    'image/png': '🖼️',
+    'image/gif': '🖼️',
+    'video/mp4': '🎬',
+    'video/quicktime': '🎬',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '📝',
+    'application/msword': '📝',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '📊',
+    'application/vnd.ms-excel': '📊',
+};
+const bestandIcoon = (mime) => MIME_ICOON[mime] || '📎';
+
+function formatDatum(d) {
+    return new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+// ── Centrale meeting kaart (read-only, uitklapbaar) ──
+function CentraleKaart({ meeting }) {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1.5px solid #e2e8f0', overflow: 'hidden', marginBottom: '10px' }}>
+            <button onClick={() => setOpen(o => !o)} style={{ width: '100%', background: 'none', border: 'none', padding: '14px 16px', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ background: '#FFF3E0', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <i className="fa-solid fa-file-lines" style={{ color: '#F5850A', fontSize: '1rem' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meeting.titel}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                        {formatDatum(meeting.datum)}
+                        {meeting.bestanden?.length > 0 && ` · ${meeting.bestanden.length} bestand${meeting.bestanden.length !== 1 ? 'en' : ''}`}
+                    </div>
+                </div>
+                <i className="fa-solid fa-chevron-down" style={{ color: '#cbd5e1', fontSize: '0.75rem', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }} />
+            </button>
+
+            {open && (
+                <div style={{ borderTop: '1px solid #f1f5f9', padding: '12px 16px 16px' }}>
+                    {meeting.beschrijving && (
+                        <p style={{ margin: '0 0 12px', color: '#475569', fontSize: '0.88rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{meeting.beschrijving}</p>
+                    )}
+                    {meeting.bestanden?.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {meeting.bestanden.map(b => (
+                                <a key={b.bestand_id} href={`/api/medewerker-toolbox/bestand/${b.bestand_id}`} target="_blank" rel="noopener noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', textDecoration: 'none', border: '1px solid #e2e8f0', color: '#1e293b' }}>
+                                    <span style={{ fontSize: '1.2rem' }}>{bestandIcoon(b.mime_type)}</span>
+                                    <span style={{ flex: 1, fontSize: '0.875rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.originele_naam}</span>
+                                    <span style={{ color: '#F5850A', fontSize: '0.8rem', fontWeight: 600, flexShrink: 0 }}>Openen →</span>
+                                </a>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Geen bestanden bijgevoegd.</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ToolboxPage() {
     const { user } = useAuth();
     const [meetings, setMeetings] = useState([]);
+    const [centraleMeetings, setCentraleMeetings] = useState([]);
+    const [centraleLaden, setCentraleLaden] = useState(true);
     const [view, setView] = useState('lijst'); // 'lijst' | 'nieuw' | 'detail'
     const [selected, setSelected] = useState(null);
     const [form, setForm] = useState({ datum: new Date().toISOString().slice(0, 10), project: '', onderwerp: '', notities: '', aanwezig: '' });
@@ -35,6 +100,13 @@ export default function ToolboxPage() {
     const [nieuwNaam, setNieuwNaam] = useState('');
 
     useEffect(() => { setMeetings(loadMeetings()); }, []);
+
+    useEffect(() => {
+        fetch('/api/medewerker-toolbox')
+            .then(r => r.json())
+            .then(d => { setCentraleMeetings(Array.isArray(d) ? d : []); setCentraleLaden(false); })
+            .catch(() => setCentraleLaden(false));
+    }, []);
 
     function opslaan() {
         if (!form.project || !form.onderwerp) return;
@@ -173,12 +245,45 @@ export default function ToolboxPage() {
 
     // ── Lijst ──
     return (
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-toolbox" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Toolbox Meetings</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Registreer en bekijk meetings</div>
+                    </div>
+                </div>
+            </div>
         <div style={{ padding: '16px', maxWidth: '480px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+
+            {/* ── Van de beheerder ── */}
+            <div style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
+                    <div style={{ width: '3px', height: '16px', background: '#3b82f6', borderRadius: '2px' }} />
+                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Van de beheerder</span>
+                </div>
+
+                {centraleLaden ? (
+                    <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '12px 0' }}>Laden…</div>
+                ) : centraleMeetings.length === 0 ? (
+                    <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '12px 16px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #e2e8f0' }}>
+                        Geen meetings van de beheerder
+                    </div>
+                ) : (
+                    centraleMeetings.map(m => <CentraleKaart key={m.id} meeting={m} />)
+                )}
+            </div>
+
+            {/* ── Eigen meetings ── */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '2px' }}>
                         <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Toolbox Meetings</span>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Eigen meetings</span>
                     </div>
                     <div style={{ fontSize: '0.78rem', color: '#64748b', paddingLeft: '10px' }}>{meetings.length} bijeenkomst{meetings.length !== 1 ? 'en' : ''}</div>
                 </div>
@@ -188,9 +293,9 @@ export default function ToolboxPage() {
             </div>
 
             {meetings.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '48px 20px', color: '#94a3b8' }}>
-                    <i className="fa-solid fa-toolbox" style={{ fontSize: '2.5rem', marginBottom: '12px', display: 'block', color: '#e2e8f0' }} />
-                    <div style={{ fontWeight: 600, marginBottom: '4px', color: '#64748b' }}>Nog geen meetings</div>
+                <div style={{ textAlign: 'center', padding: '32px 20px', color: '#94a3b8' }}>
+                    <i className="fa-solid fa-toolbox" style={{ fontSize: '2rem', marginBottom: '10px', display: 'block', color: '#e2e8f0' }} />
+                    <div style={{ fontWeight: 600, marginBottom: '4px', color: '#64748b' }}>Nog geen eigen meetings</div>
                     <div style={{ fontSize: '0.85rem' }}>Tik op "Nieuw" om een toolbox meeting te registreren</div>
                 </div>
             )}
@@ -212,6 +317,7 @@ export default function ToolboxPage() {
                     </div>
                 </button>
             ))}
+        </div>
         </div>
     );
 }

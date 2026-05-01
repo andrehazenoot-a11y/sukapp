@@ -313,11 +313,11 @@ export default function MateriaalBotPage() {
                 text = 'Er is nog geen materiaallijst beschikbaar. Vraag de beheerder om de lijst in te laden.';
             } else if (results.length === 0) {
                 text = `Ik kon niets vinden voor "${q}". Probeer een andere zoekterm, zoals een deel van de productnaam of artikelcode.`;
-            } else if (results.length > 0 && !['n00','w05','m15','donker','licht','midden','zwart','wit'].some(k => q.toLowerCase().includes(k)) && (() => { const k = detectKleurTypes(results); return [k.heeftDonker, k.heeftMidden, k.heeftLicht].filter(Boolean).length >= 2; })()) {
-                const { heeftDonker, heeftMidden, heeftLicht } = detectKleurTypes(results);
+            } else if (results.length > 0 && !['n00','w05','m15','donker','licht','midden','zwart','wit'].some(k => q.toLowerCase().includes(k)) && (() => { const k = detectKleurTypes(results); return k.heeftDonker || k.heeftLicht; })()) {
+                const { heeftDonker, heeftLicht } = detectKleurTypes(results);
                 const kleurOpties = [
                     ...(heeftDonker ? [{ label: 'Donker (N00)', waarde: 'donker' }] : []),
-                    ...(heeftMidden ? [{ label: 'Middel (M15)', waarde: 'midden' }] : []),
+                    { label: 'Middel (M15)', waarde: 'midden' },
                     ...(heeftLicht  ? [{ label: 'Licht (W05)',  waarde: 'licht'  }] : []),
                 ];
                 setFlow({ type: 'kleur', allResults: results, query: q, knoppen: kleurOpties });
@@ -363,24 +363,26 @@ export default function MateriaalBotPage() {
     // "liter" staat als getal in naam, zoek op deelterm die zeker matcht
     const suggestions = useMemo(() => {
         const kandidaten = [
-            'Pure mat',
-            'Pure mat 5 N00',
-            'Pure mat 5 M15',
-            'Pure mat 5 W05',
-            'Pure mat 10 N00',
-            'Pure mat 10 M15',
-            'Pure mat 10 W05',
-            'Extreme mat plafond',
-            'Extreme mat',
-            'XD',
-            'SB',
-            'Primer Extra',
-            'Primer',
-            'BL Uniprimer',
+            // Rubbol
+            'Rubbol XD',
+            'Rubbol SB',
+            'Rubbol Primer',
+            'Rubbol Primer Extra',
             'BL Primer',
             'BL Rezisto Primer',
+            'BL Uniprimer',
             'BL Rezisto Satin',
             'BL Satura',
+            'BL Ventura',
+            // Alphacryl / Alpha
+            'Alphacryl Pure mat',
+            'Alphacryl Pure mat 5 M15',
+            'Alphacryl Pure mat 10 M15',
+            'Alpha Extreme mat',
+            'Alpha Extreme mat plafond',
+            'Alpha Easy Clean',
+            'Alpha Anti Marks',
+            'Alphatex IQ Mat',
         ];
         if (rows.length === 0) return kandidaten.slice(0, 8);
         // Filter op zoektermen die daadwerkelijk resultaat geven
@@ -849,15 +851,9 @@ export default function MateriaalBotPage() {
                                             </div>
                                             {/* Actieknoppen — horizontaal onderaan, of verticaal smal */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flexShrink: 0 }}>
-                                                <button onClick={() => laadSysteem(naam, wizard?.keuzes || {})}
-                                                    title="Systeemopbouw bekijken"
-                                                    style={{ width: '32px', height: '32px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#6366f1', fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.15s' }}
-                                                    onMouseOver={e => e.currentTarget.style.background = '#eef2ff'}
-                                                    onMouseOut={e => e.currentTarget.style.background = '#f8fafc'}>
-                                                    <i className="fa-solid fa-layer-group" />
-                                                </button>
+
                                                 <button onClick={() => voegToeAanBestellijst({ product: naam, aantal: 1, eenheid: eenheid || 'stuk', opmerking: prijsInfo ? `Prijs: ${fmt(prijsInfo.prijs)} per ${eenheid || 'stuk'}` : '', prijs: prijsInfo?.prijs || null })}
-                                                    title="Toevoegen aan bestellijst"
+                                                    title="Toevoegen aan persoonlijke bestellijst"
                                                     style={{ width: '32px', height: '32px', borderRadius: '9px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(245,133,10,0.35)', transition: 'transform 0.15s' }}
                                                     onMouseOver={e => e.currentTarget.style.transform = 'scale(1.08)'}
                                                     onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}>
@@ -927,7 +923,7 @@ export default function MateriaalBotPage() {
                                                     </button>
                                                     <button onClick={() => voegToeAanBestellijst({ product: naam, aantal, eenheid: `${inhoud ?? msg.gekozenMaat}L`, opmerking: totaal ? `Geschatte prijs: ${fmt(totaal)}` : '', prijs: totaal || null })}
                                                         style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
-                                                        title="Toevoegen aan bestellijst">
+                                                        title="Toevoegen aan persoonlijke bestellijst">
                                                         <i className="fa-solid fa-cart-plus" />
                                                     </button>
                                                 </div>
@@ -977,7 +973,7 @@ export default function MateriaalBotPage() {
                                                     </button>
                                                     <button onClick={() => voegToeAanBestellijst({ product: naam, aantal: benodigdL, eenheid: eenheid || 'L', opmerking: totaal ? `Geschatte prijs: ${fmt(totaal)}` : '', prijs: totaal || null })}
                                                         style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
-                                                        title="Toevoegen aan bestellijst">
+                                                        title="Toevoegen aan persoonlijke bestellijst">
                                                         <i className="fa-solid fa-cart-plus" />
                                                     </button>
                                                 </div>

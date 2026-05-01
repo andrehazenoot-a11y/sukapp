@@ -1779,8 +1779,8 @@ export default function ProjectenPage() {
     return (
         <>
         <div className="content-area" id="view-planning" style={{ maxWidth: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div className="page-header" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexShrink: 0, flexWrap: 'wrap' }}>
-                <h1 style={{ margin: 0, flexShrink: 0 }}>Planning</h1>
+            <div className="page-header-bar" style={{ flexShrink: 0 }}>
+                <h1>Planning</h1>
 
                 {/* Inline stats */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, flexWrap: 'wrap' }}>
@@ -1867,7 +1867,7 @@ export default function ProjectenPage() {
             )}
 
             {/* ===== NAVIGATIEBALK: Tabs + Zoek + Filter ===== */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '4px 8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', background: '#f1f5f9', borderRadius: '12px', padding: '4px 8px', flexWrap: 'wrap' }}>
                 {/* Tabs */}
                 {[
                     { id: 'project', icon: 'fa-diagram-project', label: 'Projectplanning' },
@@ -1877,10 +1877,8 @@ export default function ProjectenPage() {
                     { id: 'mijntaken', icon: 'fa-person-digging', label: 'Mijn Taken' },
                 ].map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px', borderRadius: '7px', border: 'none', background: tab === t.id ? 'var(--accent)' : 'transparent', color: tab === t.id ? '#fff' : '#64748b', fontWeight: tab === t.id ? 700 : 500, fontSize: '0.78rem', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
-                        onMouseEnter={e => { if (tab !== t.id) e.currentTarget.style.background = '#f1f5f9'; }}
-                        onMouseLeave={e => { if (tab !== t.id) e.currentTarget.style.background = 'transparent'; }}>
-                        <i className={`fa-solid ${t.icon}`} style={{ fontSize: '0.7rem' }} />
+                        className={`tab-btn${tab === t.id ? ' active' : ''}`}>
+                        <i className={`fa-solid ${t.icon}`} />
                         {t.label}
                     </button>
                 ))}

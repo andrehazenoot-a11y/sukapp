@@ -720,11 +720,18 @@ export default function MedewerkerPlanning() {
         try {
             const raw = localStorage.getItem('schildersapp_uren_registraties');
             const all = raw ? JSON.parse(raw) : [];
-            all.push(entry);
-            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(all));
-            updatedList = all;
+            // Vervang bestaande entry voor dezelfde taak + dag (geen duplicaten)
+            const gefilterd = all.filter(e =>
+                !(String(e.taskId) === String(detail.taskId) && e.date === detail.date && e.userId === user.id && !e.type)
+            );
+            gefilterd.push(entry);
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(gefilterd));
+            updatedList = gefilterd;
         } catch { updatedList = [...urenLijst, entry]; }
-        setUrenLijst(prev => [...prev, entry]);
+        setUrenLijst(prev => [
+            ...prev.filter(e => !(String(e.taskId) === String(detail.taskId) && e.date === detail.date && e.userId === user.id && !e.type)),
+            entry,
+        ]);
         setUrenAantal('');
         setUrenNote('');
         // PATCH werkbon uren als werkbon gekoppeld is aan deze dag
@@ -1376,16 +1383,25 @@ export default function MedewerkerPlanning() {
 
     async function voegLosMateriaalToe(naam, hoeveelheid) {
         if (!naam.trim() || !detail || !user) return;
+        const rk = losMatCode || naam.trim();
         const inkoop = losMatPrijs ? parseFloat(String(losMatPrijs).replace(',', '.')) : null;
-        const btwPct = inkoop != null ? parseInt(losMatBtw) : null;
-        const opslagPct = losMatOpslag ? parseFloat(String(losMatOpslag).replace(',', '.')) : null;
-        // Formule: inkoop + inkoop×BTW% + inkoop×opslag% (zelfde als Materiaalzoeker)
-        const verkoopExcl = inkoop != null
-            ? Math.round(inkoop * (1 + (opslagPct ?? 0) / 100) * 100) / 100
-            : null;
-        const verkoopIncl = inkoop != null && btwPct != null
-            ? Math.round((inkoop + inkoop * btwPct / 100 + inkoop * (opslagPct ?? 0) / 100) * 100) / 100
-            : null;
+        const opslagPct = parseFloat(matOpslagen[rk]) || (losMatOpslag ? parseFloat(String(losMatOpslag).replace(',', '.')) : 0);
+
+        // Exacte prioriteit als materiaalbot getVerkoopprijs():
+        // 1. Handmatige verkoopprijs beheerder → altijd prioriteit
+        // 2. Bereken: inkoop + inkoop×21% BTW + inkoop×opslag%
+        let verkoopIncl = null;
+        let verkoopExcl = null;
+        let btwPct = 21;
+        const handmatig = matVerkoop[rk];
+        if (handmatig != null && handmatig !== '') {
+            const v = parseFloat(handmatig);
+            if (v > 0) { verkoopIncl = v; verkoopExcl = v; }
+        } else if (inkoop != null && inkoop > 0) {
+            verkoopExcl = Math.round(inkoop * (1 + opslagPct / 100) * 100) / 100;
+            verkoopIncl = Math.round((inkoop + inkoop * 0.21 + inkoop * opslagPct / 100) * 100) / 100;
+        }
+
         const entry = {
             id: Date.now(),
             userId: user.id,
@@ -1499,7 +1515,19 @@ export default function MedewerkerPlanning() {
 
             localStorage.setItem('schildersapp_projecten', JSON.stringify(projects));
             setPlanning(getMyPlanningForWeek(user.id, week, year));
-            setDetail(null);
+            setDetail(prev => ({
+                ...prev,
+                projectName: newProject.name,
+                projectId:   newProject.id,
+                color:       newProject.color || '#F5850A',
+                taskName:    newTask.name,
+                taskId:      newTask.id,
+                client:      newProject.client || '',
+                address:     newProject.address || '',
+                completed:   newTask.completed,
+                progress:    newTask.progress || 0,
+                notes:       (newTask.notes || []).filter(n => typeof n === 'object'),
+            }));
         } catch (e) { console.error('saveProjectChange fout:', e); }
     }
 
@@ -1857,13 +1885,22 @@ export default function MedewerkerPlanning() {
     }
 
     return (
-        <div style={{ padding: '10px 12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '4px', height: '22px', background: 'linear-gradient(180deg, #F5850A, #D96800)', borderRadius: '2px' }} />
-                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>Planning</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-calendar-days" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Planning</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Week {week} · {weekLabel}</div>
+                    </div>
                 </div>
             </div>
+
+        <div style={{ padding: '10px 12px' }}>
             {/* Week navigatie — sticky */}
             <div style={{ position: 'sticky', top: 0, zIndex: 50, marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', borderRadius: '12px', padding: '6px', boxShadow: '0 2px 12px rgba(0,0,0,0.10)', border: '1px solid #f1f5f9' }}>
                 <button onClick={prevWeek} style={{ background: '#f8fafc', border: 'none', borderRadius: '10px', padding: '9px 14px', cursor: 'pointer', fontSize: '0.9rem', color: '#475569' }}>
@@ -2168,7 +2205,7 @@ export default function MedewerkerPlanning() {
                                                 key: e.id,
                                                 entry: e,
                                                 stijl: (werkbonEntry && !e.type) ? STIJL.werkbon : (STIJL[e.type] || STIJL.default),
-                                                label: e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || 'Projecturen'),
+                                                label: e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || (werkbonEntry ? 'Werkbon uren' : 'Projecturen')),
                                                 uren: e.hours || null,
                                             })),
                                             ...(dagMeerwerk.length > 0 ? [{
@@ -2292,11 +2329,11 @@ export default function MedewerkerPlanning() {
                                                     style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', marginBottom: '8px', padding: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     <i className="fa-solid fa-chevron-left" style={{ fontSize: '0.65rem' }} />{changeProject.name}
                                                 </button>
-                                                {(changeProject.tasks || []).filter(t => t.startDate && t.endDate).map(t => (
-                                                    <div key={t.id} onClick={() => { saveProjectChange(t, changeProject); setShowProjectChange(false); }}
+                                                {(changeProject.tasks || []).filter(t => t.name).map(t => (
+                                                    <div key={t.id} onClick={() => { saveProjectChange(t, changeProject); setShowProjectChange(false); setChangeProject(null); setProjectSearch(''); setUrenSection(null); }}
                                                         style={{ padding: '8px 10px', borderRadius: '9px', border: '1px solid #e2e8f0', marginBottom: '5px', cursor: 'pointer', background: '#fff' }}>
                                                         <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{t.name}</div>
-                                                        <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate} – {t.endDate}</div>
+                                                        {(t.startDate || t.endDate) && <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate}{t.startDate && t.endDate ? ' – ' : ''}{t.endDate}</div>}
                                                     </div>
                                                 ))}
                                             </div>
@@ -2306,16 +2343,11 @@ export default function MedewerkerPlanning() {
                             })()}
 
                             {/* Tabs */}
-                            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '12px', padding: '4px', marginBottom: '0', overflowX: 'auto', scrollbarWidth: 'none' }}>
-                                {[['info','fa-circle-info','Info'],['checklist','fa-list-check','Checklist'],['uren','fa-clock','Uren'],['werkbon','fa-file-pen','Werkbon'],['materialen','fa-box-open','Materiaal']].map(([t, ic, l]) => (
+                            <div className="tab-nav" style={{ marginBottom: 0, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                                {[['uren','fa-clock','Uren'],['werkbon','fa-file-pen','Werkbon'],['materialen','fa-box-open','Materiaalbot']].map(([t, ic, l]) => (
                                     <button key={t} onClick={() => setDetailTab(t)}
-                                        style={{ flexShrink: 0, padding: '8px 10px', borderRadius: '9px', border: 'none',
-                                            background: detailTab === t ? '#fff' : 'transparent',
-                                            color: detailTab === t ? '#F5850A' : '#64748b',
-                                            fontWeight: detailTab === t ? 700 : 500, fontSize: '0.75rem', cursor: 'pointer',
-                                            boxShadow: detailTab === t ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', transition: 'all 0.15s',
-                                            position: 'relative' }}>
+                                        className={`tab-btn${detailTab === t ? ' active' : ''}`}
+                                        style={{ flexShrink: 0, position: 'relative' }}>
                                         <i className={`fa-solid ${ic}`} style={{ fontSize: '0.7rem' }} />
                                         {l}
                                         {t === 'werkbon' && selectedWerkbon && (
@@ -2332,8 +2364,7 @@ export default function MedewerkerPlanning() {
                         {/* Tab inhoud — scrollbaar */}
                         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 32px' }}>
 
-                            {/* ── TAB: INFO ── */}
-                            {detailTab === 'info' && (() => {
+                            {false && (() => {
                                 const infoProject = (() => { try { return (JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]')).find(p => p.id == detail.projectId) || {}; } catch { return {}; } })();
                                 const infoTask = (infoProject.tasks || []).find(t => t.id === detail.taskId) || {};
                                 const infoRow = (icon, content, border = true) => content ? (
@@ -2351,72 +2382,6 @@ export default function MedewerkerPlanning() {
                                             {detail.address} <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '0.65rem' }} />
                                         </a>
                                     ))}
-                                    {infoRow('fa-phone', infoProject.phone && (
-                                        <a href={`tel:${infoProject.phone}`} style={{ fontSize: '0.88rem', color: '#F5850A', textDecoration: 'none', fontWeight: 600 }}>
-                                            {infoProject.phone}
-                                        </a>
-                                    ))}
-                                    {infoRow('fa-envelope', infoProject.email && (
-                                        <a href={`mailto:${infoProject.email}`} style={{ fontSize: '0.88rem', color: '#F5850A', textDecoration: 'none', fontWeight: 600 }}>
-                                            {infoProject.email}
-                                        </a>
-                                    ))}
-                                    <div style={{ padding: '14px 0', borderBottom: '1px solid #f1f5f9' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569' }}>Voortgang</span>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                {progressSaved && <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 600 }}>✓ Opgeslagen</span>}
-                                                <span style={{ fontSize: '1rem', fontWeight: 800, color: localProgress === 100 ? '#10b981' : '#F5850A', minWidth: '42px', textAlign: 'right' }}>{localProgress}%</span>
-                                            </div>
-                                        </div>
-                                        {/* Slider */}
-                                        <input type="range" min="0" max="100" step="5" value={localProgress}
-                                            onChange={e => setLocalProgress(Number(e.target.value))}
-                                            onMouseUp={e => saveProgress(Number(e.target.value))}
-                                            onTouchEnd={e => saveProgress(localProgress)}
-                                            style={{ width: '100%', accentColor: localProgress === 100 ? '#10b981' : '#F5850A', cursor: 'pointer', marginBottom: '10px' }} />
-                                        {/* Snelknoppen */}
-                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                                            {[25, 50, 75, 100].map(v => {
-                                                const active = localProgress === v;
-                                                const hovered = hoverProg === v;
-                                                const isGreen = v === 100;
-                                                const activeColor = isGreen ? '#10b981' : '#F5850A';
-                                                const bg = active ? activeColor : hovered ? activeColor + '22' : '#f8fafc';
-                                                const borderColor = active ? activeColor : hovered ? activeColor : '#e2e8f0';
-                                                const textColor = active ? '#fff' : hovered ? activeColor : '#94a3b8';
-                                                return (
-                                                    <button key={v} onClick={() => saveProgress(v)}
-                                                        onMouseEnter={() => setHoverProg(v)}
-                                                        onMouseLeave={() => setHoverProg(null)}
-                                                        style={{
-                                                            flex: 1, padding: '10px 0',
-                                                            border: `2px solid ${borderColor}`,
-                                                            borderRadius: '12px',
-                                                            background: bg,
-                                                            fontSize: '0.82rem', fontWeight: 800,
-                                                            color: textColor,
-                                                            cursor: 'pointer',
-                                                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
-                                                            transition: 'all 0.15s',
-                                                            transform: hovered && !active ? 'translateY(-2px)' : 'none',
-                                                            boxShadow: hovered && !active ? `0 4px 12px ${activeColor}44` : 'none',
-                                                        }}>
-                                                        <span style={{ fontSize: '0.62rem', opacity: active || hovered ? 0.85 : 0.5 }}>
-                                                            {'▓'.repeat(Math.round(v / 25))}{'░'.repeat(4 - Math.round(v / 25))}
-                                                        </span>
-                                                        {v}%
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                        {/* Taak afgerond knop */}
-                                        <button onClick={() => saveProgress(100, true)}
-                                            style={{ width: '100%', padding: '12px', borderRadius: '12px', border: 'none', background: detail.completed ? '#f0fdf4' : 'linear-gradient(135deg,#10b981,#059669)', color: detail.completed ? '#10b981' : '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                            <i className={`fa-solid fa-${detail.completed ? 'circle-check' : 'check'}`} />
-                                            {detail.completed ? 'Taak afgerond' : 'Markeer als afgerond'}
-                                        </button>
-                                    </div>
 
 
                                     {false && (() => { return ( /* REMOVED */
@@ -2838,7 +2803,7 @@ export default function MedewerkerPlanning() {
                                                                 <i className={`fa-solid ${e.type === 'ziek' ? 'fa-bed-pulse' : e.type === 'andere' ? 'fa-stethoscope' : 'fa-clock'}`}
                                                                     style={{ color: e.type === 'ziek' ? '#ef4444' : e.type === 'andere' ? '#6366f1' : '#10b981', fontSize: '0.8rem', flexShrink: 0 }} />
                                                                 <span style={{ fontSize: '0.85rem', color: e.type === 'ziek' ? '#ef4444' : '#475569', fontWeight: e.type === 'ziek' ? 700 : 400, flex: 1 }}>
-                                                                    {e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || 'Projecturen')}
+                                                                    {e.type === 'ziek' ? (e.note || 'Ziek gemeld') : e.type === 'andere' ? (e.note || 'Andere uren') : (e.note || (selectedWerkbon ? 'Werkbon uren' : 'Projecturen'))}
                                                                 </span>
                                                                 {e.hours ? <span style={{ fontWeight: 700, color: '#F5850A', fontSize: '0.95rem' }}>{e.hours}u</span> : null}
                                                                 {e.type === 'ziek'
@@ -2894,7 +2859,7 @@ export default function MedewerkerPlanning() {
                                                     style={{ width: '100%', padding: '13px 16px', background: !urenSection ? '#fff8f0' : '#f8fafc',
                                                         border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
                                                     <i className="fa-solid fa-clock" style={{ color: '#F5850A', fontSize: '1rem' }} />
-                                                    <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Projecturen</span>
+                                                    <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{selectedWerkbon ? 'Werkbon uren' : 'Projecturen'}</span>
                                                     <i className={`fa-solid fa-chevron-${!urenSection ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
                                                 </button>
                                                 {!urenSection && (
@@ -3320,7 +3285,7 @@ export default function MedewerkerPlanning() {
 
                                             {/* Uren */}
                                             <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
-                                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Uren</div>
+                                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Werkbon uren</div>
                                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                                     <input type="number" min="0" step="0.5" value={wbDetailUren} onChange={e => setWbDetailUren(e.target.value)}
                                                         placeholder="0"
@@ -3495,12 +3460,6 @@ export default function MedewerkerPlanning() {
                                                                 <span style={{ fontSize: '0.72rem', color: '#64748b', background: '#f8fafc', borderRadius: '5px', padding: '1px 7px' }}>{m.hoeveelheid}</span>
                                                             </div>
                                                         </div>
-                                                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                                            {m.inkoopprijs != null && <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Ink. € {m.inkoopprijs.toFixed(2)}</div>}
-                                                            {m.opslagPct != null && m.opslagPct > 0 && <div style={{ fontSize: '0.7rem', color: '#64748b' }}>+{m.opslagPct}% opslag</div>}
-                                                            {m.btw != null && <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{m.btw}% BTW</div>}
-                                                            {m.verkoopIncl != null && <div style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: 800 }}>€ {m.verkoopIncl.toFixed(2)}</div>}
-                                                        </div>
                                                         <button onClick={() => verwijderLosMateriaal(m.id)}
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px 4px', fontSize: '0.78rem', flexShrink: 0 }}>
                                                             <i className="fa-solid fa-xmark" />
@@ -3508,31 +3467,6 @@ export default function MedewerkerPlanning() {
                                                     </div>
                                                 </div>
                                             ))}
-                                            {/* Totaalregel */}
-                                            {(() => {
-                                                const metPrijs = losMateriaalLijst.filter(m => m.verkoopIncl != null || m.verkoopExcl != null || m.inkoopprijs != null);
-                                                if (metPrijs.length === 0) return null;
-                                                const totInkoop = metPrijs.reduce((s, m) => s + (m.inkoopprijs ?? 0), 0);
-                                                const totVkExcl = metPrijs.reduce((s, m) => s + (m.verkoopExcl ?? m.inkoopprijs ?? 0), 0);
-                                                const totVkIncl = metPrijs.reduce((s, m) => s + (m.verkoopIncl ?? m.verkoopExcl ?? m.inkoopprijs ?? 0), 0);
-                                                const totBtw = totVkIncl - totVkExcl;
-                                                return (
-                                                    <div style={{ background: '#f0fdf4', borderRadius: '10px', border: '1px solid #86efac', padding: '10px 12px', marginTop: '2px' }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '2px' }}>
-                                                            <span>Inkooptotaal excl. BTW</span><span>€ {totInkoop.toFixed(2)}</span>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '2px' }}>
-                                                            <span>Verkooptotaal excl. BTW</span><span>€ {totVkExcl.toFixed(2)}</span>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '4px' }}>
-                                                            <span>BTW</span><span>€ {totBtw.toFixed(2)}</span>
-                                                        </div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#10b981', fontSize: '0.9rem', borderTop: '1px solid #86efac', paddingTop: '6px' }}>
-                                                            <span>Totaal incl. BTW</span><span>€ {totVkIncl.toFixed(2)}</span>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })()}
                                         </div>
                                     ) : (
                                         <div style={{ textAlign: 'center', padding: '24px 0 8px' }}>
@@ -3600,7 +3534,6 @@ export default function MedewerkerPlanning() {
                                                                         {eenheid && <span style={{ fontSize: '0.67rem', color: '#64748b' }}>{eenheid}</span>}
                                                                     </div>
                                                                 </div>
-                                                                {prijs && <span style={{ fontSize: '0.75rem', color: '#F5850A', fontWeight: 700, flexShrink: 0 }}>€ {prijs}</span>}
                                                             </button>
                                                         );
                                                     })}
@@ -3611,52 +3544,6 @@ export default function MedewerkerPlanning() {
                                         <input type="text" value={losMatHoeveelheid} onChange={e => setLosMatHoeveelheid(e.target.value)}
                                             placeholder="Hoeveelheid (bijv. 2 liter)"
                                             style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', marginBottom: '6px', boxSizing: 'border-box' }} />
-                                        {/* Inkoopprijs + BTW */}
-                                        <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-                                            <div style={{ flex: 2, position: 'relative' }}>
-                                                <span style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem', pointerEvents: 'none' }}>€</span>
-                                                <input type="number" min="0" step="0.01" placeholder="Inkoopprijs excl. BTW"
-                                                    value={losMatPrijs} onChange={e => setLosMatPrijs(e.target.value)}
-                                                    style={{ width: '100%', padding: '8px 8px 8px 22px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box' }} />
-                                            </div>
-                                            <select value={losMatBtw} onChange={e => setLosMatBtw(e.target.value)}
-                                                style={{ flex: 1, padding: '8px 6px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', color: '#475569', background: '#fff' }}>
-                                                <option value="0">0% BTW</option>
-                                                <option value="9">9% BTW</option>
-                                                <option value="21">21% BTW</option>
-                                            </select>
-                                        </div>
-                                        {/* Opslag % */}
-                                        <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-                                            <div style={{ flex: 2, position: 'relative' }}>
-                                                <input type="number" min="0" step="1" placeholder="Opslag % (bijv. 30)"
-                                                    value={losMatOpslag} onChange={e => setLosMatOpslag(e.target.value)}
-                                                    style={{ width: '100%', padding: '8px 26px 8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box' }} />
-                                                <span style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem', pointerEvents: 'none' }}>%</span>
-                                            </div>
-                                            <div style={{ flex: 1 }} />
-                                        </div>
-                                        {/* Live preview verkoopprijs */}
-                                        {losMatPrijs && (() => {
-                                            const ink = parseFloat(String(losMatPrijs).replace(',', '.'));
-                                            if (isNaN(ink)) return null;
-                                            const opl = losMatOpslag ? parseFloat(String(losMatOpslag).replace(',', '.')) : 0;
-                                            const btw = parseInt(losMatBtw);
-                                            // Formule: inkoop + inkoop×BTW% + inkoop×opslag% (zelfde als Materiaalzoeker)
-                                            const btwBedrag = Math.round(ink * btw / 100 * 100) / 100;
-                                            const opslagBedrag = Math.round(ink * opl / 100 * 100) / 100;
-                                            const vkIncl = Math.round((ink + btwBedrag + opslagBedrag) * 100) / 100;
-                                            return (
-                                                <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '8px 10px', marginBottom: '6px', fontSize: '0.75rem', color: '#64748b' }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Inkoop excl. BTW</span><span>€ {ink.toFixed(2)}</span></div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>BTW {btw}%</span><span>€ {btwBedrag.toFixed(2)}</span></div>
-                                                    {opl > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Opslag {opl}%</span><span>€ {opslagBedrag.toFixed(2)}</span></div>}
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#10b981', marginTop: '3px', borderTop: '1px solid #e2e8f0', paddingTop: '4px' }}>
-                                                        <span>Verkoopprijs</span><span>€ {vkIncl.toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
                                         {/* Toevoegen knop */}
                                         <button onClick={() => { if (losMatNaam.trim()) { voegLosMateriaalToe(losMatNaam.trim(), losMatHoeveelheid.trim() || '1 stuk'); setLosMatZoek([]); } }}
                                             style={{ width: '100%', padding: '10px', background: losMatNaam.trim() ? '#10b981' : '#e2e8f0', border: 'none', borderRadius: '9px', color: losMatNaam.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.88rem', cursor: losMatNaam.trim() ? 'pointer' : 'not-allowed' }}>
@@ -3709,17 +3596,6 @@ export default function MedewerkerPlanning() {
 
                                 {/* ── Stap 1: hoofdmenu ── */}
                                 {!dagKiezer.step && (<>
-                                    <button onClick={() => setDagKiezer(dk => ({ ...dk, step: 'project' }))}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: '#fff8f0', border: '1.5px solid #fde8cc', borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}>
-                                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#F5850A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            <i className="fa-solid fa-briefcase" style={{ color: '#fff', fontSize: '1rem' }} />
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>Project / uren boeken</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>Kies een ingeplande taak en boek je uren op een project</div>
-                                        </div>
-                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.75rem' }} />
-                                    </button>
                                     <button onClick={() => {
                                         const vrijTaskId = `vrij-${dagKiezer.date}`;
                                         setDagKiezer(null);
@@ -3875,6 +3751,7 @@ export default function MedewerkerPlanning() {
                     </div>
                 </div>
             )}
+        </div>
         </div>
     );
 }

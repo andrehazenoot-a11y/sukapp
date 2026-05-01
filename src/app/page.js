@@ -18,13 +18,6 @@ export default function Home() {
   const [docFout, setDocFout]         = useState(null);
   const [werkbonnen, setWerkbonnen]   = useState([]);
   const [werkbonOpen, setWerkbonOpen] = useState({});
-  const [nieuws, setNieuws] = useState([]);
-  const [nieuwsFormOpen, setNieuwsFormOpen] = useState(false);
-  const [nieuwsTitel, setNieuwsTitel] = useState('');
-  const [nieuwsBericht, setNieuwsBericht] = useState('');
-  const [nieuwsFoto, setNieuwsFoto] = useState(null);
-  const [nieuwsSaving, setNieuwsSaving] = useState(false);
-  const nieuwsFotoRef = useRef();
   const [verjaardagen, setVerjaardagen] = useState([]);
   const [vjFormOpen, setVjFormOpen] = useState(false);
   const [vjNaam, setVjNaam] = useState('');
@@ -32,14 +25,6 @@ export default function Home() {
   const [vjNotitie, setVjNotitie] = useState('');
   const [vjSyncing, setVjSyncing] = useState(false);
   const [vjSyncResult, setVjSyncResult] = useState(null);
-  const [tbMeetings, setTbMeetings] = useState([]);
-  const [tbFormOpen, setTbFormOpen] = useState(false);
-  const [tbTitel, setTbTitel] = useState('');
-  const [tbDatum, setTbDatum] = useState('');
-  const [tbBeschrijving, setTbBeschrijving] = useState('');
-  const [tbSaving, setTbSaving] = useState(false);
-  const [tbUploading, setTbUploading] = useState({});
-  const tbBestandRef = useRef({});
 const docInputRef                   = useRef();
 
   // Live stats uit localStorage
@@ -65,39 +50,8 @@ const docInputRef                   = useRef();
   useEffect(() => {
     fetch('/api/documenten?alle=1').then(r => r.json()).then(data => { if (Array.isArray(data)) setDocs(data); }).catch(() => {});
     fetch('/api/werkbonnen').then(r => r.json()).then(data => { if (Array.isArray(data)) setWerkbonnen(data); }).catch(() => {});
-    fetch('/api/nieuws').then(r => r.json()).then(data => { if (Array.isArray(data)) setNieuws(data); }).catch(() => {});
-    fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(data)) setVerjaardagen(data); }).catch(() => {});
-    fetch('/api/beheerder-toolbox').then(r => r.json()).then(data => { if (Array.isArray(data)) setTbMeetings(data); }).catch(() => {});
+fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(data)) setVerjaardagen(data); }).catch(() => {});
   }, []);
-
-  async function handleNieuwsOpslaan() {
-    if (!nieuwsTitel.trim() || nieuwsSaving) return;
-    setNieuwsSaving(true);
-    try {
-      const res = await fetch('/api/nieuws', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ titel: nieuwsTitel, bericht: nieuwsBericht, foto: nieuwsFoto, auteur: user?.name, auteur_id: user?.id }),
-      });
-      const item = await res.json();
-      setNieuws(prev => [item, ...prev]);
-      setNieuwsTitel(''); setNieuwsBericht(''); setNieuwsFoto(null); setNieuwsFormOpen(false);
-    } catch {}
-    setNieuwsSaving(false);
-  }
-
-  async function handleNieuwsVerwijder(id) {
-    setNieuws(prev => prev.filter(n => n.id !== id));
-    await fetch(`/api/nieuws/${id}`, { method: 'DELETE' }).catch(() => {});
-  }
-
-  function handleNieuwsFoto(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => setNieuwsFoto(ev.target.result);
-    reader.readAsDataURL(file);
-  }
 
   async function handleVjOpslaan() {
     if (!vjNaam.trim() || !vjDatum) return;
@@ -120,55 +74,6 @@ const docInputRef                   = useRef();
     await fetch(`/api/verjaardagen/${id}`, { method: 'DELETE' }).catch(() => {});
   }
 
-  async function handleTbOpslaan() {
-    if (!tbTitel.trim() || !tbDatum || tbSaving) return;
-    setTbSaving(true);
-    try {
-      const res = await fetch('/api/beheerder-toolbox', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ titel: tbTitel, datum: tbDatum, beschrijving: tbBeschrijving }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        fetch('/api/beheerder-toolbox').then(r => r.json()).then(d => { if (Array.isArray(d)) setTbMeetings(d); }).catch(() => {});
-        setTbTitel(''); setTbDatum(''); setTbBeschrijving(''); setTbFormOpen(false);
-      }
-    } catch {}
-    setTbSaving(false);
-  }
-
-  async function handleTbVerwijder(id) {
-    if (!window.confirm('Meeting verwijderen?')) return;
-    setTbMeetings(prev => prev.filter(m => m.id !== id));
-    await fetch(`/api/beheerder-toolbox/${id}`, { method: 'DELETE' }).catch(() => {});
-  }
-
-  async function handleTbBestandUpload(meetingId, e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setTbUploading(prev => ({ ...prev, [meetingId]: true }));
-    const fd = new FormData();
-    fd.append('bestand', file);
-    try {
-      const res = await fetch(`/api/beheerder-toolbox/${meetingId}/bestanden`, { method: 'POST', body: fd });
-      const data = await res.json();
-      if (data.ok) {
-        setTbMeetings(prev => prev.map(m => m.id === meetingId
-          ? { ...m, bestanden: [...(m.bestanden || []), { bestand_id: data.bestand_id, originele_naam: data.originele_naam }] }
-          : m));
-      }
-    } catch {}
-    setTbUploading(prev => ({ ...prev, [meetingId]: false }));
-    e.target.value = '';
-  }
-
-  async function handleTbBestandVerwijder(meetingId, bestandId) {
-    setTbMeetings(prev => prev.map(m => m.id === meetingId
-      ? { ...m, bestanden: (m.bestanden || []).filter(b => b.bestand_id !== bestandId) }
-      : m));
-    await fetch(`/api/beheerder-toolbox/${meetingId}/bestanden?bestand_id=${bestandId}`, { method: 'DELETE' }).catch(() => {});
-  }
 
   async function handleVjSync() {
     setVjSyncing(true); setVjSyncResult(null);
@@ -251,8 +156,7 @@ const docInputRef                   = useRef();
 
   // Berekende statistieken
   const zzpers = stats.medewerkers.filter(m => m.type === 'zzp');
-  const actiefContracten = stats.contracten.filter(c => c.status !== 'beeindigd' && c.kanbanStatus !== 'Afgeronde modelovereenkomsten');
-  const teOndertekenen = stats.contracten.filter(c => !c.getekend && (c.kanbanStatus === 'Nog te ondertekenen' || !c.kanbanStatus));
+const teOndertekenen = stats.contracten.filter(c => !c.getekend && (c.kanbanStatus === 'Nog te ondertekenen' || !c.kanbanStatus));
   const getekend = stats.contracten.filter(c => c.getekend);
   const totalUren = stats.urenLog.reduce((s, u) => s + (u.uren || 0), 0);
 
@@ -306,78 +210,43 @@ const docInputRef                   = useRef();
   // Recente activiteit
   const recenteRegistraties = [...stats.urenLog]
     .sort((a, b) => b.id - a.id)
-    .slice(0, 5);
+    .slice(0, 8);
 
   return (
-    <div className="content-area" id="view-dashboard">
-      <div className="page-header">
-        <h1>{t('dashboard.welcomeBack')}, {currentUser.split(' ')[0]}.
-          <span style={{ fontSize: '0.5em', fontWeight: 400, color: '#94a3b8', marginLeft: '12px' }}>
+    <div className="content-area" id="view-dashboard" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+      {/* === TOPBALK: titel + stat kaarten === */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <div style={{ flexShrink: 0 }}>
+          <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#1e293b' }}>
+            {t('dashboard.welcomeBack')}, {currentUser.split(' ')[0]}.
+          </h1>
+          <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.75rem' }}>
             {new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </span>
-        </h1>
-        <p>{t('dashboard.overview')}</p>
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flex: 1, flexWrap: 'wrap' }}>
+          {[
+            { icon: 'fa-file-contract', color: '#25D366', bg: '#f0fdf4', border: '#86efac', value: stats.contracten.length, label: 'Contracten', sub: teOndertekenen.length > 0 ? `${teOndertekenen.length} wacht` : null, subColor: '#f59e0b' },
+            { icon: 'fa-person-digging', color: '#F5850A', bg: '#fff8f0', border: '#fbd8a8', value: zzpers.length, label: "ZZP'ers", sub: verloopAlerts.length > 0 ? `${verloopAlerts.filter(a => a.verlopen).length} verlopen` : null, subColor: '#ef4444' },
+            { icon: 'fa-clock', color: '#3b82f6', bg: '#eff6ff', border: '#93c5fd', value: totalUren.toFixed(0), label: 'Uren', sub: `${stats.urenLog.length} reg.`, subColor: '#64748b' },
+            { icon: 'fa-euro-sign', color: '#16a34a', bg: '#f0fdf4', border: '#86efac', value: totalContractWaarde > 0 ? `€${(totalContractWaarde / 1000).toFixed(0)}k` : '€—', label: 'Contractwaarde', sub: getekend.length > 0 ? `${getekend.length} getekend` : null, subColor: '#16a34a' },
+          ].map((s, i) => (
+            <div key={i} style={{ background: s.bg, border: `1.5px solid ${s.border}`, borderRadius: '10px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '120px' }}>
+              <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <i className={`fa-solid ${s.icon}`} style={{ color: s.color, fontSize: '0.85rem' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', lineHeight: 1 }}>{s.value}</div>
+                <div style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 500 }}>{s.label}</div>
+                {s.sub && <div style={{ fontSize: '0.62rem', color: s.subColor, fontWeight: 700 }}>{s.sub}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <TestDataGenerator />
-
-      {/* === STAT KAARTEN === */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(37,211,102,0.1)', color: '#25D366' }}>
-            <i className="fa-solid fa-file-contract"></i>
-          </div>
-          <div className="stat-info">
-            <h3>{stats.contracten.length}</h3>
-            <p>Contracten totaal</p>
-            {teOndertekenen.length > 0 && (
-              <span style={{ fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>
-                ⏳ {teOndertekenen.length} wacht op handtekening
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(250, 160, 82, 0.1)', color: 'var(--accent)' }}>
-            <i className="fa-solid fa-person-digging"></i>
-          </div>
-          <div className="stat-info">
-            <h3>{zzpers.length}</h3>
-            <p>ZZP'ers actief</p>
-            {verloopAlerts.length > 0 && (
-              <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>
-                ⚠️ {verloopAlerts.filter(a => a.verlopen).length} verlopen / {verloopAlerts.filter(a => !a.verlopen).length} bijna
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6' }}>
-            <i className="fa-solid fa-clock"></i>
-          </div>
-          <div className="stat-info">
-            <h3>{totalUren.toFixed(0)}</h3>
-            <p>Uren geregistreerd</p>
-            <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
-              {stats.urenLog.length} registraties
-            </span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(22,163,74,0.1)', color: '#16a34a' }}>
-            <i className="fa-solid fa-euro-sign"></i>
-          </div>
-          <div className="stat-info">
-            <h3>€ {totalContractWaarde > 0 ? (totalContractWaarde / 1000).toFixed(0) + 'k' : '—'}</h3>
-            <p>Totale contractwaarde</p>
-            {getekend.length > 0 && (
-              <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700 }}>
-                ✅ {getekend.length} getekend
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* === VERLOOP WAARSCHUWINGEN === */}
       {verloopAlerts.length > 0 && (
@@ -462,9 +331,43 @@ const docInputRef                   = useRef();
         </div>
       )}
 
-      <div className="dashboard-panels">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', flex: 1, minHeight: 0 }}>
 
-        {/* Contracten overzicht */}
+        {/* Recente activiteit */}
+        <div className="panel notifications" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2>{t('dashboard.recentActivity')}</h2>
+            <Link href="/whatsapp?tab=uren" style={{ fontSize: '0.75rem', color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+              Alle uren →
+            </Link>
+          </div>
+          {recenteRegistraties.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+              <i className="fa-solid fa-clock" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', color: '#cbd5e1' }}></i>
+              Nog geen urenregistraties.
+            </div>
+          ) : (
+            <ul className="activity-list" style={{ flex: 1, overflowY: 'scroll', minHeight: 0 }}>
+              {recenteRegistraties.map(u => (
+                <li key={u.id} className="activity-item">
+                  <div className="activity-icon" style={{ background: 'rgba(37,211,102,0.1)', color: '#25D366' }}>
+                    <i className="fa-solid fa-clock"></i>
+                  </div>
+                  <div className="activity-details">
+                    <p>
+                      <strong>{u.medewerkerNaam}</strong> — {u.uren} uur op <em>{u.projectNaam}</em>
+                      {u.preContract && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>⚠️ pre-contract</span>}
+                    </p>
+                    <span>{u.datum} {u.tijdstempel && `• ${u.tijdstempel}`}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Middelste kolom: Contracten + Verjaardagen gestapeld */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0 }}>
         <div className="panel">
           <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2><i className="fa-solid fa-file-signature" style={{ color: '#25D366', marginRight: '8px' }}></i>Contracten</h2>
@@ -498,465 +401,284 @@ const docInputRef                   = useRef();
           )}
         </div>
 
-        {/* Recente activiteit */}
-        <div className="panel notifications">
-          <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2>{t('dashboard.recentActivity')}</h2>
-            <Link href="/whatsapp?tab=uren" style={{ fontSize: '0.75rem', color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
-              Alle uren →
-            </Link>
-          </div>
-          {recenteRegistraties.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
-              <i className="fa-solid fa-clock" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', color: '#cbd5e1' }}></i>
-              Nog geen urenregistraties.
-            </div>
-          ) : (
-            <ul className="activity-list">
-              {recenteRegistraties.map(u => (
-                <li key={u.id} className="activity-item">
-                  <div className="activity-icon" style={{ background: 'rgba(37,211,102,0.1)', color: '#25D366' }}>
-                    <i className="fa-solid fa-clock"></i>
-                  </div>
-                  <div className="activity-details">
-                    <p>
-                      <strong>{u.medewerkerNaam}</strong> — {u.uren} uur op <em>{u.projectNaam}</em>
-                      {u.preContract && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>⚠️ pre-contract</span>}
-                    </p>
-                    <span>{u.datum} {u.tijdstempel && `• ${u.tijdstempel}`}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-      </div>
-
-
-{/* === DOCUMENTEN === */}
-      <div className="panel" style={{ marginTop: '16px' }}>
-        <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-          <h2><i className="fa-solid fa-file-pdf" style={{ color: '#e11d48', marginRight: '8px' }} />Toolboxmeeting Bestanden</h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {/* Filter knoppen */}
-            {['alle', 'actief', 'gepland'].map(f => (
-              <button key={f} onClick={() => { setDocFilter(f); setDocDatumFilter(''); }}
-                style={{ padding: '5px 12px', borderRadius: '7px', border: '1.5px solid', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
-                  borderColor: docFilter === f && !docDatumFilter ? '#e11d48' : '#e2e8f0',
-                  background: docFilter === f && !docDatumFilter ? '#fff1f2' : '#f8fafc',
-                  color: docFilter === f && !docDatumFilter ? '#e11d48' : '#64748b' }}>
-                {f === 'alle' ? 'Alle' : f === 'actief' ? 'Actief' : 'Gepland'}
-              </button>
-            ))}
-            <input type="date" value={docDatumFilter} onChange={e => { setDocDatumFilter(e.target.value); setDocFilter('alle'); }}
-              title="Filter op datum"
-              style={{ fontSize: '0.75rem', border: `1.5px solid ${docDatumFilter ? '#e11d48' : '#e2e8f0'}`, borderRadius: '7px', padding: '5px 8px', color: docDatumFilter ? '#e11d48' : '#64748b', background: docDatumFilter ? '#fff1f2' : '#f8fafc', fontWeight: 600 }} />
-            {docDatumFilter && (
-              <button onClick={() => setDocDatumFilter('')} title="Filter wissen"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.85rem', padding: '2px' }}>✕</button>
-            )}
-            {docFout && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{docFout}</span>}
-            <input ref={docInputRef} type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={handleDocUpload} style={{ display: 'none' }} />
-            <button onClick={() => docInputRef.current?.click()} disabled={docUploading}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: '#e11d48', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
-              {docUploading ? <><i className="fa-solid fa-circle-notch fa-spin" />Uploaden…</> : <><i className="fa-solid fa-upload" />Uploaden</>}
-            </button>
-          </div>
-        </div>
-
-        {docs.length === 0 ? (
-          <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
-            <i className="fa-solid fa-file-pdf" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', color: '#cbd5e1' }} />
-            Nog geen documenten geüpload
-          </div>
-        ) : (
-          <div>
-            {[...docs].sort((a, b) => {
-              const da = a.zichtbaarVanaf ? new Date(a.zichtbaarVanaf) : new Date(a.datum);
-              const db = b.zichtbaarVanaf ? new Date(b.zichtbaarVanaf) : new Date(b.datum);
-              return da - db;
-            }).filter(doc => {
-              if (docDatumFilter) {
-                // Toon docs die zichtbaar zijn op de gekozen datum
-                const gekozen = new Date(docDatumFilter);
-                const vanaf = doc.zichtbaarVanaf ? new Date(doc.zichtbaarVanaf) : null;
-                return !vanaf || vanaf <= gekozen;
-              }
-              const isGepland = doc.zichtbaarVanaf && new Date(doc.zichtbaarVanaf) > new Date();
-              if (docFilter === 'actief') return !isGepland;
-              if (docFilter === 'gepland') return isGepland;
-              return true;
-            }).map((doc, i, arr) => {
-              const alleGebruikers = getAllUsers();
-              const gelezenEntries = doc.gelezen || [];
-              const isPdf = doc.type === 'application/pdf';
-              const isGepland = doc.zichtbaarVanaf && new Date(doc.zichtbaarVanaf) > new Date();
-              return (
-                <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderBottom: i < arr.length - 1 ? '1px solid #f1f5f9' : 'none', opacity: isGepland ? 0.6 : 1 }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: isPdf ? '#fff1f2' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <i className={`fa-solid ${isPdf ? 'fa-file-pdf' : 'fa-file-lines'}`} style={{ color: isPdf ? '#e11d48' : '#3b82f6', fontSize: '0.95rem' }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
-                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      {new Date(doc.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })} · {doc.bestandsnaam}
-                      {isGepland ? (
-                        <span style={{ background: '#fff7ed', color: '#ea580c', border: '1px solid #fed7aa', borderRadius: '4px', padding: '1px 6px', fontWeight: 700, fontSize: '0.63rem' }}>
-                          Gepland: {new Date(doc.zichtbaarVanaf).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
-                        </span>
-                      ) : doc.categorie ? (
-                        <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: '4px', padding: '1px 6px', fontWeight: 700, fontSize: '0.63rem' }}>
-                          {doc.categorie}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  {/* Wie heeft het gelezen */}
-                  <div style={{ textAlign: 'right', flexShrink: 0, minWidth: '90px' }}>
-                    {isGepland ? (
-                      <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>Nog niet zichtbaar</div>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: gelezenEntries.length === alleGebruikers.length ? '#10b981' : '#f59e0b' }}>
-                          {gelezenEntries.length}/{alleGebruikers.length} gelezen
-                        </div>
-                        {gelezenEntries.map((e, ei) => (
-                          <div key={ei} style={{ fontSize: '0.63rem', color: '#94a3b8', marginTop: '2px', lineHeight: 1.4 }}>
-                            <span style={{ fontWeight: 600, color: '#64748b' }}>{e.naam.split(' ')[0]}</span>
-                            {e.timestamp && <> · {new Date(e.timestamp).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} {new Date(e.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</>}
+        {/* Uren per project */}
+        {werkbonnen.length > 0 && (() => {
+          const perProject = {};
+          for (const bon of werkbonnen) {
+            if (!perProject[bon.projectNaam]) perProject[bon.projectNaam] = { bonnen: [], totaal: 0 };
+            perProject[bon.projectNaam].bonnen.push(bon);
+            perProject[bon.projectNaam].totaal += bon.uren;
+          }
+          const projecten = Object.entries(perProject).sort((a, b) => {
+            const latestA = Math.max(...a[1].bonnen.map(b => new Date(b.aangemaakt)));
+            const latestB = Math.max(...b[1].bonnen.map(b => new Date(b.aangemaakt)));
+            return latestB - latestA;
+          });
+          return (
+            <div className="panel">
+              <div className="panel-header">
+                <h2><i className="fa-solid fa-clock" style={{ color: '#F5850A', marginRight: '8px' }} />Uren per project</h2>
+              </div>
+              {projecten.map(([naam, { bonnen: bons, totaal }]) => {
+                const isOpen = werkbonOpen[naam];
+                return (
+                  <div key={naam} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <button onClick={() => setWerkbonOpen(prev => ({ ...prev, [naam]: !prev[naam] }))}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <i className="fa-solid fa-folder-tree" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{naam}</span>
+                        <span style={{ fontSize: '0.75rem', background: '#fff8f0', color: '#ea580c', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>{totaal}u totaal</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{bons.length} registratie{bons.length !== 1 ? 's' : ''}</span>
+                        <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                      </div>
+                    </button>
+                    {isOpen && (
+                      <div style={{ padding: '0 16px 12px' }}>
+                        {bons.map(bon => (
+                          <div key={bon.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderTop: '1px solid #f8fafc' }}>
+                            <div style={{ minWidth: '36px', textAlign: 'center', background: '#f0f9ff', borderRadius: '8px', padding: '4px 6px', fontSize: '0.78rem', fontWeight: 700, color: '#0891b2' }}>{bon.uren}u</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}>{bon.naam || bon.medewerkerNaam}</div>
+                              {bon.medewerkerNaam && bon.naam && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '1px' }}>{bon.medewerkerNaam}</div>}
+                              {bon.omschrijving && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{bon.omschrijving}</div>}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>
+                              {new Date(bon.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                            </div>
+                            <button
+                              onClick={async () => {
+                                if (!window.confirm(`Werkbon "${bon.naam || bon.medewerkerNaam}" verwijderen?`)) return;
+                                await fetch(`/api/werkbonnen/${bon.id}`, { method: 'DELETE' });
+                                setWerkbonnen(prev => prev.filter(b => b.id !== bon.id));
+                              }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', padding: '2px 4px', flexShrink: 0 }}
+                              title="Verwijderen"
+                            >
+                              <i className="fa-solid fa-trash" style={{ fontSize: '0.75rem' }} />
+                            </button>
                           </div>
                         ))}
-                      </>
+                      </div>
                     )}
                   </div>
-                  <input
-                    type="date"
-                    value={doc.zichtbaarVanaf ? doc.zichtbaarVanaf.split('T')[0] : ''}
-                    title="Zichtbaar vanaf"
-                    onChange={async e => {
-                      const val = e.target.value || null;
-                      await fetch(`/api/documenten/${doc.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zichtbaarVanaf: val }) }).catch(() => {});
-                      setDocs(prev => prev.map(d => d.id === doc.id ? { ...d, zichtbaarVanaf: val } : d));
-                    }}
-                    style={{ fontSize: '0.72rem', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '4px 6px', color: '#475569', background: '#f8fafc', flexShrink: 0 }}
-                  />
-                  <button onClick={() => verwijderDoc(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', fontSize: '0.85rem', padding: '4px', flexShrink: 0 }}>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {/* Snelle acties */}
+        <div className="panel quick-actions">
+          <div className="panel-header">
+            <h2>{t('dashboard.quickActions')}</h2>
+          </div>
+          <div className="action-buttons">
+            <Link href="/whatsapp?tab=uren" className="btn btn-primary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fa-solid fa-clock"></i> Uren registreren
+            </Link>
+            <Link href="/whatsapp?tab=nieuw_contract" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fa-solid fa-file-signature"></i> Nieuw contract
+            </Link>
+            <Link href="/whatsapp?tab=termijnen" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fa-solid fa-chart-bar"></i> Termijnen bekijken
+            </Link>
+            <Link href="/projecten" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fa-solid fa-folder-tree"></i> Projecten
+            </Link>
+            <Link href="/werkbonnen" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fa-solid fa-file-pen"></i> Werkbonnen
+            </Link>
+          </div>
+        </div>
+        </div>{/* einde middelste kolom flex */}
+
+        {/* Rechterkolom: Toolboxmeeting + Verjaardagen gestapeld */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0 }}>
+        <div className="panel" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <h2><i className="fa-solid fa-file-pdf" style={{ color: '#e11d48', marginRight: '8px' }} />Toolboxmeeting Bestanden</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {['alle', 'actief', 'gepland'].map(f => (
+                <button key={f} onClick={() => { setDocFilter(f); setDocDatumFilter(''); }}
+                  style={{ padding: '5px 12px', borderRadius: '7px', border: '1.5px solid', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                    borderColor: docFilter === f && !docDatumFilter ? '#e11d48' : '#e2e8f0',
+                    background: docFilter === f && !docDatumFilter ? '#fff1f2' : '#f8fafc',
+                    color: docFilter === f && !docDatumFilter ? '#e11d48' : '#64748b' }}>
+                  {f === 'alle' ? 'Alle' : f === 'actief' ? 'Actief' : 'Gepland'}
+                </button>
+              ))}
+              <input type="date" value={docDatumFilter} onChange={e => { setDocDatumFilter(e.target.value); setDocFilter('alle'); }}
+                title="Filter op datum"
+                style={{ fontSize: '0.75rem', border: `1.5px solid ${docDatumFilter ? '#e11d48' : '#e2e8f0'}`, borderRadius: '7px', padding: '5px 8px', color: docDatumFilter ? '#e11d48' : '#64748b', background: docDatumFilter ? '#fff1f2' : '#f8fafc', fontWeight: 600 }} />
+              {docDatumFilter && (
+                <button onClick={() => setDocDatumFilter('')} title="Filter wissen"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.85rem', padding: '2px' }}>✕</button>
+              )}
+              {docFout && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{docFout}</span>}
+              <input ref={docInputRef} type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={handleDocUpload} style={{ display: 'none' }} />
+              <button onClick={() => docInputRef.current?.click()} disabled={docUploading}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: '#e11d48', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
+                {docUploading ? <><i className="fa-solid fa-circle-notch fa-spin" />Uploaden…</> : <><i className="fa-solid fa-upload" />Uploaden</>}
+              </button>
+            </div>
+          </div>
+          <div style={{ overflowY: 'scroll', flex: 1, minHeight: 0 }}>
+          {docs.length === 0 ? (
+            <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+              <i className="fa-solid fa-file-pdf" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', color: '#cbd5e1' }} />
+              Nog geen documenten geüpload
+            </div>
+          ) : (
+            <div>
+              {[...docs].sort((a, b) => {
+                const da = a.zichtbaarVanaf ? new Date(a.zichtbaarVanaf) : new Date(a.datum);
+                const db = b.zichtbaarVanaf ? new Date(b.zichtbaarVanaf) : new Date(b.datum);
+                return da - db;
+              }).filter(doc => {
+                if (docDatumFilter) {
+                  const gekozen = new Date(docDatumFilter);
+                  const vanaf = doc.zichtbaarVanaf ? new Date(doc.zichtbaarVanaf) : null;
+                  return !vanaf || vanaf <= gekozen;
+                }
+                const isGepland = doc.zichtbaarVanaf && new Date(doc.zichtbaarVanaf) > new Date();
+                if (docFilter === 'actief') return !isGepland;
+                if (docFilter === 'gepland') return isGepland;
+                return true;
+              }).map((doc, i, arr) => {
+                const alleGebruikers = getAllUsers();
+                const gelezenEntries = doc.gelezen || [];
+                const isPdf = doc.type === 'application/pdf';
+                const isGepland = doc.zichtbaarVanaf && new Date(doc.zichtbaarVanaf) > new Date();
+                return (
+                  <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderBottom: i < arr.length - 1 ? '1px solid #f1f5f9' : 'none', opacity: isGepland ? 0.6 : 1 }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: isPdf ? '#fff1f2' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <i className={`fa-solid ${isPdf ? 'fa-file-pdf' : 'fa-file-lines'}`} style={{ color: isPdf ? '#e11d48' : '#3b82f6', fontSize: '0.95rem' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
+                      <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        {new Date(doc.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })} · {doc.bestandsnaam}
+                        {isGepland ? (
+                          <span style={{ background: '#fff7ed', color: '#ea580c', border: '1px solid #fed7aa', borderRadius: '4px', padding: '1px 6px', fontWeight: 700, fontSize: '0.63rem' }}>
+                            Gepland: {new Date(doc.zichtbaarVanaf).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                          </span>
+                        ) : doc.categorie ? (
+                          <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: '4px', padding: '1px 6px', fontWeight: 700, fontSize: '0.63rem' }}>
+                            {doc.categorie}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0, minWidth: '90px' }}>
+                      {isGepland ? (
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>Nog niet zichtbaar</div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: gelezenEntries.length === alleGebruikers.length ? '#10b981' : '#f59e0b' }}>
+                            {gelezenEntries.length}/{alleGebruikers.length} gelezen
+                          </div>
+                          {gelezenEntries.map((e, ei) => (
+                            <div key={ei} style={{ fontSize: '0.63rem', color: '#94a3b8', marginTop: '2px', lineHeight: 1.4 }}>
+                              <span style={{ fontWeight: 600, color: '#64748b' }}>{e.naam.split(' ')[0]}</span>
+                              {e.timestamp && <> · {new Date(e.timestamp).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} {new Date(e.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</>}
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                    <input type="date" value={doc.zichtbaarVanaf ? doc.zichtbaarVanaf.split('T')[0] : ''} title="Zichtbaar vanaf"
+                      onChange={async e => {
+                        const val = e.target.value || null;
+                        await fetch(`/api/documenten/${doc.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zichtbaarVanaf: val }) }).catch(() => {});
+                        setDocs(prev => prev.map(d => d.id === doc.id ? { ...d, zichtbaarVanaf: val } : d));
+                      }}
+                      style={{ fontSize: '0.72rem', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '4px 6px', color: '#475569', background: '#f8fafc', flexShrink: 0 }}
+                    />
+                    <button onClick={() => verwijderDoc(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', fontSize: '0.85rem', padding: '4px', flexShrink: 0 }}>
+                      <i className="fa-solid fa-trash" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          </div>{/* einde scroll wrapper toolboxmeeting */}
+        </div>
+
+        {/* Verjaardagen */}
+        <div className="panel">
+          <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fa-solid fa-cake-candles" style={{ color: '#F5850A' }} /> Verjaardagen
+            </h2>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button onClick={handleVjSync} disabled={vjSyncing}
+                style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '8px', cursor: 'pointer', color: '#16a34a', fontSize: '0.75rem', fontWeight: 700, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <i className={`fa-solid ${vjSyncing ? 'fa-spinner fa-spin' : 'fa-rotate'}`} />
+                {vjSyncing ? '...' : 'Sync'}
+              </button>
+              <button onClick={() => setVjFormOpen(v => !v)}
+                style={{ background: vjFormOpen ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${vjFormOpen ? '#e2e8f0' : '#fde8cc'}`, borderRadius: '8px', cursor: 'pointer', color: vjFormOpen ? '#64748b' : '#F5850A', fontSize: '0.75rem', fontWeight: 700, padding: '5px 10px' }}>
+                {vjFormOpen ? '✕' : '+ Toev.'}
+              </button>
+            </div>
+          </div>
+          {vjSyncResult !== null && (
+            <div style={{ padding: '4px 16px', fontSize: '0.72rem', color: vjSyncResult >= 0 ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
+              {vjSyncResult >= 0 ? `${vjSyncResult} gesynchroniseerd` : 'Sync mislukt'}
+            </div>
+          )}
+          {vjFormOpen && (
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <input type="text" placeholder="Naam medewerker..." value={vjNaam} onChange={e => setVjNaam(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              <input type="date" value={vjDatum} onChange={e => setVjDatum(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              <input type="text" placeholder="Notitie (optioneel)" value={vjNotitie} onChange={e => setVjNotitie(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              <button onClick={handleVjOpslaan} disabled={!vjNaam.trim() || !vjDatum}
+                style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: vjNaam.trim() && vjDatum ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: vjNaam.trim() && vjDatum ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.85rem', cursor: vjNaam.trim() && vjDatum ? 'pointer' : 'default' }}>
+                Opslaan
+              </button>
+            </div>
+          )}
+          <div style={{ padding: '0 16px' }}>
+            {verjaardagen.length === 0 ? (
+              <div style={{ padding: '20px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                <i className="fa-solid fa-cake-candles" style={{ fontSize: '1.3rem', display: 'block', marginBottom: '6px', opacity: 0.3 }} />
+                Nog geen verjaardagen
+              </div>
+            ) : verjaardagen.map(v => {
+              const vandaag = v.dagenTot === 0;
+              const binnenkort = v.dagenTot <= 7;
+              return (
+                <div key={v.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '10px 0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: vandaag ? '#fff8f0' : binnenkort ? '#fffbeb' : '#f8fafc', border: `2px solid ${vandaag ? '#F5850A' : binnenkort ? '#fde68a' : '#e2e8f0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <i className="fa-solid fa-cake-candles" style={{ color: vandaag ? '#F5850A' : binnenkort ? '#d97706' : '#94a3b8', fontSize: '0.82rem' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.naam}</div>
+                    <div style={{ fontSize: '0.72rem', color: vandaag ? '#F5850A' : '#64748b', fontWeight: vandaag ? 700 : 400 }}>
+                      {vandaag ? '🎉 Vandaag!' : `over ${v.dagenTot} dag${v.dagenTot === 1 ? '' : 'en'}`}
+                      {v.notitie ? ` — ${v.notitie}` : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => handleVjVerwijder(v.id)} title="Verwijderen"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px', fontSize: '0.82rem', flexShrink: 0 }}>
                     <i className="fa-solid fa-trash" />
                   </button>
                 </div>
               );
             })}
           </div>
-        )}
-      </div>
-
-      {/* === UREN PER PROJECT === */}
-      {werkbonnen.length > 0 && (() => {
-        const perProject = {};
-        for (const bon of werkbonnen) {
-          if (!perProject[bon.projectNaam]) perProject[bon.projectNaam] = { bonnen: [], totaal: 0 };
-          perProject[bon.projectNaam].bonnen.push(bon);
-          perProject[bon.projectNaam].totaal += bon.uren;
-        }
-        const projecten = Object.entries(perProject).sort((a, b) => {
-          const latestA = Math.max(...a[1].bonnen.map(b => new Date(b.aangemaakt)));
-          const latestB = Math.max(...b[1].bonnen.map(b => new Date(b.aangemaakt)));
-          return latestB - latestA;
-        });
-        return (
-          <div className="panel" style={{ marginTop: '16px' }}>
-            <div className="panel-header">
-              <h2><i className="fa-solid fa-clock" style={{ color: '#F5850A', marginRight: '8px' }} />Uren per project</h2>
-            </div>
-            {projecten.map(([naam, { bonnen: bons, totaal }]) => {
-              const isOpen = werkbonOpen[naam];
-              return (
-                <div key={naam} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <button onClick={() => setWerkbonOpen(prev => ({ ...prev, [naam]: !prev[naam] }))}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <i className="fa-solid fa-folder-tree" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
-                      <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{naam}</span>
-                      <span style={{ fontSize: '0.75rem', background: '#fff8f0', color: '#ea580c', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>{totaal}u totaal</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{bons.length} registratie{bons.length !== 1 ? 's' : ''}</span>
-                      <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
-                    </div>
-                  </button>
-                  {isOpen && (
-                    <div style={{ padding: '0 16px 12px' }}>
-                      {bons.map(bon => (
-                        <div key={bon.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderTop: '1px solid #f8fafc' }}>
-                          <div style={{ minWidth: '36px', textAlign: 'center', background: '#f0f9ff', borderRadius: '8px', padding: '4px 6px', fontSize: '0.78rem', fontWeight: 700, color: '#0891b2' }}>{bon.uren}u</div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}>{bon.naam || bon.medewerkerNaam}</div>
-                            {bon.medewerkerNaam && bon.naam && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '1px' }}>{bon.medewerkerNaam}</div>}
-                            {bon.omschrijving && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{bon.omschrijving}</div>}
-                          </div>
-                          <div style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>
-                            {new Date(bon.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
-                          </div>
-                          <button
-                            onClick={async () => {
-                              if (!window.confirm(`Werkbon "${bon.naam || bon.medewerkerNaam}" verwijderen?`)) return;
-                              await fetch(`/api/werkbonnen/${bon.id}`, { method: 'DELETE' });
-                              setWerkbonnen(prev => prev.filter(b => b.id !== bon.id));
-                            }}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', padding: '2px 4px', flexShrink: 0 }}
-                            title="Verwijderen"
-                          >
-                            <i className="fa-solid fa-trash" style={{ fontSize: '0.75rem' }} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
-
-      {/* === NIEUWS === */}
-      <div className="panel" style={{ marginTop: '16px' }}>
-        <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <i className="fa-solid fa-newspaper" style={{ color: '#F5850A' }} /> Nieuws
-          </h2>
-          <button onClick={() => setNieuwsFormOpen(v => !v)}
-            style={{ background: nieuwsFormOpen ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${nieuwsFormOpen ? '#e2e8f0' : '#fde8cc'}`, borderRadius: '8px', cursor: 'pointer', color: nieuwsFormOpen ? '#64748b' : '#F5850A', fontSize: '0.82rem', fontWeight: 700, padding: '6px 14px' }}>
-            {nieuwsFormOpen ? 'Annuleren' : '+ Nieuw bericht'}
-          </button>
         </div>
+        </div>{/* einde rechterkolom flex */}
 
-        {nieuwsFormOpen && (
-          <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9' }}>
-            <input type="text" placeholder="Titel..." value={nieuwsTitel} onChange={e => setNieuwsTitel(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.92rem', color: '#1e293b', boxSizing: 'border-box', marginBottom: '10px', fontFamily: 'inherit', outline: 'none' }} />
-            <textarea placeholder="Bericht (optioneel)..." value={nieuwsBericht} onChange={e => setNieuwsBericht(e.target.value)} rows={3}
-              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.88rem', color: '#1e293b', boxSizing: 'border-box', marginBottom: '10px', resize: 'vertical', fontFamily: 'inherit', outline: 'none' }} />
-            <input ref={nieuwsFotoRef} type="file" accept="image/*" onChange={handleNieuwsFoto} style={{ display: 'none' }} />
-            {nieuwsFoto ? (
-              <div style={{ position: 'relative', marginBottom: '10px' }}>
-                <img src={nieuwsFoto} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '9px', display: 'block' }} />
-                <button onClick={() => setNieuwsFoto(null)} style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className="fa-solid fa-xmark" />
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => nieuwsFotoRef.current?.click()}
-                style={{ width: '100%', padding: '10px', borderRadius: '9px', border: '1.5px dashed #e2e8f0', background: '#f8fafc', color: '#94a3b8', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                <i className="fa-solid fa-camera" /> Foto toevoegen
-              </button>
-            )}
-            <button onClick={handleNieuwsOpslaan} disabled={!nieuwsTitel.trim() || nieuwsSaving}
-              style={{ padding: '10px 24px', borderRadius: '9px', border: 'none', background: nieuwsTitel.trim() ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: nieuwsTitel.trim() ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.9rem', cursor: nieuwsTitel.trim() ? 'pointer' : 'default' }}>
-              {nieuwsSaving ? 'Publiceren...' : 'Publiceren'}
-            </button>
-          </div>
-        )}
+      </div>{/* einde 3-kolom grid */}
 
-        <div style={{ padding: '0 16px' }}>
-          {nieuws.length === 0 ? (
-            <div style={{ padding: '24px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
-              <i className="fa-solid fa-newspaper" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
-              Nog geen berichten gepubliceerd
-            </div>
-          ) : nieuws.map(n => (
-            <div key={n.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '14px 0', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-              {n.foto && <img src={n.foto} alt="" style={{ width: '72px', height: '56px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', marginBottom: '2px' }}>{n.titel}</div>
-                {n.bericht && <div style={{ fontSize: '0.83rem', color: '#475569', lineHeight: 1.5, marginBottom: '4px' }}>{n.bericht}</div>}
-                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                  {n.auteur} · {new Date(n.aangemaakt_op).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </div>
-              </div>
-              <button onClick={() => handleNieuwsVerwijder(n.id)} title="Verwijderen"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px', fontSize: '0.85rem', flexShrink: 0 }}>
-                <i className="fa-solid fa-trash" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* === VERJAARDAGEN === */}
-      <div className="panel" style={{ marginTop: '16px' }}>
-        <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <i className="fa-solid fa-cake-candles" style={{ color: '#F5850A' }} /> Verjaardagen personeel
-          </h2>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button onClick={handleVjSync} disabled={vjSyncing}
-              title="Haalt geboortedatums op uit Mijn Team"
-              style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '8px', cursor: 'pointer', color: '#16a34a', fontSize: '0.82rem', fontWeight: 700, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <i className={`fa-solid ${vjSyncing ? 'fa-spinner fa-spin' : 'fa-rotate'}`} />
-              {vjSyncing ? 'Laden...' : 'Sync team'}
-            </button>
-            {vjSyncResult !== null && (
-              <span style={{ fontSize: '0.75rem', color: vjSyncResult >= 0 ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
-                {vjSyncResult >= 0 ? `${vjSyncResult} gesynchroniseerd` : 'Fout'}
-              </span>
-            )}
-            <button onClick={() => setVjFormOpen(v => !v)}
-              style={{ background: vjFormOpen ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${vjFormOpen ? '#e2e8f0' : '#fde8cc'}`, borderRadius: '8px', cursor: 'pointer', color: vjFormOpen ? '#64748b' : '#F5850A', fontSize: '0.82rem', fontWeight: 700, padding: '6px 14px' }}>
-              {vjFormOpen ? 'Annuleren' : '+ Toevoegen'}
-            </button>
-          </div>
-        </div>
-
-        {vjFormOpen && (
-          <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <input type="text" placeholder="Naam medewerker..." value={vjNaam} onChange={e => setVjNaam(e.target.value)}
-                style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-              <input type="date" value={vjDatum} onChange={e => setVjDatum(e.target.value)}
-                style={{ width: '160px', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-            </div>
-            <input type="text" placeholder="Notitie (optioneel, bijv. 'wordt 30!')" value={vjNotitie} onChange={e => setVjNotitie(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-            <button onClick={handleVjOpslaan} disabled={!vjNaam.trim() || !vjDatum}
-              style={{ alignSelf: 'flex-start', padding: '10px 24px', borderRadius: '9px', border: 'none', background: vjNaam.trim() && vjDatum ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: vjNaam.trim() && vjDatum ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.9rem', cursor: vjNaam.trim() && vjDatum ? 'pointer' : 'default' }}>
-              Opslaan
-            </button>
-          </div>
-        )}
-
-        <div style={{ padding: '0 16px' }}>
-          {verjaardagen.length === 0 ? (
-            <div style={{ padding: '24px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
-              <i className="fa-solid fa-cake-candles" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
-              Nog geen verjaardagen ingevoerd
-            </div>
-          ) : verjaardagen.map(v => {
-            const vandaag = v.dagenTot === 0;
-            const binnenkort = v.dagenTot <= 7;
-            return (
-              <div key={v.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '12px 0', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: vandaag ? '#fff8f0' : binnenkort ? '#fffbeb' : '#f8fafc', border: `2px solid ${vandaag ? '#F5850A' : binnenkort ? '#fde68a' : '#e2e8f0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <i className="fa-solid fa-cake-candles" style={{ color: vandaag ? '#F5850A' : binnenkort ? '#d97706' : '#94a3b8', fontSize: '0.9rem' }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>{v.naam}</div>
-                  <div style={{ fontSize: '0.78rem', color: vandaag ? '#F5850A' : '#64748b', fontWeight: vandaag ? 700 : 400 }}>
-                    {v.datum.split('-').reverse().join('-')} · {vandaag ? '🎉 Vandaag!' : `over ${v.dagenTot} dag${v.dagenTot === 1 ? '' : 'en'}`}
-                    {v.notitie ? ` — ${v.notitie}` : ''}
-                  </div>
-                </div>
-                <button onClick={() => handleVjVerwijder(v.id)} title="Verwijderen"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px', fontSize: '0.85rem' }}>
-                  <i className="fa-solid fa-trash" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* === TOOLBOX MEETINGS === */}
-      <div className="panel" style={{ marginTop: '16px' }}>
-        <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <i className="fa-solid fa-toolbox" style={{ color: '#F5850A' }} /> Toolbox Meetings
-          </h2>
-          <button onClick={() => setTbFormOpen(v => !v)}
-            style={{ background: tbFormOpen ? '#f1f5f9' : '#fff8f0', border: `1.5px solid ${tbFormOpen ? '#e2e8f0' : '#fde8cc'}`, borderRadius: '8px', cursor: 'pointer', color: tbFormOpen ? '#64748b' : '#F5850A', fontSize: '0.82rem', fontWeight: 700, padding: '6px 14px' }}>
-            {tbFormOpen ? 'Annuleren' : '+ Nieuwe meeting'}
-          </button>
-        </div>
-
-        {tbFormOpen && (
-          <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <input type="text" placeholder="Titel..." value={tbTitel} onChange={e => setTbTitel(e.target.value)}
-                style={{ flex: 1, padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.92rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-              <input type="date" value={tbDatum} onChange={e => setTbDatum(e.target.value)}
-                style={{ width: '160px', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-            </div>
-            <textarea placeholder="Beschrijving (optioneel)..." value={tbBeschrijving} onChange={e => setTbBeschrijving(e.target.value)} rows={2}
-              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
-            <button onClick={handleTbOpslaan} disabled={!tbTitel.trim() || !tbDatum || tbSaving}
-              style={{ alignSelf: 'flex-start', padding: '10px 24px', borderRadius: '9px', border: 'none', background: tbTitel.trim() && tbDatum ? 'linear-gradient(135deg,#F5850A,#D96800)' : '#e2e8f0', color: tbTitel.trim() && tbDatum ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.9rem', cursor: tbTitel.trim() && tbDatum ? 'pointer' : 'default' }}>
-              {tbSaving ? 'Opslaan...' : 'Opslaan'}
-            </button>
-          </div>
-        )}
-
-        <div style={{ padding: '0 16px' }}>
-          {tbMeetings.length === 0 ? (
-            <div style={{ padding: '24px 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
-              <i className="fa-solid fa-toolbox" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
-              Nog geen toolbox meetings aangemaakt
-            </div>
-          ) : tbMeetings.map(m => (
-            <div key={m.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '14px 0' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>{m.titel}</div>
-                  <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>{m.datum}{m.beschrijving ? ` — ${m.beschrijving}` : ''}</div>
-                  {/* Bestanden */}
-                  {(m.bestanden || []).length > 0 && (
-                    <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {m.bestanden.map(b => (
-                        <div key={b.bestand_id} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px 8px', fontSize: '0.78rem', color: '#334155' }}>
-                          <i className="fa-solid fa-file" style={{ color: '#F5850A', fontSize: '0.75rem' }} />
-                          <span>{b.originele_naam}</span>
-                          <button onClick={() => handleTbBestandVerwijder(m.id, b.bestand_id)} title="Verwijderen"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '0 0 0 2px', fontSize: '0.75rem', lineHeight: 1 }}>
-                            <i className="fa-solid fa-xmark" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* Bestand toevoegen */}
-                  <div style={{ marginTop: '8px' }}>
-                    <input type="file" id={`tb-file-${m.id}`} style={{ display: 'none' }}
-                      onChange={e => handleTbBestandUpload(m.id, e)} />
-                    <label htmlFor={`tb-file-${m.id}`}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: tbUploading[m.id] ? 'default' : 'pointer', color: '#F5850A', fontSize: '0.78rem', fontWeight: 600 }}>
-                      <i className={`fa-solid ${tbUploading[m.id] ? 'fa-spinner fa-spin' : 'fa-paperclip'}`} />
-                      {tbUploading[m.id] ? 'Uploaden...' : 'Bestand toevoegen'}
-                    </label>
-                  </div>
-                </div>
-                <button onClick={() => handleTbVerwijder(m.id)} title="Verwijderen"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '4px', fontSize: '0.85rem', flexShrink: 0 }}>
-                  <i className="fa-solid fa-trash" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* === SNELLE ACTIES === */}
-      <div className="panel quick-actions" style={{ marginTop: '16px' }}>
-        <div className="panel-header">
-          <h2>{t('dashboard.quickActions')}</h2>
-        </div>
-        <div className="action-buttons" style={{ flexWrap: 'wrap' }}>
-          <Link href="/whatsapp?tab=uren" className="btn btn-primary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <i className="fa-solid fa-clock"></i> Uren registreren
-          </Link>
-          <Link href="/whatsapp?tab=nieuw_contract" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <i className="fa-solid fa-file-signature"></i> Nieuw contract
-          </Link>
-          <Link href="/whatsapp?tab=termijnen" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <i className="fa-solid fa-chart-bar"></i> Termijnen bekijken
-          </Link>
-          <Link href="/projecten" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <i className="fa-solid fa-folder-tree"></i> Projecten
-          </Link>
-          <Link href="/werkbonnen" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <i className="fa-solid fa-file-pen"></i> Werkbonnen
-          </Link>
-        </div>
-      </div>
     </div>
   );
 }

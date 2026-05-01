@@ -125,19 +125,55 @@ export default function ToolboxAdmin() {
 
     if (!user) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}><div style={{ color: '#64748b' }}>Laden…</div></div>;
 
-    const tabStyle = (t) => ({ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', background: tab === t ? '#2563eb' : 'transparent', color: tab === t ? '#fff' : '#64748b', transition: 'all 0.15s' });
+    // Statistieken berekenen
+    const totaalMeetings = meetings.length;
+    const totaalMedewerkers = users.filter(u => u.rol === 'medewerker').length;
+
+    const tabStyle = (t) => ({
+        padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
+        background: tab === t ? '#F5850A' : 'transparent',
+        color: tab === t ? '#fff' : '#64748b',
+        transition: 'all 0.15s',
+    });
+
+    const inputSt = { padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none', width: '100%', boxSizing: 'border-box' };
 
     return (
         <div style={{ minHeight: '100vh', background: '#f1f5f9' }}>
             {/* Header */}
-            <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
+            <div style={{ background: '#1e293b', padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 22 }}>🔧</span>
-                    <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '1.05rem' }}>Toolbox Admin</span>
+                    <div style={{ background: '#F5850A', borderRadius: '8px', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: 16 }}>🔧</span>
+                    </div>
+                    <span style={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}>Toolbox Admin</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>{user.naam}</span>
-                    <button onClick={uitloggen} style={{ padding: '6px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: '0.8rem', cursor: 'pointer', color: '#475569' }}>Uitloggen</button>
+                    <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{user.naam}</span>
+                    <button onClick={uitloggen} style={{ padding: '6px 14px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, fontSize: '0.8rem', cursor: 'pointer', color: '#cbd5e1' }}>Uitloggen</button>
+                </div>
+            </div>
+
+            {/* Statistieken balk */}
+            <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '12px 20px', display: 'flex', gap: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ background: '#FFF3E0', borderRadius: 8, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: '1rem' }}>📋</span>
+                    </div>
+                    <div>
+                        <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#1e293b' }}>{totaalMeetings}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>MEETINGS</div>
+                    </div>
+                </div>
+                <div style={{ width: 1, background: '#e2e8f0' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ background: '#f0fdf4', borderRadius: 8, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: '1rem' }}>👥</span>
+                    </div>
+                    <div>
+                        <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#1e293b' }}>{totaalMedewerkers}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>MEDEWERKERS</div>
+                    </div>
                 </div>
             </div>
 
@@ -155,33 +191,39 @@ export default function ToolboxAdmin() {
                     <div>
                         {/* Nieuwe meeting */}
                         <div style={{ background: '#fff', borderRadius: 16, padding: '20px 22px', boxShadow: '0 1px 4px rgba(0,0,0,0.07)', marginBottom: 24 }}>
-                            <h2 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>+ Nieuwe toolbox meeting</h2>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                                <div style={{ width: 3, height: 16, background: '#F5850A', borderRadius: 2 }} />
+                                <h2 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>Nieuwe toolbox meeting aanmaken</h2>
+                            </div>
                             <form onSubmit={maakMeeting}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 12, marginBottom: 12 }}>
-                                    <input value={nwTitel} onChange={e => setNwTitel(e.target.value)} placeholder="Titel van de meeting *" required style={{ padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none' }} />
-                                    <input type="date" value={nwDatum} onChange={e => setNwDatum(e.target.value)} required style={{ padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none' }} />
+                                    <input value={nwTitel} onChange={e => setNwTitel(e.target.value)} placeholder="Titel van de meeting *" required style={inputSt} />
+                                    <input type="date" value={nwDatum} onChange={e => setNwDatum(e.target.value)} required style={inputSt} />
                                 </div>
-                                <textarea value={nwBeschrijving} onChange={e => setNwBeschrijving(e.target.value)} placeholder="Beschrijving / agenda (optioneel)" rows={3} style={{ width: '100%', padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none', resize: 'vertical', boxSizing: 'border-box', marginBottom: 12 }} />
-                                <button type="submit" disabled={nwLaden} style={{ padding: '9px 22px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer' }}>
-                                    {nwLaden ? 'Opslaan…' : 'Meeting aanmaken'}
+                                <textarea value={nwBeschrijving} onChange={e => setNwBeschrijving(e.target.value)} placeholder="Beschrijving / agenda (optioneel)" rows={3} style={{ ...inputSt, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12 }} />
+                                <button type="submit" disabled={nwLaden} style={{ padding: '10px 22px', background: nwLaden ? '#fdba74' : '#F5850A', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, fontSize: '0.9rem', cursor: nwLaden ? 'not-allowed' : 'pointer' }}>
+                                    {nwLaden ? 'Opslaan…' : '+ Meeting aanmaken'}
                                 </button>
                             </form>
                         </div>
 
                         {/* Meetings lijst */}
                         {meetings.length === 0 ? (
-                            <div style={{ textAlign: 'center', color: '#94a3b8', padding: 36 }}>Nog geen meetings aangemaakt.</div>
+                            <div style={{ textAlign: 'center', color: '#94a3b8', padding: 36, background: '#fff', borderRadius: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>Nog geen meetings aangemaakt.</div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                 {meetings.map(m => {
                                     const bestanden = bestandenCache[m.id] || [];
                                     const isOpen = openMeetingId === m.id;
                                     return (
-                                        <div key={m.id} style={{ background: '#fff', borderRadius: 14, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
+                                        <div key={m.id} style={{ background: '#fff', borderRadius: 14, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', overflow: 'hidden', border: '1.5px solid #e2e8f0' }}>
                                             <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={() => openMeeting(m.id)}>
+                                                <div style={{ background: '#FFF3E0', borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <span>📋</span>
+                                                </div>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 700, color: '#1e293b' }}>{m.titel}</div>
-                                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>{formatDatum(m.datum)} · {m.aantalBestanden} bestanden · {m.akkoordGegeven !== undefined ? '' : ''}</div>
+                                                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>{m.titel}</div>
+                                                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 2 }}>{formatDatum(m.datum)} · {m.aantalBestanden} bestand{m.aantalBestanden !== 1 ? 'en' : ''}</div>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                     <button onClick={(e) => { e.stopPropagation(); verwijderMeeting(m.id); }} style={{ padding: '5px 10px', background: '#fef2f2', color: '#ef4444', border: 'none', borderRadius: 7, fontSize: '0.8rem', cursor: 'pointer' }}>Verwijder</button>
@@ -193,8 +235,7 @@ export default function ToolboxAdmin() {
                                                 <div style={{ borderTop: '1px solid #f1f5f9', padding: '14px 18px 18px' }}>
                                                     {m.beschrijving && <p style={{ margin: '0 0 14px', color: '#475569', fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>{m.beschrijving}</p>}
 
-                                                    {/* Bestanden */}
-                                                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Bestanden</div>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Bestanden</div>
                                                     {bestanden.length > 0 && (
                                                         <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                                                             {bestanden.map(b => (
@@ -208,14 +249,16 @@ export default function ToolboxAdmin() {
                                                         </div>
                                                     )}
 
-                                                    {/* Upload */}
+                                                    {/* Upload zone */}
                                                     <div
                                                         onClick={() => uploadRef.current[m.id]?.click()}
-                                                        onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#2563eb'; e.currentTarget.style.background = '#eff6ff'; }}
+                                                        onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#F5850A'; e.currentTarget.style.background = '#FFF3E0'; }}
                                                         onDragLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc'; }}
                                                         onDrop={async (e) => { e.preventDefault(); e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc'; const files = Array.from(e.dataTransfer.files); for (const f of files) await uploadBestand(m.id, f); }}
                                                         style={{ border: '2px dashed #e2e8f0', borderRadius: 10, padding: '14px', textAlign: 'center', cursor: 'pointer', background: '#f8fafc', transition: 'all 0.15s' }}>
-                                                        {uploading[m.id] ? <span style={{ color: '#2563eb', fontSize: '0.85rem' }}>Uploaden…</span> : <><span style={{ fontSize: '1.3rem' }}>📁</span><div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 4 }}>Bestand uploaden — sleep hier of klik</div></>}
+                                                        {uploading[m.id]
+                                                            ? <span style={{ color: '#F5850A', fontSize: '0.85rem' }}>Uploaden…</span>
+                                                            : <><span style={{ fontSize: '1.3rem' }}>📁</span><div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 4 }}>Bestand uploaden — sleep hier of klik</div></>}
                                                     </div>
                                                     <input type="file" multiple ref={el => uploadRef.current[m.id] = el} style={{ display: 'none' }} onChange={async (e) => { for (const f of Array.from(e.target.files)) await uploadBestand(m.id, f); e.target.value = ''; }} />
                                                 </div>
@@ -231,31 +274,45 @@ export default function ToolboxAdmin() {
                 {/* TAB: WIE HEEFT GELEZEN */}
                 {tab === 'lezers' && (
                     <div>
-                        <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: 0 }}>Klik op een meeting om te zien wie gelezen heeft.</p>
-                        {meetings.length === 0 ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 36 }}>Geen meetings.</div> : (
+                        {meetings.length === 0 ? (
+                            <div style={{ color: '#94a3b8', textAlign: 'center', padding: 36, background: '#fff', borderRadius: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>Geen meetings.</div>
+                        ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                 {meetings.map(m => {
                                     const isOpen = openMeetingId === m.id;
                                     const bev = bevestigingen[m.id];
+                                    const aantalGelezen = bev?.gelezen?.length ?? 0;
+                                    const aantalNog = bev?.nogNietGelezen?.length ?? 0;
                                     return (
-                                        <div key={m.id} style={{ background: '#fff', borderRadius: 14, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
+                                        <div key={m.id} style={{ background: '#fff', borderRadius: 14, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', overflow: 'hidden', border: '1.5px solid #e2e8f0' }}>
                                             <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 12 }} onClick={() => { const n = openMeetingId === m.id ? null : m.id; setOpenMeetingId(n); if (n) laadBevestigingen(n); }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ fontWeight: 700, color: '#1e293b' }}>{m.titel}</div>
-                                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>{formatDatum(m.datum)}</div>
+                                                <div style={{ background: '#FFF3E0', borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <span>👁️</span>
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>{m.titel}</div>
+                                                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                        <span>{formatDatum(m.datum)}</span>
+                                                        {bev && <>
+                                                            <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ {aantalGelezen} gelezen</span>
+                                                            {aantalNog > 0 && <span style={{ color: '#ef4444', fontWeight: 600 }}>✗ {aantalNog} nog niet</span>}
+                                                        </>}
+                                                    </div>
                                                 </div>
                                                 <span style={{ color: '#94a3b8', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
                                             </div>
                                             {isOpen && (
                                                 <div style={{ borderTop: '1px solid #f1f5f9', padding: '14px 18px 18px' }}>
-                                                    {!bev ? <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Laden…</div> : (
+                                                    {!bev ? (
+                                                        <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Laden…</div>
+                                                    ) : (
                                                         <>
                                                             {bev.gelezen?.length > 0 && (
                                                                 <div style={{ marginBottom: 16 }}>
-                                                                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>✓ Gelezen ({bev.gelezen.length})</div>
+                                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>✓ Gelezen ({bev.gelezen.length})</div>
                                                                     {bev.gelezen.map(u => (
-                                                                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f0fdf4', borderRadius: 8, marginBottom: 5 }}>
-                                                                            <span style={{ fontWeight: 500, color: '#15803d' }}>{u.naam}</span>
+                                                                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f0fdf4', borderRadius: 8, marginBottom: 5, border: '1px solid #bbf7d0' }}>
+                                                                            <span style={{ fontWeight: 600, color: '#15803d', fontSize: '0.9rem' }}>{u.naam}</span>
                                                                             <span style={{ fontSize: '0.78rem', color: '#64748b' }}>{formatTijd(u.gelezen_op)}</span>
                                                                         </div>
                                                                     ))}
@@ -263,15 +320,17 @@ export default function ToolboxAdmin() {
                                                             )}
                                                             {bev.nogNietGelezen?.length > 0 && (
                                                                 <div>
-                                                                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>✗ Nog niet gelezen ({bev.nogNietGelezen.length})</div>
+                                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>✗ Nog niet gelezen ({bev.nogNietGelezen.length})</div>
                                                                     {bev.nogNietGelezen.map(u => (
-                                                                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', background: '#fef2f2', borderRadius: 8, marginBottom: 5 }}>
-                                                                            <span style={{ fontWeight: 500, color: '#dc2626' }}>{u.naam}</span>
+                                                                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', background: '#fef2f2', borderRadius: 8, marginBottom: 5, border: '1px solid #fecaca' }}>
+                                                                            <span style={{ fontWeight: 600, color: '#dc2626', fontSize: '0.9rem' }}>{u.naam}</span>
                                                                         </div>
                                                                     ))}
                                                                 </div>
                                                             )}
-                                                            {bev.gelezen?.length === 0 && bev.nogNietGelezen?.length === 0 && <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Nog niemand heeft deze meeting gelezen.</div>}
+                                                            {bev.gelezen?.length === 0 && bev.nogNietGelezen?.length === 0 && (
+                                                                <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Nog niemand heeft deze meeting gelezen.</div>
+                                                            )}
                                                         </>
                                                     )}
                                                 </div>
@@ -289,40 +348,48 @@ export default function ToolboxAdmin() {
                     <div>
                         {/* Nieuw gebruiker */}
                         <div style={{ background: '#fff', borderRadius: 16, padding: '20px 22px', boxShadow: '0 1px 4px rgba(0,0,0,0.07)', marginBottom: 24 }}>
-                            <h2 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>+ Medewerker toevoegen</h2>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                                <div style={{ width: 3, height: 16, background: '#F5850A', borderRadius: 2 }} />
+                                <h2 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>Medewerker toevoegen</h2>
+                            </div>
                             <form onSubmit={maakUser}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                                    <input value={nwNaam} onChange={e => setNwNaam(e.target.value)} placeholder="Naam *" required style={{ padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none' }} />
-                                    <input value={nwEmail} onChange={e => setNwEmail(e.target.value)} placeholder="E-mail (optioneel)" type="email" style={{ padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none' }} />
-                                    <input value={nwWw} onChange={e => setNwWw(e.target.value)} placeholder="Wachtwoord *" type="text" required style={{ padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none' }} />
-                                    <select value={nwRol} onChange={e => setNwRol(e.target.value)} style={{ padding: '9px 13px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontSize: '0.9rem', outline: 'none', background: '#fff' }}>
+                                    <input value={nwNaam} onChange={e => setNwNaam(e.target.value)} placeholder="Naam *" required style={inputSt} />
+                                    <input value={nwEmail} onChange={e => setNwEmail(e.target.value)} placeholder="E-mail (optioneel)" type="email" style={inputSt} />
+                                    <input value={nwWw} onChange={e => setNwWw(e.target.value)} placeholder="Wachtwoord *" type="text" required style={inputSt} />
+                                    <select value={nwRol} onChange={e => setNwRol(e.target.value)} style={{ ...inputSt, background: '#fff' }}>
                                         <option value="medewerker">Medewerker</option>
                                         <option value="admin">Admin</option>
                                     </select>
                                 </div>
-                                <button type="submit" disabled={nwULaden} style={{ padding: '9px 22px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer' }}>
-                                    {nwULaden ? 'Opslaan…' : 'Toevoegen'}
+                                <button type="submit" disabled={nwULaden} style={{ padding: '10px 22px', background: nwULaden ? '#fdba74' : '#F5850A', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, fontSize: '0.9rem', cursor: nwULaden ? 'not-allowed' : 'pointer' }}>
+                                    {nwULaden ? 'Opslaan…' : '+ Toevoegen'}
                                 </button>
                             </form>
                         </div>
 
                         {/* Gebruikerslijst */}
                         <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
-                            <div style={{ padding: '14px 18px', borderBottom: '1px solid #f1f5f9', fontWeight: 700, color: '#1e293b', fontSize: '0.9rem' }}>
+                            <div style={{ padding: '14px 18px', borderBottom: '1px solid #f1f5f9', fontWeight: 700, color: '#1e293b', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ width: 3, height: 16, background: '#F5850A', borderRadius: 2 }} />
                                 Gebruikers ({users.length})
                             </div>
-                            {users.length === 0 ? <div style={{ padding: 24, color: '#94a3b8', textAlign: 'center' }}>Geen gebruikers.</div> : (
+                            {users.length === 0 ? (
+                                <div style={{ padding: 24, color: '#94a3b8', textAlign: 'center' }}>Geen gebruikers.</div>
+                            ) : (
                                 users.map((u, i) => (
                                     <div key={u.id} style={{ display: 'flex', alignItems: 'center', padding: '12px 18px', borderBottom: i < users.length - 1 ? '1px solid #f8fafc' : 'none', gap: 12 }}>
-                                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: u.rol === 'admin' ? '#dbeafe' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: u.rol === 'admin' ? '#2563eb' : '#64748b', fontSize: '0.9rem', flexShrink: 0 }}>
+                                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: u.rol === 'admin' ? '#FFF3E0' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: u.rol === 'admin' ? '#F5850A' : '#64748b', fontSize: '0.9rem', flexShrink: 0 }}>
                                             {u.naam[0].toUpperCase()}
                                         </div>
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>{u.naam}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{u.email || 'Geen e-mail'} · <span style={{ color: u.rol === 'admin' ? '#2563eb' : '#64748b' }}>{u.rol}</span></div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                {u.email || 'Geen e-mail'} · <span style={{ color: u.rol === 'admin' ? '#F5850A' : '#64748b', fontWeight: 600 }}>{u.rol}</span>
+                                            </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: 6 }}>
-                                            <button onClick={() => resetWachtwoord(u.id, u.naam)} style={{ padding: '5px 10px', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: 7, fontSize: '0.78rem', cursor: 'pointer' }}>Ww reset</button>
+                                            <button onClick={() => resetWachtwoord(u.id, u.naam)} style={{ padding: '5px 10px', background: '#FFF3E0', color: '#F5850A', border: 'none', borderRadius: 7, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600 }}>Ww reset</button>
                                             {u.naam !== user.naam && <button onClick={() => verwijderUser(u.id, u.naam)} style={{ padding: '5px 10px', background: '#fef2f2', color: '#ef4444', border: 'none', borderRadius: 7, fontSize: '0.78rem', cursor: 'pointer' }}>Verwijder</button>}
                                         </div>
                                     </div>

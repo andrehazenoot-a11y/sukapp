@@ -304,16 +304,16 @@ export default function MaterieelPage() {
 
     return (
         <div className="content-area">
-            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div className="page-header-bar">
                 <div>
-                    <h1><i className="fa-solid fa-toolbox" style={{ color: 'var(--accent)', marginRight: '10px' }}></i>Gereedschapbeheer</h1>
+                    <h1><i className="fa-solid fa-toolbox" style={{ color: 'var(--accent)', marginRight: '8px' }}></i>Gereedschapbeheer</h1>
                     <p>Overzicht van alle NEN 3140 SafetyPAT keuringsdata, reparaties en gereedschap.</p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button className="btn btn-secondary">
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-secondary" style={{ padding: '8px 14px', fontSize: '0.82rem' }}>
                         <i className="fa-solid fa-file-export"></i> Exporteer
                     </button>
-                    <button className="btn btn-primary" style={{ padding: '8px 16px' }}>
+                    <button className="btn btn-primary" style={{ padding: '8px 14px', fontSize: '0.82rem' }}>
                         <i className="fa-solid fa-cloud-arrow-up"></i> Importeer SafetyPAT Data
                     </button>
                 </div>
@@ -352,17 +352,17 @@ export default function MaterieelPage() {
             </div>
 
             {/* == TABS == */}
-            <div className="tabs" style={{ marginBottom: '12px' }}>
-                <button className={`tab-btn ${activeTab === 'inventaris' ? 'active' : ''}`} onClick={() => { setActiveTab('inventaris'); setSelectedItem(null); }}>
-                    <i className="fa-solid fa-list" style={{ marginRight: '6px' }}></i>Inventaris
+            <div className="tab-nav">
+                <button className={`tab-btn${activeTab === 'inventaris' ? ' active' : ''}`} onClick={() => { setActiveTab('inventaris'); setSelectedItem(null); }}>
+                    <i className="fa-solid fa-list"></i>Inventaris
                 </button>
-                <button className={`tab-btn ${activeTab === 'uitgifte' ? 'active' : ''}`} onClick={() => { setActiveTab('uitgifte'); setSelectedItem(null); }}>
-                    <i className="fa-solid fa-right-left" style={{ marginRight: '6px' }}></i>Uitgifte & Locatie
-                    {stats.uitgegeven > 0 && <span className="badge" style={{ marginLeft: '8px', background: '#0ea5e9', color: '#fff' }}>{stats.uitgegeven}</span>}
+                <button className={`tab-btn${activeTab === 'uitgifte' ? ' active' : ''}`} onClick={() => { setActiveTab('uitgifte'); setSelectedItem(null); }}>
+                    <i className="fa-solid fa-right-left"></i>Uitgifte & Locatie
+                    {stats.uitgegeven > 0 && <span className="tab-badge">{stats.uitgegeven}</span>}
                 </button>
-                <button className={`tab-btn ${activeTab === 'reparaties' ? 'active' : ''}`} onClick={() => { setActiveTab('reparaties'); setSelectedItem(null); }}>
-                    <i className="fa-solid fa-wrench" style={{ marginRight: '6px' }}></i>Reparaties
-                    {stats.openReparaties > 0 && <span className="badge" style={{ marginLeft: '8px', background: '#8b5cf6', color: '#fff' }}>{stats.openReparaties}</span>}
+                <button className={`tab-btn${activeTab === 'reparaties' ? ' active' : ''}`} onClick={() => { setActiveTab('reparaties'); setSelectedItem(null); }}>
+                    <i className="fa-solid fa-wrench"></i>Reparaties
+                    {stats.openReparaties > 0 && <span className="tab-badge">{stats.openReparaties}</span>}
                 </button>
             </div>
 

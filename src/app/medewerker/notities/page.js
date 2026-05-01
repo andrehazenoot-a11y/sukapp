@@ -80,13 +80,22 @@ export default function NotitiesPage() {
     const inputStyle = { width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', color: '#1e293b', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none' };
 
     return (
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-note-sticky" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Mijn Notities</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Persoonlijke memo's en checklists</div>
+                    </div>
+                </div>
+            </div>
         <div style={{ padding: '12px' }}>
-            {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '4px', height: '22px', background: 'linear-gradient(180deg,#F5850A,#D96800)', borderRadius: '2px' }} />
-                    <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>Mijn Notities</h2>
-                </div>
                 <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => setModal('memo')} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 12px', background: '#fff8f0', border: '1.5px solid #fde8cc', borderRadius: '10px', color: '#F5850A', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
                         <i className="fa-solid fa-note-sticky" /> Memo
@@ -226,6 +235,7 @@ export default function NotitiesPage() {
                     </div>
                 </>
             )}
+        </div>
         </div>
     );
 }

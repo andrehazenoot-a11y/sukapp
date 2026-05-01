@@ -168,6 +168,19 @@ export default function MedewerkerUren() {
     const todayIso = today.toISOString().slice(0,10);
 
     return (
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+            {/* Oranje header */}
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <i className="fa-solid fa-clock" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Urenregistratie</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Registreer je werkuren per week</div>
+                    </div>
+                </div>
+            </div>
         <div style={{ padding: '16px' }}>
             {/* Week navigatie */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', background: '#fff', borderRadius: '16px', padding: '8px 8px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
@@ -340,6 +353,7 @@ export default function MedewerkerUren() {
                     : <><i className="fa-solid fa-paper-plane" />Week indienen</>
                 }
             </button>
+        </div>
         </div>
     );
 }

@@ -567,10 +567,10 @@ export default function UrenPage() {
                 <p style={{ margin: 0, fontSize: '0.95rem' }}>Registreer je gewerkte uren of vraag vrije dagen aan.</p>
             </div>
 
-            <div className="tabs" style={{ marginBottom: '14px' }}>
-                <button className={`tab-btn ${activeTab === 'verlof' ? 'active' : ''}`} onClick={() => setActiveTab('verlof')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Verlof Aanvragen</button>
-                <button className={`tab-btn ${activeTab === 'planner' ? 'active' : ''}`} onClick={() => setActiveTab('planner')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>Personeelsplanner</button>
-                <button className={`tab-btn ${activeTab === 'overzicht' ? 'active' : ''}`} onClick={() => setActiveTab('overzicht')} style={{ fontSize: '0.9rem', padding: '8px 16px' }}>
+            <div className="tab-nav" style={{ marginBottom: '14px' }}>
+                <button className={`tab-btn${activeTab === 'verlof' ? ' active' : ''}`} onClick={() => setActiveTab('verlof')}>Verlof Aanvragen</button>
+                <button className={`tab-btn${activeTab === 'planner' ? ' active' : ''}`} onClick={() => setActiveTab('planner')}>Personeelsplanner</button>
+                <button className={`tab-btn${activeTab === 'overzicht' ? ' active' : ''}`} onClick={() => setActiveTab('overzicht')}>
                     <i className="fa-solid fa-table-list" style={{ marginRight: '6px' }} />Totaal Overzicht
                 </button>
             </div>
