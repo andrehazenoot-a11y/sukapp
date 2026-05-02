@@ -36,6 +36,6 @@ export async function POST(req) {
 
         return NextResponse.json({ ok: true, ingevoegd: ingevoegd.length });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

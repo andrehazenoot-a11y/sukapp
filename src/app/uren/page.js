@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../components/AuthContext';
+import { useToast } from '../../components/Toast';
 
 // == Datum helpers ==
 const DAY_NAMES = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
@@ -347,6 +348,7 @@ export default function UrenPage() {
 
     // Ingelogde gebruiker (voor persoonlijke localStorage-sleutels)
     const { user } = useAuth();
+    const toast = useToast();
     const userName = (user?.name || 'Onbekend').replace(/\s/g, '_');
     // Vakantie-sleutel: gebruikerspecifiek zodat iedere medewerker zijn eigen data heeft
     // én zodat de bezettingsplanner (die _YEAR_NAME leest) de data direct vindt
@@ -357,13 +359,42 @@ export default function UrenPage() {
 
     const searchParams = useSearchParams();
     const tabFromUrl = searchParams.get('tab');
-    const [activeTab, setActiveTab] = useState(tabFromUrl === 'planner' ? 'planner' : tabFromUrl === 'overzicht' ? 'overzicht' : 'verlof');
+    const isBeheerder = user?.role === 'Beheerder';
+    const [activeTab, setActiveTab] = useState(tabFromUrl === 'planner' ? 'planner' : tabFromUrl === 'overzicht' ? 'overzicht' : tabFromUrl === 'goedkeuring' ? 'goedkeuring' : 'verlof');
     // Sync tab when URL params change (sidebar navigation)
     useEffect(() => {
         if (tabFromUrl === 'planner') setActiveTab('planner');
         else if (tabFromUrl === 'overzicht') setActiveTab('overzicht');
+        else if (tabFromUrl === 'goedkeuring') setActiveTab('goedkeuring');
         else setActiveTab('verlof');
     }, [tabFromUrl]);
+
+    // Verlof goedkeuring (beheerder)
+    const [verlofAanvragen, setVerlofAanvragen] = useState([]);
+    const [verlofLaden, setVerlofLaden] = useState(false);
+    useEffect(() => {
+        if (!isBeheerder) return;
+        setVerlofLaden(true);
+        fetch(`/api/verlof?jaar=${currentYearNum}`)
+            .then(r => r.ok ? r.json() : [])
+            .then(data => { setVerlofAanvragen(Array.isArray(data) ? data : []); setVerlofLaden(false); })
+            .catch(() => setVerlofLaden(false));
+    }, [isBeheerder, currentYearNum]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const keurVerlof = async (id, status) => {
+        try {
+            const res = await fetch('/api/verlof', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, status }),
+            });
+            if (!res.ok) throw new Error();
+            setVerlofAanvragen(prev => prev.map(v => v.id === id ? { ...v, status } : v));
+            toast.success(status === 'Goedgekeurd' ? 'Verlof goedgekeurd' : 'Verlof afgewezen');
+        } catch {
+            toast.error('Opslaan mislukt — probeer opnieuw');
+        }
+    };
     const [showWeekend, setShowWeekend] = useState(false);
     const [weekNum, setWeekNum] = useState(currentWeekNum);
     const [yearNum, setYearNum] = useState(currentYearNum);
@@ -371,22 +402,37 @@ export default function UrenPage() {
     const [showSubmitModal, setShowSubmitModal] = useState(false);
     const [showToast, setShowToast] = useState(false);
 
-    // Vakantiedagen state — laad vanuit localStorage zodra user beschikbaar is
+    // Vakantiedagen state — laad vanuit API, dan localStorage
     const [selectedVacDays, setSelectedVacDays] = useState([]);
     useEffect(() => {
         if (!user) return;
-        try {
-            const existing = JSON.parse(localStorage.getItem(vacKey));
-            if (existing) { setSelectedVacDays(existing); return; }
-            // Migratie: haal generieke data op als nieuwe sleutel leeg is
-            const old = JSON.parse(localStorage.getItem(`schildersapp_vakantie_${currentYearNum}`));
-            if (old) setSelectedVacDays(old);
-        } catch {}
-    }, [vacKey]);
+        fetch(`/api/vakantiedagen?userId=${user.id}&jaar=${currentYearNum}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setSelectedVacDays(data);
+                    localStorage.setItem(vacKey, JSON.stringify(data));
+                } else {
+                    try {
+                        const existing = JSON.parse(localStorage.getItem(vacKey));
+                        if (existing) { setSelectedVacDays(existing); return; }
+                        const old = JSON.parse(localStorage.getItem(`schildersapp_vakantie_${currentYearNum}`));
+                        if (old) setSelectedVacDays(old);
+                    } catch {}
+                }
+            })
+            .catch(() => {
+                try {
+                    const existing = JSON.parse(localStorage.getItem(vacKey));
+                    if (existing) setSelectedVacDays(existing);
+                } catch {}
+            });
+    }, [user?.id, vacKey]); // eslint-disable-line react-hooks/exhaustive-deps
     const toggleVacDay = (dateStr) => {
         setSelectedVacDays(prev => {
             const next = prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr];
             localStorage.setItem(vacKey, JSON.stringify(next));
+            fetch('/api/vakantiedagen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id, jaar: currentYearNum, dagen: next }) }).catch(() => {});
             return next;
         });
     };
@@ -573,6 +619,16 @@ export default function UrenPage() {
                 <button className={`tab-btn${activeTab === 'overzicht' ? ' active' : ''}`} onClick={() => setActiveTab('overzicht')}>
                     <i className="fa-solid fa-table-list" style={{ marginRight: '6px' }} />Totaal Overzicht
                 </button>
+                {isBeheerder && (
+                    <button className={`tab-btn${activeTab === 'goedkeuring' ? ' active' : ''}`} onClick={() => setActiveTab('goedkeuring')} style={{ position: 'relative' }}>
+                        <i className="fa-solid fa-clipboard-check" style={{ marginRight: '6px' }} />Verlof Goedkeuren
+                        {verlofAanvragen.filter(v => v.status === 'In behandeling').length > 0 && (
+                            <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#ef4444', color: '#fff', borderRadius: '999px', fontSize: '0.65rem', fontWeight: 700, padding: '1px 5px', minWidth: '16px', textAlign: 'center' }}>
+                                {verlofAanvragen.filter(v => v.status === 'In behandeling').length}
+                            </span>
+                        )}
+                    </button>
+                )}
             </div>
 
             {activeTab === 'uren' && (
@@ -1244,6 +1300,147 @@ export default function UrenPage() {
 
                 </>
             )}
+
+            {/* ═══════ VERLOF GOEDKEURING TAB ═══════ */}
+            {activeTab === 'goedkeuring' && isBeheerder && (() => {
+                const pending = verlofAanvragen.filter(v => v.status === 'In behandeling');
+                const rest = verlofAanvragen.filter(v => v.status !== 'In behandeling');
+                const sorted = [...pending, ...rest];
+
+                const statusColor = (s) => s === 'Goedgekeurd' ? '#16a34a' : s === 'Afgewezen' ? '#ef4444' : '#F5850A';
+                const statusBg = (s) => s === 'Goedgekeurd' ? 'rgba(34,197,94,0.08)' : s === 'Afgewezen' ? 'rgba(239,68,68,0.08)' : 'rgba(250,160,82,0.08)';
+                const statusBorder = (s) => s === 'Goedgekeurd' ? 'rgba(34,197,94,0.25)' : s === 'Afgewezen' ? 'rgba(239,68,68,0.25)' : 'rgba(250,160,82,0.3)';
+                const statusIcon = (s) => s === 'Goedgekeurd' ? 'fa-check-circle' : s === 'Afgewezen' ? 'fa-times-circle' : 'fa-clock';
+
+                const fmtDate = (d) => {
+                    if (!d) return '—';
+                    const dt = new Date(d + 'T00:00:00');
+                    if (isNaN(dt)) return d;
+                    return dt.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
+                };
+
+                const countDays = (van, tot) => {
+                    if (!van || !tot) return 0;
+                    const a = new Date(van + 'T00:00:00');
+                    const b = new Date(tot + 'T00:00:00');
+                    let count = 0;
+                    const cur = new Date(a);
+                    while (cur <= b) {
+                        const dow = cur.getDay();
+                        if (dow !== 0 && dow !== 6) count++;
+                        cur.setDate(cur.getDate() + 1);
+                    }
+                    return count;
+                };
+
+                return (
+                    <div className="panel">
+                        <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h2>
+                                <i className="fa-solid fa-clipboard-check" style={{ marginRight: '8px', color: '#F5850A' }}></i>
+                                Verlof Aanvragen
+                                {pending.length > 0 && (
+                                    <span style={{ marginLeft: '10px', background: '#ef4444', color: '#fff', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px' }}>
+                                        {pending.length} in behandeling
+                                    </span>
+                                )}
+                            </h2>
+                            <button onClick={() => {
+                                fetch(`/api/verlof?jaar=${YEAR}`, { credentials: 'include' })
+                                    .then(r => r.json())
+                                    .then(data => { if (Array.isArray(data)) setVerlofAanvragen(data); })
+                                    .catch(() => {});
+                            }} className="btn btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem' }}>
+                                <i className="fa-solid fa-rotate" style={{ marginRight: '6px' }}></i>Vernieuwen
+                            </button>
+                        </div>
+
+                        {sorted.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '48px 24px', color: '#94a3b8' }}>
+                                <i className="fa-solid fa-inbox" style={{ fontSize: '2.5rem', marginBottom: '12px', display: 'block', opacity: 0.4 }}></i>
+                                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Geen verlofaanvragen</div>
+                                <div style={{ fontSize: '0.78rem', marginTop: '4px' }}>Er zijn nog geen aanvragen ingediend voor {YEAR}.</div>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {sorted.map(v => {
+                                    const days = countDays(v.van, v.tot);
+                                    const isPending = v.status === 'In behandeling';
+                                    return (
+                                        <div key={v.id} style={{
+                                            padding: '14px 18px', borderRadius: '12px',
+                                            background: statusBg(v.status),
+                                            border: `1px solid ${statusBorder(v.status)}`,
+                                            display: 'flex', alignItems: 'center', gap: '16px',
+                                            flexWrap: 'wrap'
+                                        }}>
+                                            {/* Status icon */}
+                                            <div style={{ flexShrink: 0 }}>
+                                                <i className={`fa-solid ${statusIcon(v.status)}`} style={{ fontSize: '1.4rem', color: statusColor(v.status) }}></i>
+                                            </div>
+
+                                            {/* Info */}
+                                            <div style={{ flex: 1, minWidth: '200px' }}>
+                                                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', marginBottom: '2px' }}>
+                                                    {v.naam || `Medewerker #${v.id}`}
+                                                    <span style={{
+                                                        marginLeft: '8px', fontSize: '0.7rem', fontWeight: 600,
+                                                        padding: '2px 8px', borderRadius: '999px',
+                                                        background: statusBg(v.status), color: statusColor(v.status),
+                                                        border: `1px solid ${statusBorder(v.status)}`
+                                                    }}>
+                                                        {v.status}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '0.82rem', color: '#475569', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                                                    <span>
+                                                        <i className="fa-solid fa-tag" style={{ marginRight: '4px', color: '#94a3b8', fontSize: '0.7rem' }}></i>
+                                                        {v.type || 'Verlof'}
+                                                    </span>
+                                                    <span>
+                                                        <i className="fa-solid fa-calendar-days" style={{ marginRight: '4px', color: '#94a3b8', fontSize: '0.7rem' }}></i>
+                                                        {fmtDate(v.van)} — {fmtDate(v.tot)}
+                                                    </span>
+                                                    <span>
+                                                        <i className="fa-solid fa-sun" style={{ marginRight: '4px', color: '#94a3b8', fontSize: '0.7rem' }}></i>
+                                                        {days} werkdag{days !== 1 ? 'en' : ''}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Actieknoppen — alleen bij 'In behandeling' */}
+                                            {isPending && (
+                                                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                                                    <button
+                                                        onClick={() => keurVerlof(v.id, 'Goedgekeurd')}
+                                                        style={{
+                                                            padding: '7px 16px', borderRadius: '8px', border: 'none',
+                                                            background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                                                            color: '#fff', fontWeight: 700, fontSize: '0.8rem',
+                                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                                        }}>
+                                                        <i className="fa-solid fa-check"></i> Goedkeuren
+                                                    </button>
+                                                    <button
+                                                        onClick={() => keurVerlof(v.id, 'Afgewezen')}
+                                                        style={{
+                                                            padding: '7px 16px', borderRadius: '8px', border: 'none',
+                                                            background: 'linear-gradient(135deg, #dc2626, #ef4444)',
+                                                            color: '#fff', fontWeight: 700, fontSize: '0.8rem',
+                                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                                        }}>
+                                                        <i className="fa-solid fa-xmark"></i> Afwijzen
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
 
             {/* ═══════ PERSONEELSPLANNER TAB ═══════ */}
             {activeTab === 'planner' && (() => {

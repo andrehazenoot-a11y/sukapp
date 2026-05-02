@@ -17,7 +17,7 @@ export async function PUT(req, { params }) {
         const [rows] = await db.query(`SELECT * FROM bouwinspectie_pins WHERE id = ?`, [pinId]);
         return NextResponse.json(rows[0]);
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -29,6 +29,6 @@ export async function DELETE(req, { params }) {
         await db.query(`DELETE FROM bouwinspectie_pins WHERE id = ?`, [pinId]);
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

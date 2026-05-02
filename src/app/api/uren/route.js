@@ -51,7 +51,7 @@ export async function GET(req) {
         const parsed = rows.map(r => ({ ...r, data: typeof r.data === 'string' ? JSON.parse(r.data) : r.data }));
         return NextResponse.json(parsed);
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -80,7 +80,7 @@ export async function POST(req) {
 
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -104,7 +104,7 @@ export async function PATCH(req) {
 
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -123,6 +123,6 @@ export async function DELETE(req) {
         );
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

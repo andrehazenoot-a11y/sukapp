@@ -53,7 +53,13 @@ export async function GET(req) {
 
         const stateParam = searchParams.get('state') || '';
         let returnTo = '/projecten';
-        try { returnTo = Buffer.from(stateParam, 'base64').toString('utf8') || '/projecten'; } catch {}
+        try {
+            const decoded = Buffer.from(stateParam, 'base64').toString('utf8');
+            // Alleen interne paden toestaan — geen externe redirects
+            if (decoded && decoded.startsWith('/') && !decoded.startsWith('//')) {
+                returnTo = decoded;
+            }
+        } catch {}
         const res = NextResponse.redirect(new URL(returnTo, req.url));
         res.cookies.set('ms_access_token', tokens.access_token, { httpOnly: true, maxAge: 3600, path: '/' });
         if (tokens.refresh_token) {

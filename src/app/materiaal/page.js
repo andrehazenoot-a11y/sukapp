@@ -1348,6 +1348,7 @@ export default function MateriaalPage() {
                     });
                     setBestekMap(updated);
                     localStorage.setItem('schildersapp_bestek_producten', JSON.stringify(updated));
+                    fetch('/api/materiaal-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bestekMap: updated, bestekLocks }) }).catch(() => {});
                 }
 
                 function toggleLock(cat, sit, laag) {
@@ -1355,6 +1356,7 @@ export default function MateriaalPage() {
                     const updated = { ...bestekLocks, [key]: !bestekLocks[key] };
                     setBestekLocks(updated);
                     localStorage.setItem('schildersapp_bestek_locks', JSON.stringify(updated));
+                    fetch('/api/materiaal-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bestekMap, bestekLocks: updated }) }).catch(() => {});
                 }
 
                 function toggleCat(sit, laag, product) {
@@ -1375,6 +1377,7 @@ export default function MateriaalPage() {
                     delete updated[codeStr];
                     setBestekMap(updated);
                     localStorage.setItem('schildersapp_bestek_producten', JSON.stringify(updated));
+                    fetch('/api/materiaal-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bestekMap: updated, bestekLocks }) }).catch(() => {});
                 }
 
                 function setTag(product, tag) {

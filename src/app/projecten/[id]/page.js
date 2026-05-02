@@ -539,6 +539,7 @@ export default function ProjectDossierPage() {
         if (n < 0) n = 0;
         setAkPercentage(n);
         localStorage.setItem(`schildersapp_project_ak_${id}`, n);
+        fetch('/api/project-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, sleutel: 'ak_percentage', waarde: n }) }).catch(() => {});
     };
     const [materiaalItems, setMateriaalItems] = useState(() => { 
         try { 
@@ -606,6 +607,7 @@ export default function ProjectDossierPage() {
         if (n < 0) n = 0;
         setWrPercentage(n);
         localStorage.setItem(`schildersapp_project_wr_${id}`, n);
+        fetch('/api/project-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, sleutel: 'wr_percentage', waarde: n }) }).catch(() => {});
     };
     const [showAddTask, setShowAddTask] = useState(false);
     const [dossierFilter, setDossierFilter] = useState('taken');
@@ -910,6 +912,7 @@ export default function ProjectDossierPage() {
         const updated = [...termijnen, ...scanResult.map((t,i) => ({ ...t, id: Date.now() + i }))];
         setTermijnen(updated);
         localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        fetch('/api/project-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, sleutel: 'termijnen', waarde: updated }) }).catch(() => {});
         setScanStatus(null);
         setScanResult([]);
     };
@@ -1533,6 +1536,7 @@ export default function ProjectDossierPage() {
     const saveMeerwerk = (updated) => {
         setMeerwerk(updated);
         localStorage.setItem(`schildersapp_meerwerk_${id}`, JSON.stringify(updated));
+        fetch('/api/project-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, sleutel: 'meerwerk', waarde: updated }) }).catch(() => {});
     };
 
     // Stuur een taak naar Microsoft Planner
@@ -2058,6 +2062,7 @@ export default function ProjectDossierPage() {
         const upd = kwaliteitsChecks.map(k => k.id === kId ? { ...k, done: !k.done } : k);
         setKwaliteitsChecks(upd);
         localStorage.setItem(`schildersapp_bewaking_k_${id}`, JSON.stringify(upd));
+        fetch('/api/project-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, sleutel: 'bewaking_k', waarde: upd }) }).catch(() => {});
     };
 
     // ── Uren berekenen uit urenregistratie voor dit project ──
@@ -2246,6 +2251,26 @@ export default function ProjectDossierPage() {
 
         const storedPhotos = localStorage.getItem(`schildersapp_photos_${id}`);
         setPhotos(storedPhotos ? JSON.parse(storedPhotos) : []);
+
+        // Laad project-meta van API (termijnen, offerte, ak, wr, meerwerk, etc.)
+        fetch(`/api/project-meta?projectId=${id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(meta => {
+                if (!meta) return;
+                if (meta.termijnen) { setTermijnen(meta.termijnen); try { localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(meta.termijnen)); } catch {} }
+                if (meta.offerte) {
+                    const o = meta.offerte;
+                    setOffertePosten(o.posten || []); setOfferteStatus(o.status || 'concept');
+                    setOfferteDatum(o.datum || new Date().toISOString().split('T')[0]);
+                    setOfferteGeldig(o.geldig || 30); setOfferteNotes(o.notes || '');
+                    try { localStorage.setItem(`schildersapp_offerte_${id}`, JSON.stringify(o)); } catch {}
+                }
+                if (meta.ak_percentage != null) { setAkPercentage(Number(meta.ak_percentage)); try { localStorage.setItem(`schildersapp_project_ak_${id}`, String(meta.ak_percentage)); } catch {} }
+                if (meta.wr_percentage != null) { setWrPercentage(Number(meta.wr_percentage)); try { localStorage.setItem(`schildersapp_project_wr_${id}`, String(meta.wr_percentage)); } catch {} }
+                if (meta.meerwerk) { setMeerwerk(meta.meerwerk); try { localStorage.setItem(`schildersapp_meerwerk_${id}`, JSON.stringify(meta.meerwerk)); } catch {} }
+                if (meta.bewaking_k) { setBewakingKwaliteit(meta.bewaking_k); try { localStorage.setItem(`schildersapp_bewaking_k_${id}`, JSON.stringify(meta.bewaking_k)); } catch {} }
+            })
+            .catch(() => {});
 
         const storedTermijnen = localStorage.getItem(`schildersapp_termijnen_${id}`);
         setTermijnen(storedTermijnen ? JSON.parse(storedTermijnen) : DEMO_TERMIJNEN);
@@ -2697,12 +2722,16 @@ export default function ProjectDossierPage() {
         setShowAddTask(false);
     };
 
-    const toggleTermijn = (termijnId) => {
-        const updated = termijnen.map(t => t.id === termijnId
-            ? { ...t, betaald: !t.betaald, betaaldatum: !t.betaald ? new Date().toISOString().split('T')[0] : '' }
-            : t);
+    const saveTermijnen = (updated) => {
         setTermijnen(updated);
         localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        fetch('/api/project-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, sleutel: 'termijnen', waarde: updated }) }).catch(() => {});
+    };
+
+    const toggleTermijn = (termijnId) => {
+        saveTermijnen(termijnen.map(t => t.id === termijnId
+            ? { ...t, betaald: !t.betaald, betaaldatum: !t.betaald ? new Date().toISOString().split('T')[0] : '' }
+            : t));
     };
 
     const addTermijn = () => {
@@ -2718,23 +2747,17 @@ export default function ProjectDossierPage() {
             factuurNr: newTermijn.factuurNr || `F-${new Date().getFullYear()}-${String(termijnen.length + 1).padStart(3, '0')}`,
             betaald: false,
         };
-        const updated = [...termijnen, termijn];
-        setTermijnen(updated);
-        localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        saveTermijnen([...termijnen, termijn]);
         setNewTermijn({ omschrijving: '', bedrag: '', percentage: '', datum: '', vervaldatum: '', factuurNr: '' });
         setShowAddTermijn(false);
     };
 
     const deleteTermijn = (termijnId) => {
-        const updated = termijnen.filter(t => t.id !== termijnId);
-        setTermijnen(updated);
-        localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        saveTermijnen(termijnen.filter(t => t.id !== termijnId));
     };
 
     const saveTermijnEdit = (termijnId, changes) => {
-        const updated = termijnen.map(t => t.id === termijnId ? { ...t, ...changes } : t);
-        setTermijnen(updated);
-        localStorage.setItem(`schildersapp_termijnen_${id}`, JSON.stringify(updated));
+        saveTermijnen(termijnen.map(t => t.id === termijnId ? { ...t, ...changes } : t));
         setEditTermijnId(null);
     };
 
@@ -5374,6 +5397,7 @@ export default function ProjectDossierPage() {
                 const saveOfferte = (updates = {}) => {
                     const data = { posten: offertePosten, status: offerteStatus, datum: offerteDatum, geldig: offerteGeldig, notes: offerteNotes, ...updates };
                     localStorage.setItem(`schildersapp_offerte_${id}`, JSON.stringify(data));
+                    fetch('/api/project-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, sleutel: 'offerte', waarde: data }) }).catch(() => {});
                 };
                 const statusFlow = [
                     { key: 'concept', label: 'Concept', icon: 'fa-pen', color: '#64748b', bg: '#f1f5f9' },

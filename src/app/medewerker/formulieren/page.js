@@ -26,7 +26,7 @@ function Section({ icon, title, color, children, defaultOpen = false }) {
                     <i className={`fa-solid ${icon}`} style={{ color, fontSize: '1rem' }} />
                 </div>
                 <span style={{ flex: 1, fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>{title}</span>
-                <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.9rem' }} />
             </button>
             {open && <div style={{ padding: '0 16px 16px' }}>{children}</div>}
         </div>
@@ -47,6 +47,7 @@ export default function MedewerkerFormulieren() {
         fetch('/api/documenten').then(r => r.json()).then(data => { if (Array.isArray(data)) setDocs(data); }).catch(() => {});
 
         const onMsg = (e) => {
+            if (e.origin !== window.location.origin) return;
             if (e.data?.type !== 'gelezen') return;
             const { docId, userId, naam, timestamp } = e.data;
             setDocs(prev => prev.map(d => d.id !== docId ? d : {
@@ -131,7 +132,7 @@ export default function MedewerkerFormulieren() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Formulieren & Documenten</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Bekijk en download documenten</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Bekijk en download documenten</div>
                     </div>
                 </div>
             </div>
@@ -184,7 +185,7 @@ export default function MedewerkerFormulieren() {
                             { id: 'werkbon', label: 'Werkbon', icon: 'fa-file-alt' },
                         ].map(c => (
                             <button key={c.id} onClick={() => setUploadCategory(c.id)} style={{
-                                padding: '7px 12px', borderRadius: '999px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+                                padding: '7px 12px', borderRadius: '999px', cursor: 'pointer', fontSize: '0.92rem', fontWeight: 600,
                                 border: `2px solid ${uploadCategory === c.id ? '#0891b2' : '#e2e8f0'}`,
                                 background: uploadCategory === c.id ? '#e0f9ff' : '#fff',
                                 color: uploadCategory === c.id ? '#0891b2' : '#94a3b8',
@@ -207,7 +208,7 @@ export default function MedewerkerFormulieren() {
                 {uploadResults.length > 0 && (
                     <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {uploadResults.map((r, i) => (
-                            <div key={i} style={{ fontSize: '0.78rem', fontWeight: 600, padding: '6px 10px', borderRadius: '8px', background: r.success ? '#f0fdf4' : '#fef2f2', color: r.success ? '#16a34a' : '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div key={i} style={{ fontSize: '0.92rem', fontWeight: 600, padding: '6px 10px', borderRadius: '8px', background: r.success ? '#f0fdf4' : '#fef2f2', color: r.success ? '#16a34a' : '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className={`fa-solid ${r.success ? 'fa-check' : 'fa-exclamation-circle'}`} />
                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                                 {r.error && <span style={{ color: '#ef4444', fontWeight: 400 }}>— {r.error}</span>}

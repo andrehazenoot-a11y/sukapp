@@ -48,6 +48,14 @@ function saveData(userId, week, year, data) {
 function loadStatus(userId, week, year) { return localStorage.getItem(statusKey(userId, week, year)) || 'concept'; }
 function saveStatus(userId, week, year, s) { localStorage.setItem(statusKey(userId, week, year), s); }
 
+function syncNaarApi(userId, userName, week, year, data, status) {
+    fetch('/api/uren', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: String(userId), userName, week: Number(week), jaar: Number(year), data, status }),
+    }).catch(() => {});
+}
+
 function getProjects() {
     try {
         const raw = localStorage.getItem('schildersapp_projecten');
@@ -76,15 +84,37 @@ export default function MedewerkerUren() {
 
     useEffect(() => {
         if (!user) return;
-        const data = loadData(user.id, week, year);
-        setRows(data && data.length > 0 ? data : [defaultRow()]);
-        setStatus(loadStatus(user.id, week, year));
+        // Probeer eerst de API, val terug op localStorage
+        fetch(`/api/uren?userId=${user.id}&week=${week}&jaar=${year}`)
+            .then(r => r.ok ? r.json() : [])
+            .then(result => {
+                const record = Array.isArray(result) ? result[0] : null;
+                if (record?.data && record.data.length > 0) {
+                    setRows(record.data);
+                    setStatus(record.status || 'concept');
+                    // Bijwerken localStorage als cache
+                    saveData(user.id, week, year, record.data);
+                    saveStatus(user.id, week, year, record.status || 'concept');
+                } else {
+                    // Geen API-data — probeer localStorage
+                    const local = loadData(user.id, week, year);
+                    setRows(local && local.length > 0 ? local : [defaultRow()]);
+                    setStatus(loadStatus(user.id, week, year));
+                }
+            })
+            .catch(() => {
+                // API niet bereikbaar — gebruik localStorage
+                const local = loadData(user.id, week, year);
+                setRows(local && local.length > 0 ? local : [defaultRow()]);
+                setStatus(loadStatus(user.id, week, year));
+            });
     }, [user, week, year]);
 
     function save(newRows, newStatus) {
         if (!user) return;
         saveData(user.id, week, year, newRows);
         saveStatus(user.id, week, year, newStatus);
+        syncNaarApi(user.id, user.name, week, year, newRows, newStatus);
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
     }
@@ -168,7 +198,7 @@ export default function MedewerkerUren() {
     const todayIso = today.toISOString().slice(0,10);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9', height: '100%', overflowY: 'auto' }}>
             {/* Oranje header */}
             <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -177,7 +207,7 @@ export default function MedewerkerUren() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Urenregistratie</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Registreer je werkuren per week</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Registreer je werkuren per week</div>
                     </div>
                 </div>
             </div>
@@ -189,7 +219,7 @@ export default function MedewerkerUren() {
                 </button>
                 <div style={{ textAlign: 'center' }}>
                     <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b', letterSpacing: '-0.01em' }}>Week {week}</div>
-                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{days[0].date} – {days[4].date} {year}</div>
+                    <div style={{ fontSize: '0.87rem', color: '#94a3b8', marginTop: '1px' }}>{days[0].date} – {days[4].date} {year}</div>
                 </div>
                 <button onClick={nextWeek} style={{ background: '#f8fafc', border: 'none', borderRadius: '10px', padding: '9px 14px', cursor: 'pointer', fontSize: '0.9rem', color: '#475569' }}>
                     <i className="fa-solid fa-chevron-right" />
@@ -199,11 +229,11 @@ export default function MedewerkerUren() {
             {/* Status badge */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.77rem', fontWeight: 700, padding: '5px 11px', borderRadius: '999px', background: status === 'ingediend' ? '#dcfce7' : '#fef9c3', color: status === 'ingediend' ? '#16a34a' : '#92400e', border: `1px solid ${status === 'ingediend' ? '#bbf7d0' : '#fde68a'}` }}>
-                    <i className={`fa-solid ${status === 'ingediend' ? 'fa-circle-check' : 'fa-circle-half-stroke'}`} style={{ fontSize: '0.7rem' }} />
+                    <i className={`fa-solid ${status === 'ingediend' ? 'fa-circle-check' : 'fa-circle-half-stroke'}`} style={{ fontSize: '0.86rem' }} />
                     {status === 'ingediend' ? 'Ingediend' : 'Concept'}
                 </span>
-                <span style={{ fontSize: '0.78rem', color: weekTotal >= 37.5 ? '#10b981' : '#94a3b8', fontWeight: weekTotal >= 37.5 ? 700 : 400 }}>{weekTotal.toFixed(1)}u / 37,5u</span>
-                {saved && <span style={{ fontSize: '0.73rem', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-check" />Opgeslagen</span>}
+                <span style={{ fontSize: '0.92rem', color: weekTotal >= 37.5 ? '#10b981' : '#94a3b8', fontWeight: weekTotal >= 37.5 ? 700 : 400 }}>{weekTotal.toFixed(1)}u / 37,5u</span>
+                {saved && <span style={{ fontSize: '0.87rem', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-check" />Opgeslagen</span>}
             </div>
 
             {/* Uren-type tabs */}
@@ -234,11 +264,11 @@ export default function MedewerkerUren() {
 
             {/* Dag headers */}
             <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', paddingLeft: '4px' }}>
-                <div style={{ width: '80px', flexShrink: 0 }} />
+                <div style={{ width: '60px', flexShrink: 0 }} />
                 {days.map((d, i) => (
                     <div key={i} style={{ flex: 1, textAlign: 'center' }}>
-                        <div style={{ fontSize: '0.68rem', fontWeight: 800, color: d.iso === todayIso ? '#F5850A' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.short}</div>
-                        <div style={{ fontSize: '0.62rem', color: d.iso === todayIso ? '#F5850A' : '#cbd5e1', fontWeight: d.iso === todayIso ? 600 : 400 }}>{d.date}</div>
+                        <div style={{ fontSize: '0.84rem', fontWeight: 800, color: d.iso === todayIso ? '#F5850A' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.short}</div>
+                        <div style={{ fontSize: '0.8rem', color: d.iso === todayIso ? '#F5850A' : '#cbd5e1', fontWeight: d.iso === todayIso ? 600 : 400 }}>{d.date}</div>
                     </div>
                 ))}
                 <div style={{ width: '28px', flexShrink: 0 }} />
@@ -273,7 +303,7 @@ export default function MedewerkerUren() {
 
                         {/* Dag invoer */}
                         <div style={{ display: 'flex', gap: '4px', marginBottom: '6px', paddingLeft: '4px' }}>
-                            <div style={{ width: '76px', flexShrink: 0, fontSize: '0.7rem', color: '#94a3b8', alignSelf: 'center', fontWeight: 700 }}>
+                            <div style={{ width: '60px', flexShrink: 0, fontSize: '0.86rem', color: '#94a3b8', alignSelf: 'center', fontWeight: 700 }}>
                                 {kmMode ? 'Km' : UREN_TYPES.find(t => t.id === activeType)?.label}
                             </div>
                             {days.map((d, di) => (
@@ -299,14 +329,14 @@ export default function MedewerkerUren() {
                         {/* Notitie velden */}
                         {!kmMode && (
                             <div style={{ display: 'flex', gap: '4px', paddingLeft: '4px' }}>
-                                <div style={{ width: '76px', flexShrink: 0, fontSize: '0.63rem', color: '#cbd5e1', alignSelf: 'center', fontWeight: 600 }}>Notitie</div>
+                                <div style={{ width: '60px', flexShrink: 0, fontSize: '0.63rem', color: '#cbd5e1', alignSelf: 'center', fontWeight: 600 }}>Notitie</div>
                                 {days.map((d, di) => (
                                     <div key={di} style={{ flex: 1 }}>
                                         <input
                                             type="text"
                                             value={(row.notes[activeType] || [])[di] || ''}
                                             onChange={e => updateNote(ri, di, e.target.value)}
-                                            style={{ width: '100%', padding: '4px 2px', border: '1px solid #f1f5f9', borderRadius: '6px', fontSize: '0.65rem', color: '#64748b', boxSizing: 'border-box', background: '#f8fafc' }}
+                                            style={{ width: '100%', padding: '4px 2px', border: '1px solid #f1f5f9', borderRadius: '6px', fontSize: '0.82rem', color: '#64748b', boxSizing: 'border-box', background: '#f8fafc' }}
                                             placeholder="..."
                                         />
                                     </div>
@@ -326,7 +356,7 @@ export default function MedewerkerUren() {
             {/* Dag totalen */}
             <div style={{ background: '#fff', borderRadius: '14px', padding: '12px 13px', marginBottom: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', border: '1px solid #f1f5f9' }}>
                 <div style={{ display: 'flex', gap: '4px', paddingLeft: '4px' }}>
-                    <div style={{ width: '76px', flexShrink: 0, fontSize: '0.7rem', fontWeight: 700, color: '#64748b', alignSelf: 'center' }}>Dag totaal</div>
+                    <div style={{ width: '60px', flexShrink: 0, fontSize: '0.86rem', fontWeight: 700, color: '#64748b', alignSelf: 'center' }}>Dag totaal</div>
                     {dayTotals.map((t, i) => (
                         <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: '0.83rem', fontWeight: 800, color: t > 0 ? '#F5850A' : '#e2e8f0', padding: '6px 0', letterSpacing: '-0.01em' }}>
                             {t > 0 ? t.toFixed(1) : '—'}

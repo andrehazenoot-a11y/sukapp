@@ -37,17 +37,40 @@ export default function Sidebar({ user, onLogout }) {
     }, []);
 
     useEffect(() => {
+        const naam = user?.name || '';
+        if (!naam) return;
+
         const laadOngelezen = () => {
             try {
                 const meldingen = JSON.parse(localStorage.getItem('schildersapp_meldingen') || '[]');
                 setAlleMeldingen(meldingen);
-                const naam = user?.name || '';
                 const count = meldingen.filter(m => m.aan === naam && !m.gelezen).length;
                 setOngelezen(count);
             } catch {}
         };
         laadOngelezen();
-        const interval = setInterval(laadOngelezen, 5000);
+
+        // API-first: laad meldingen voor deze gebruiker
+        const laadViaApi = () => {
+            fetch(`/api/meldingen?aan=${encodeURIComponent(naam)}`, { credentials: 'include' })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!Array.isArray(data)) return;
+                    // Merge met bestaande localStorage (andere ontvangers bewaren)
+                    try {
+                        const bestaande = JSON.parse(localStorage.getItem('schildersapp_meldingen') || '[]');
+                        const andereOntvangers = bestaande.filter(m => m.aan !== naam);
+                        const merged = [...data, ...andereOntvangers];
+                        localStorage.setItem('schildersapp_meldingen', JSON.stringify(merged));
+                        setAlleMeldingen(merged);
+                        setOngelezen(data.filter(m => !m.gelezen).length);
+                    } catch {}
+                })
+                .catch(() => {});
+        };
+        laadViaApi();
+
+        const interval = setInterval(() => { laadViaApi(); }, 15000);
         return () => clearInterval(interval);
     }, [user?.name]);
 

@@ -7,6 +7,7 @@ import { LanguageProvider, useLanguage } from './LanguageContext';
 import LoginPage from './LoginPage';
 import Sidebar from './Sidebar';
 import ChatBot from './ChatBot';
+import { ToastProvider } from './Toast';
 
 const PUBLIC_ROUTES = ['/meerwerk-akkoord', '/intake'];
 
@@ -69,7 +70,9 @@ export default function AppShell({ children }) {
     return (
         <LanguageProvider>
             <AuthProvider>
-                <AppContent>{children}</AppContent>
+                <ToastProvider>
+                    <AppContent>{children}</AppContent>
+                </ToastProvider>
             </AuthProvider>
         </LanguageProvider>
     );

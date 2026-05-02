@@ -41,7 +41,7 @@ export async function GET() {
         }
         return NextResponse.json(meetings.map(m => ({ ...m, bestanden: bestandenMap[m.id] || [] })));
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -58,6 +58,6 @@ export async function POST(req) {
         );
         return NextResponse.json({ ok: true, id: result.insertId }, { status: 201 });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

@@ -55,12 +55,12 @@ function CentraleKaart({ meeting }) {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meeting.titel}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
                         {formatDatum(meeting.datum)}
                         {meeting.bestanden?.length > 0 && ` · ${meeting.bestanden.length} bestand${meeting.bestanden.length !== 1 ? 'en' : ''}`}
                     </div>
                 </div>
-                <i className="fa-solid fa-chevron-down" style={{ color: '#cbd5e1', fontSize: '0.75rem', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }} />
+                <i className="fa-solid fa-chevron-down" style={{ color: '#cbd5e1', fontSize: '0.9rem', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }} />
             </button>
 
             {open && (
@@ -99,7 +99,20 @@ export default function ToolboxPage() {
     const [handtekeningen, setHandtekeningen] = useState([]);
     const [nieuwNaam, setNieuwNaam] = useState('');
 
-    useEffect(() => { setMeetings(loadMeetings()); }, []);
+    useEffect(() => {
+        if (!user?.id) { setMeetings(loadMeetings()); return; }
+        fetch(`/api/medewerker-toolbox?eigen=1&userId=${user.id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setMeetings(data);
+                    saveMeetings(data);
+                } else {
+                    setMeetings(loadMeetings());
+                }
+            })
+            .catch(() => setMeetings(loadMeetings()));
+    }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         fetch('/api/medewerker-toolbox')
@@ -112,6 +125,7 @@ export default function ToolboxPage() {
         if (!form.project || !form.onderwerp) return;
         const meeting = {
             id: Date.now(),
+            userId: user?.id,
             datum: form.datum,
             project: form.project,
             onderwerp: form.onderwerp,
@@ -122,6 +136,7 @@ export default function ToolboxPage() {
         const nieuw = [meeting, ...meetings];
         setMeetings(nieuw);
         saveMeetings(nieuw);
+        fetch('/api/medewerker-toolbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meeting) }).catch(() => {});
         setView('lijst');
         setForm({ datum: new Date().toISOString().slice(0, 10), project: '', onderwerp: '', notities: '', aanwezig: '' });
         setHandtekeningen([]);
@@ -132,6 +147,7 @@ export default function ToolboxPage() {
         const nieuw = meetings.filter(m => m.id !== id);
         setMeetings(nieuw);
         saveMeetings(nieuw);
+        fetch(`/api/medewerker-toolbox?id=${id}`, { method: 'DELETE' }).catch(() => {});
         setView('lijst');
     }
 
@@ -159,7 +175,7 @@ export default function ToolboxPage() {
                         </div>
                         <div>
                             <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>{selected.onderwerp}</div>
-                            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{selected.datum} · {selected.project}</div>
+                            <div style={{ fontSize: '0.92rem', color: '#64748b' }}>{selected.datum} · {selected.project}</div>
                         </div>
                     </div>
                     <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Aangemaakt door</div>
@@ -174,7 +190,7 @@ export default function ToolboxPage() {
                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
                             <i className={`fa-solid ${h.getekend ? 'fa-circle-check' : 'fa-circle-xmark'}`} style={{ color: h.getekend ? '#22c55e' : '#94a3b8' }} />
                             <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>{h.naam}</span>
-                            {h.getekend && <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: '#22c55e', fontWeight: 600 }}>Getekend</span>}
+                            {h.getekend && <span style={{ marginLeft: 'auto', fontSize: '0.87rem', color: '#22c55e', fontWeight: 600 }}>Getekend</span>}
                         </div>
                     ))}
                     <button onClick={() => verwijder(selected.id)} style={{ marginTop: '20px', width: '100%', padding: '11px', borderRadius: '10px', border: '1px solid #fee2e2', background: '#fff5f5', color: '#ef4444', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}>
@@ -254,7 +270,7 @@ export default function ToolboxPage() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Toolbox Meetings</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Registreer en bekijk meetings</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Registreer en bekijk meetings</div>
                     </div>
                 </div>
             </div>
@@ -264,7 +280,7 @@ export default function ToolboxPage() {
             <div style={{ marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
                     <div style={{ width: '3px', height: '16px', background: '#3b82f6', borderRadius: '2px' }} />
-                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Van de beheerder</span>
+                    <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Van de beheerder</span>
                 </div>
 
                 {centraleLaden ? (
@@ -283,9 +299,9 @@ export default function ToolboxPage() {
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '2px' }}>
                         <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Eigen meetings</span>
+                        <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Eigen meetings</span>
                     </div>
-                    <div style={{ fontSize: '0.78rem', color: '#64748b', paddingLeft: '10px' }}>{meetings.length} bijeenkomst{meetings.length !== 1 ? 'en' : ''}</div>
+                    <div style={{ fontSize: '0.92rem', color: '#64748b', paddingLeft: '10px' }}>{meetings.length} bijeenkomst{meetings.length !== 1 ? 'en' : ''}</div>
                 </div>
                 <button onClick={() => setView('nieuw')} style={{ background: '#F5850A', color: '#fff', border: 'none', borderRadius: '12px', padding: '10px 16px', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <i className="fa-solid fa-plus" /> Nieuw
@@ -307,13 +323,13 @@ export default function ToolboxPage() {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.onderwerp}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{m.datum} · {m.project}</div>
+                        <div style={{ fontSize: '0.9rem', color: '#64748b' }}>{m.datum} · {m.project}</div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: '0.75rem', color: m.aanwezig.filter(a => a.getekend).length === m.aanwezig.length && m.aanwezig.length > 0 ? '#22c55e' : '#94a3b8', fontWeight: 600 }}>
+                        <div style={{ fontSize: '0.9rem', color: m.aanwezig.filter(a => a.getekend).length === m.aanwezig.length && m.aanwezig.length > 0 ? '#22c55e' : '#94a3b8', fontWeight: 600 }}>
                             {m.aanwezig.filter(a => a.getekend).length}/{m.aanwezig.length} getekend
                         </div>
-                        <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.75rem', marginTop: '4px' }} />
+                        <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.9rem', marginTop: '4px' }} />
                     </div>
                 </button>
             ))}
@@ -322,5 +338,5 @@ export default function ToolboxPage() {
     );
 }
 
-const labelStyle = { fontSize: '0.78rem', fontWeight: 600, color: '#64748b', marginBottom: '6px', display: 'block' };
+const labelStyle = { fontSize: '0.92rem', fontWeight: 600, color: '#64748b', marginBottom: '6px', display: 'block' };
 const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.9rem', color: '#1e293b', background: '#f8fafc', boxSizing: 'border-box', outline: 'none' };

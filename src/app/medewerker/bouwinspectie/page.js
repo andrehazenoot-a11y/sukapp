@@ -21,7 +21,7 @@ export default function BouwinspectiePage() {
             {/* Header */}
             <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '18px 20px 16px' }}>
                 <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem', letterSpacing: '-0.01em' }}>Bouwinspectie</div>
-                <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>{projecten.length} project{projecten.length !== 1 ? 'en' : ''}</div>
+                <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>{projecten.length} project{projecten.length !== 1 ? 'en' : ''}</div>
             </div>
 
             {/* Content */}
@@ -48,17 +48,17 @@ export default function BouwinspectiePage() {
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.naam}</div>
                                     {p.adres && (
-                                        <div style={{ fontSize: '0.72rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            <i className="fa-solid fa-location-dot" style={{ marginRight: '4px', fontSize: '0.65rem' }} />{p.adres}
+                                        <div style={{ fontSize: '0.87rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <i className="fa-solid fa-location-dot" style={{ marginRight: '4px', fontSize: '0.82rem' }} />{p.adres}
                                         </div>
                                     )}
                                     {p.opdrachtgever && (
-                                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            <i className="fa-solid fa-building" style={{ marginRight: '4px', fontSize: '0.65rem' }} />{p.opdrachtgever}
+                                        <div style={{ fontSize: '0.87rem', color: '#94a3b8', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <i className="fa-solid fa-building" style={{ marginRight: '4px', fontSize: '0.82rem' }} />{p.opdrachtgever}
                                         </div>
                                     )}
                                 </div>
-                                <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.75rem', flexShrink: 0 }} />
+                                <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.9rem', flexShrink: 0 }} />
                             </div>
                         ))}
                     </div>

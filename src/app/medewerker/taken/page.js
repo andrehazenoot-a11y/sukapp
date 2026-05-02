@@ -70,7 +70,15 @@ export default function MedewerkerTaken() {
 
     useEffect(() => {
         if (!user) return;
-        setTasks(getMyTasks(user.id));
+        fetch('/api/projecten')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    try { localStorage.setItem('schildersapp_projecten', JSON.stringify(data)); } catch {}
+                }
+                setTasks(getMyTasks(user.id));
+            })
+            .catch(() => setTasks(getMyTasks(user.id)));
     }, [user]);
 
     function handleToggle(task) {
@@ -84,6 +92,11 @@ export default function MedewerkerTaken() {
             if (a.completed !== b.completed) return a.completed ? 1 : -1;
             return (a.endDate || '9999') > (b.endDate || '9999') ? 1 : -1;
         }));
+        fetch('/api/projecten', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId: task.taskId, progress: newCompleted ? 100 : 0, completed: newCompleted }),
+        }).catch(() => {});
     }
 
     const filtered = tasks.filter(t => {
@@ -105,7 +118,7 @@ export default function MedewerkerTaken() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Mijn Taken</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Beheer je openstaande taken</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Beheer je openstaande taken</div>
                     </div>
                 </div>
             </div>
@@ -123,11 +136,11 @@ export default function MedewerkerTaken() {
                         border: `2px solid ${filter === f.id ? '#F5850A' : '#e2e8f0'}`,
                         background: filter === f.id ? '#F5850A' : '#fff',
                         color: filter === f.id ? '#fff' : '#94a3b8',
-                        fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer',
+                        fontWeight: 700, fontSize: '0.92rem', cursor: 'pointer',
                         transition: 'all 0.15s',
                     }}>
                         {f.label}
-                        <span style={{ background: filter === f.id ? 'rgba(255,255,255,0.25)' : '#f1f5f9', color: filter === f.id ? '#fff' : '#64748b', borderRadius: '999px', padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700, minWidth: '18px', textAlign: 'center' }}>{f.count}</span>
+                        <span style={{ background: filter === f.id ? 'rgba(255,255,255,0.25)' : '#f1f5f9', color: filter === f.id ? '#fff' : '#64748b', borderRadius: '999px', padding: '1px 6px', fontSize: '0.86rem', fontWeight: 700, minWidth: '18px', textAlign: 'center' }}>{f.count}</span>
                     </button>
                 ))}
             </div>
@@ -165,7 +178,7 @@ export default function MedewerkerTaken() {
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 transition: 'all 0.15s',
                             }}>
-                                {task.completed && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.62rem' }} />}
+                                {task.completed && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.8rem' }} />}
                             </button>
 
                             {/* Inhoud */}
@@ -173,7 +186,7 @@ export default function MedewerkerTaken() {
                                 <div style={{ fontWeight: 700, fontSize: '0.88rem', color: task.completed ? '#94a3b8' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: task.completed ? 'line-through' : 'none' }}>
                                     {task.taskName}
                                 </div>
-                                <div style={{ fontSize: '0.73rem', color: '#94a3b8', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontSize: '0.87rem', color: '#94a3b8', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {task.projectName}
                                 </div>
                             </div>
@@ -181,7 +194,7 @@ export default function MedewerkerTaken() {
                             {/* Datum */}
                             {task.endDate && (
                                 <div style={{ flexShrink: 0, fontSize: '0.71rem', fontWeight: 700, color: overdue ? '#ef4444' : '#94a3b8', background: overdue ? '#fef2f2' : '#f8fafc', padding: '3px 8px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                    {overdue && <i className="fa-solid fa-circle-exclamation" style={{ fontSize: '0.65rem' }} />}
+                                    {overdue && <i className="fa-solid fa-circle-exclamation" style={{ fontSize: '0.82rem' }} />}
                                     {formatDate(task.endDate)}
                                 </div>
                             )}
@@ -191,7 +204,7 @@ export default function MedewerkerTaken() {
             })}
 
             {filter === 'open' && openCount > 0 && (
-                <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>
+                <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '0.9rem', color: '#94a3b8', fontWeight: 500 }}>
                     {openCount} taak{openCount !== 1 ? 'en' : ''} open
                 </div>
             )}

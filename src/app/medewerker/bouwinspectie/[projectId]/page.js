@@ -458,6 +458,8 @@ export default function BouwinspectieProject() {
     }
 
     function handleGestureStart(e) {
+        // Touch op een pin → niet als canvas-gesture behandelen zodat pin zijn eigen handler krijgt
+        if (e.touches.length === 1 && e.target.closest('[data-pin]')) return;
         const cur = liveZoom.current;
         if (e.touches.length === 2) {
             e.preventDefault();
@@ -512,23 +514,41 @@ export default function BouwinspectieProject() {
     // ── Pin render helpers ──
     function TearPin({ pin, onClick }) {
         const kleur = pinKleur(pin.status);
+        const touchStart = useRef(null);
         return (
-            <div onClick={onClick}
+            <div
+                data-pin="true"
+                onTouchStart={e => {
+                    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                }}
+                onTouchEnd={e => {
+                    if (wasPinchRef.current || !touchStart.current) return;
+                    const dx = Math.abs(e.changedTouches[0].clientX - touchStart.current.x);
+                    const dy = Math.abs(e.changedTouches[0].clientY - touchStart.current.y);
+                    touchStart.current = null;
+                    if (dx < 12 && dy < 12) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onClick(e);
+                    }
+                }}
+                onClick={onClick}
                 style={{ position: 'absolute', left: `${pin.x_pct}%`, top: `${pin.y_pct}%`,
                     transform: 'translate(-50%, -100%)', display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', cursor: 'pointer', zIndex: 10,
+                    alignItems: 'center', cursor: 'pointer', zIndex: 20,
                     filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.45))',
+                    touchAction: 'none', padding: '8px',
                 }}>
-                <div style={{ width: 34, height: 34, borderRadius: '50%', background: kleur,
-                    border: '2.5px solid #fff', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', color: '#fff', fontSize: '0.72rem', fontWeight: 800,
-                    minWidth: 44, minHeight: 44,
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: kleur,
+                    border: '3px solid #fff', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', color: '#fff', fontSize: '0.9rem', fontWeight: 800,
+                    minWidth: 44, minHeight: 44, boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                 }}>
                     {pin.volgnummer}
                 </div>
                 <div style={{ width: 0, height: 0,
-                    borderLeft: '7px solid transparent', borderRight: '7px solid transparent',
-                    borderTop: `10px solid ${kleur}`,
+                    borderLeft: '8px solid transparent', borderRight: '8px solid transparent',
+                    borderTop: `11px solid ${kleur}`,
                 }} />
             </div>
         );
@@ -585,23 +605,23 @@ export default function BouwinspectieProject() {
                     </button>
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.naam}</div>
-                        {project.adres && <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.68rem' }}>{project.adres}</div>}
+                        {project.adres && <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.84rem' }}>{project.adres}</div>}
                     </div>
-                    {stats.open > 0 && <span style={{ background: '#ef4444', color: '#fff', borderRadius: '999px', fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', flexShrink: 0 }}>{stats.open} open</span>}
+                    {stats.open > 0 && <span style={{ background: '#ef4444', color: '#fff', borderRadius: '999px', fontSize: '0.82rem', fontWeight: 800, padding: '2px 8px', flexShrink: 0 }}>{stats.open} open</span>}
                 </div>
 
                 {/* Tabs */}
                 <div style={{ display: 'flex', gap: '2px' }}>
                     {[['tekening', 'fa-map', 'Tekening'], ['bevindingen', 'fa-list-check', 'Bevindingen'], ['dashboard', 'fa-chart-pie', 'Dashboard']].map(([t, ic, lb]) => (
                         <button key={t} onClick={() => setTab(t)} style={{
-                            flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', fontSize: '0.72rem',
+                            flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', fontSize: '0.87rem',
                             background: tab === t ? 'rgba(255,255,255,0.2)' : 'transparent',
                             color: tab === t ? '#fff' : 'rgba(255,255,255,0.65)',
                             fontWeight: tab === t ? 700 : 500,
                             borderRadius: '8px 8px 0 0',
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
                         }}>
-                            <i className={`fa-solid ${ic}`} style={{ fontSize: '0.65rem' }} />{lb}
+                            <i className={`fa-solid ${ic}`} style={{ fontSize: '0.82rem' }} />{lb}
                         </button>
                     ))}
                 </div>
@@ -725,11 +745,11 @@ export default function BouwinspectieProject() {
                                     {activeTekening?.naam || 'Selecteer tekening'}
                                 </span>
                                 {activeTekening && (
-                                    <span style={{ fontSize: '0.6rem', background: '#f1f5f9', color: '#64748b', borderRadius: '999px', padding: '1px 6px', fontWeight: 700 }}>
+                                    <span style={{ fontSize: '0.9rem', background: '#f1f5f9', color: '#64748b', borderRadius: '999px', padding: '1px 6px', fontWeight: 700 }}>
                                         {pinsVoorTekening.length}
                                     </span>
                                 )}
-                                <i className="fa-solid fa-chevron-down" style={{ color: '#94a3b8', fontSize: '0.65rem', transition: 'transform 0.2s', transform: showTekeningList ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+                                <i className="fa-solid fa-chevron-down" style={{ color: '#94a3b8', fontSize: '0.82rem', transition: 'transform 0.2s', transform: showTekeningList ? 'rotate(180deg)' : 'rotate(0deg)' }} />
                             </button>
 
                             {showTekeningList && (
@@ -743,13 +763,13 @@ export default function BouwinspectieProject() {
                                                 <div key={t.id ?? idx} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f8fafc' }}>
                                                     <button onClick={() => { setActiveTekening(t); setShowTekeningList(false); }}
                                                         style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px', padding: '11px 14px', border: 'none', cursor: 'pointer', background: isActive ? '#fff7ed' : '#fff', textAlign: 'left' }}>
-                                                        <i className="fa-solid fa-map" style={{ color: isActive ? '#F5850A' : '#94a3b8', fontSize: '0.75rem', width: '14px' }} />
+                                                        <i className="fa-solid fa-map" style={{ color: isActive ? '#F5850A' : '#94a3b8', fontSize: '0.9rem', width: '14px' }} />
                                                         <span style={{ flex: 1, fontSize: '0.84rem', fontWeight: isActive ? 700 : 500, color: '#1e293b' }}>{t.naam}</span>
-                                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>{tPinCount}</span>
+                                                        <span style={{ fontSize: '0.82rem', color: '#94a3b8', fontWeight: 600 }}>{tPinCount}</span>
                                                     </button>
                                                     {isActive && (
                                                         <button onClick={() => { setShowTekeningList(false); verwijderTekening(t); }}
-                                                            style={{ background: 'none', border: 'none', padding: '11px 12px', cursor: 'pointer', color: '#ef4444', fontSize: '0.78rem' }}>
+                                                            style={{ background: 'none', border: 'none', padding: '11px 12px', cursor: 'pointer', color: '#ef4444', fontSize: '0.92rem' }}>
                                                             <i className="fa-solid fa-trash" />
                                                         </button>
                                                     )}
@@ -758,7 +778,7 @@ export default function BouwinspectieProject() {
                                         })}
                                         <button onClick={() => { setShowTekeningList(false); setShowTekeningUpload(true); }}
                                             style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '11px 14px', border: 'none', cursor: 'pointer', background: '#f8fafc' }}>
-                                            <i className="fa-solid fa-plus" style={{ color: '#F5850A', fontSize: '0.75rem', width: '14px' }} />
+                                            <i className="fa-solid fa-plus" style={{ color: '#F5850A', fontSize: '0.9rem', width: '14px' }} />
                                             <span style={{ fontSize: '0.84rem', color: '#475569', fontWeight: 600 }}>Tekening uploaden</span>
                                         </button>
                                     </div>
@@ -772,7 +792,7 @@ export default function BouwinspectieProject() {
                         <button onClick={applyFitZoom}
                             style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 30,
                                 background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '10px',
-                                color: '#fff', fontSize: '0.7rem', fontWeight: 700, padding: '7px 12px', cursor: 'pointer',
+                                color: '#fff', fontSize: '0.86rem', fontWeight: 700, padding: '7px 12px', cursor: 'pointer',
                                 backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                             <i className="fa-solid fa-compress" />
                         </button>
@@ -785,7 +805,7 @@ export default function BouwinspectieProject() {
                                 style={{ background: 'none', border: 'none', color: pdfPage <= 1 ? 'rgba(255,255,255,0.3)' : '#fff', fontSize: '0.9rem', cursor: pdfPage <= 1 ? 'default' : 'pointer', padding: '2px 6px' }}>
                                 <i className="fa-solid fa-chevron-left" />
                             </button>
-                            <span style={{ color: '#fff', fontSize: '0.78rem', fontWeight: 700, minWidth: '60px', textAlign: 'center' }}>
+                            <span style={{ color: '#fff', fontSize: '0.92rem', fontWeight: 700, minWidth: '60px', textAlign: 'center' }}>
                                 {pdfPage} / {pdfTotalPages}
                             </span>
                             <button onClick={() => setPdfPage(p => Math.min(pdfTotalPages, p + 1))} disabled={pdfPage >= pdfTotalPages}
@@ -801,7 +821,7 @@ export default function BouwinspectieProject() {
                             <span style={{ color: '#fff', fontWeight: 700, fontSize: '0.82rem' }}>
                                 <i className="fa-solid fa-crosshairs" style={{ marginRight: '8px' }} />Tik op de tekening om een pin te plaatsen
                             </span>
-                            <button onClick={() => setPlacingPin(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '8px', color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}>
+                            <button onClick={() => setPlacingPin(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '8px', color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 700 }}>
                                 Annuleer
                             </button>
                         </div>
@@ -810,7 +830,7 @@ export default function BouwinspectieProject() {
                     {/* FAB — pin toevoegen */}
                     {activeTekening && !sheetOpen && !placingPin && (
                         <button onClick={() => { setPlacingPin(true); setSheetMode(null); setSelectedPin(null); }}
-                            style={{ position: 'absolute', bottom: '20px', right: '16px', zIndex: 30, width: '56px', height: '56px', borderRadius: '50%', background: '#F5850A', border: 'none', boxShadow: '0 4px 20px rgba(245,133,10,0.55)', color: '#fff', fontSize: '1.4rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            style={{ position: 'absolute', bottom: '88px', right: '16px', zIndex: 30, width: '56px', height: '56px', borderRadius: '50%', background: '#F5850A', border: 'none', boxShadow: '0 4px 20px rgba(245,133,10,0.55)', color: '#fff', fontSize: '1.4rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <i className="fa-solid fa-plus" />
                         </button>
                     )}
@@ -831,14 +851,14 @@ export default function BouwinspectieProject() {
                                     padding: '5px 10px', borderRadius: '20px', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                                     background: bevFilter === v ? '#F5850A' : '#f1f5f9',
                                     color: bevFilter === v ? '#fff' : '#64748b',
-                                    fontWeight: bevFilter === v ? 700 : 500, fontSize: '0.72rem',
+                                    fontWeight: bevFilter === v ? 700 : 500, fontSize: '0.87rem',
                                 }}>
                                     {l} {count > 0 && <span style={{ opacity: 0.8 }}>({count})</span>}
                                 </button>
                             ))}
                         </div>
                         <div style={{ position: 'relative' }}>
-                            <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.78rem' }} />
+                            <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.92rem' }} />
                             <input value={bevZoek} onChange={e => setBevZoek(e.target.value)}
                                 placeholder="Zoek op titel, beschrijving, naam..."
                                 style={{ width: '100%', padding: '8px 10px 8px 30px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }} />
@@ -858,18 +878,18 @@ export default function BouwinspectieProject() {
                             return (
                                 <div key={pin.id} onClick={() => { setTab('tekening'); setActiveTekening(tek || activeTekening); if (pin.pdf_page) setPdfPage(pin.pdf_page); setTimeout(() => openPinDetail(pin), 80); }}
                                     style={{ background: '#fff', borderRadius: '12px', padding: '11px 13px', marginBottom: '7px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: pinKleur(pin.status), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.68rem', fontWeight: 800, flexShrink: 0, border: '2px solid rgba(0,0,0,0.1)' }}>
+                                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: pinKleur(pin.status), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.84rem', fontWeight: 800, flexShrink: 0, border: '2px solid rgba(0,0,0,0.1)' }}>
                                         {pin.volgnummer}
                                     </div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pin.titel}</div>
-                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '1px' }}>
-                                            {tek?.naam && <><i className="fa-solid fa-map" style={{ marginRight: '3px', fontSize: '0.6rem' }} />{tek.naam} · </>}
+                                        <div style={{ fontSize: '0.84rem', color: '#94a3b8', marginTop: '1px' }}>
+                                            {tek?.naam && <><i className="fa-solid fa-map" style={{ marginRight: '3px', fontSize: '0.9rem' }} />{tek.naam} · </>}
                                             {pin.categorie}
                                         </div>
                                         <div style={{ display: 'flex', gap: '5px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.62rem', fontWeight: 700, background: si.bg, color: si.color, border: `1px solid ${si.border}`, borderRadius: '999px', padding: '1px 6px' }}>{si.label}</span>
-                                            {pin.toegewezen_aan && <span style={{ fontSize: '0.62rem', color: '#64748b' }}><i className="fa-solid fa-user" style={{ marginRight: '2px', fontSize: '0.55rem' }} />{pin.toegewezen_aan}</span>}
+                                            <span style={{ fontSize: '0.92rem', fontWeight: 700, background: si.bg, color: si.color, border: `1px solid ${si.border}`, borderRadius: '999px', padding: '1px 6px' }}>{si.label}</span>
+                                            {pin.toegewezen_aan && <span style={{ fontSize: '0.92rem', color: '#64748b' }}><i className="fa-solid fa-user" style={{ marginRight: '2px', fontSize: '0.87rem' }} />{pin.toegewezen_aan}</span>}
                                         </div>
                                     </div>
                                     {pin.fotos?.length > 0 && (
@@ -893,7 +913,7 @@ export default function BouwinspectieProject() {
 
                     {/* Projectinfo */}
                     <div style={{ background: '#fff', borderRadius: '14px', padding: '14px 16px', marginBottom: '12px', boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
-                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Projectinfo</div>
+                        <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Projectinfo</div>
                         {[
                             ['fa-hard-hat', 'Project', project.naam],
                             project.adres && ['fa-location-dot', 'Adres', project.adres],
@@ -903,7 +923,7 @@ export default function BouwinspectieProject() {
                             <div key={label} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '6px' }}>
                                 <i className={`fa-solid ${ic}`} style={{ color: '#F5850A', fontSize: '0.8rem', marginTop: '2px', width: '14px', flexShrink: 0 }} />
                                 <div>
-                                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600 }}>{label}</div>
+                                    <div style={{ fontSize: '0.84rem', color: '#94a3b8', fontWeight: 600 }}>{label}</div>
                                     <div style={{ fontSize: '0.84rem', color: '#1e293b', fontWeight: 600 }}>{val}</div>
                                 </div>
                             </div>
@@ -912,7 +932,7 @@ export default function BouwinspectieProject() {
 
                     {/* Status overzicht */}
                     <div style={{ background: '#fff', borderRadius: '14px', padding: '14px 16px', marginBottom: '12px', boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
-                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Status pins</div>
+                        <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Status pins</div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '12px' }}>
                             {[
                                 ['Open', stats.open, '#ef4444', '#fef2f2'],
@@ -921,7 +941,7 @@ export default function BouwinspectieProject() {
                             ].map(([label, count, color, bg]) => (
                                 <div key={label} style={{ background: bg, borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
                                     <div style={{ fontSize: '1.4rem', fontWeight: 900, color, lineHeight: 1 }}>{count}</div>
-                                    <div style={{ fontSize: '0.68rem', color, fontWeight: 600, marginTop: '2px' }}>{label}</div>
+                                    <div style={{ fontSize: '0.84rem', color, fontWeight: 600, marginTop: '2px' }}>{label}</div>
                                 </div>
                             ))}
                         </div>
@@ -930,8 +950,8 @@ export default function BouwinspectieProject() {
                         {stats.totaal > 0 && (
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                    <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Voortgang</span>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#22c55e' }}>{Math.round((stats.opgelost / stats.totaal) * 100)}%</span>
+                                    <span style={{ fontSize: '0.86rem', color: '#94a3b8' }}>Voortgang</span>
+                                    <span style={{ fontSize: '0.86rem', fontWeight: 700, color: '#22c55e' }}>{Math.round((stats.opgelost / stats.totaal) * 100)}%</span>
                                 </div>
                                 <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
                                     <div style={{ height: '100%', width: `${(stats.opgelost / stats.totaal) * 100}%`, background: '#22c55e', borderRadius: '4px', transition: 'width 0.5s' }} />
@@ -943,7 +963,7 @@ export default function BouwinspectieProject() {
                     {/* Per tekening */}
                     {tekeningen.length > 0 && (
                         <div style={{ background: '#fff', borderRadius: '14px', padding: '14px 16px', boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
-                            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Pins per tekening</div>
+                            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Pins per tekening</div>
                             {tekeningen.map(t => {
                                 const tPins = pins.filter(p => String(p.tekening_id) === String(t.id));
                                 const tOpen = tPins.filter(p => p.status === 'open').length;
@@ -953,9 +973,9 @@ export default function BouwinspectieProject() {
                                         <i className="fa-solid fa-map" style={{ color: '#F5850A', fontSize: '0.8rem', width: '14px' }} />
                                         <span style={{ flex: 1, fontSize: '0.85rem', color: '#1e293b', fontWeight: 600 }}>{t.naam}</span>
                                         <div style={{ display: 'flex', gap: '5px' }}>
-                                            {tOpen > 0 && <span style={{ fontSize: '0.62rem', fontWeight: 700, background: '#fef2f2', color: '#ef4444', borderRadius: '999px', padding: '1px 7px' }}>{tOpen} open</span>}
-                                            {tOpl > 0 && <span style={{ fontSize: '0.62rem', fontWeight: 700, background: '#f0fdf4', color: '#22c55e', borderRadius: '999px', padding: '1px 7px' }}>{tOpl} klaar</span>}
-                                            {tPins.length === 0 && <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>geen pins</span>}
+                                            {tOpen > 0 && <span style={{ fontSize: '0.92rem', fontWeight: 700, background: '#fef2f2', color: '#ef4444', borderRadius: '999px', padding: '1px 7px' }}>{tOpen} open</span>}
+                                            {tOpl > 0 && <span style={{ fontSize: '0.92rem', fontWeight: 700, background: '#f0fdf4', color: '#22c55e', borderRadius: '999px', padding: '1px 7px' }}>{tOpl} klaar</span>}
+                                            {tPins.length === 0 && <span style={{ fontSize: '0.92rem', color: '#94a3b8' }}>geen pins</span>}
                                         </div>
                                     </div>
                                 );
@@ -982,7 +1002,7 @@ export default function BouwinspectieProject() {
                         <div style={{ padding: '4px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, borderBottom: '1px solid #f1f5f9' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 {selectedPin && (
-                                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: pinKleur(selectedPin.status), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 800 }}>
+                                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: pinKleur(selectedPin.status), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', fontWeight: 800 }}>
                                         {selectedPin.volgnummer}
                                     </div>
                                 )}
@@ -992,10 +1012,10 @@ export default function BouwinspectieProject() {
                             </div>
                             <div style={{ display: 'flex', gap: '6px' }}>
                                 {sheetMode === 'view' && selectedPin && <>
-                                    <button onClick={() => setSheetMode('edit')} style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '6px 12px', color: '#475569', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>
+                                    <button onClick={() => setSheetMode('edit')} style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '6px 12px', color: '#475569', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>
                                         <i className="fa-solid fa-pen" />
                                     </button>
-                                    <button onClick={verwijderPin} style={{ background: '#fef2f2', border: 'none', borderRadius: '8px', padding: '6px 12px', color: '#ef4444', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>
+                                    <button onClick={verwijderPin} style={{ background: '#fef2f2', border: 'none', borderRadius: '8px', padding: '6px 12px', color: '#ef4444', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>
                                         <i className="fa-solid fa-trash" />
                                     </button>
                                 </>}
@@ -1010,7 +1030,7 @@ export default function BouwinspectieProject() {
                             <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
                                 {[['kenmerken', 'Kenmerken'], ['checklist', `Checklist${checkItems.length > 0 ? ` (${checkItems.filter(i => i.gedaan).length}/${checkItems.length})` : ''}`], ['fotos', `Foto's${selectedPin?.fotos?.length > 0 ? ` (${selectedPin.fotos.length})` : ''}`]].map(([t, l]) => (
                                     <button key={t} onClick={() => setPinTab(t)} style={{
-                                        flex: 1, padding: '9px 4px', border: 'none', cursor: 'pointer', fontSize: '0.72rem',
+                                        flex: 1, padding: '9px 4px', border: 'none', cursor: 'pointer', fontSize: '0.87rem',
                                         background: 'transparent',
                                         color: pinTab === t ? '#F5850A' : '#94a3b8',
                                         fontWeight: pinTab === t ? 700 : 500,
@@ -1034,7 +1054,7 @@ export default function BouwinspectieProject() {
                                                 border: `2px solid ${selectedPin.status === val ? si.color : '#e2e8f0'}`,
                                                 background: selectedPin.status === val ? si.bg : '#fff',
                                                 color: selectedPin.status === val ? si.color : '#94a3b8',
-                                                fontWeight: 700, fontSize: '0.68rem', cursor: 'pointer',
+                                                fontWeight: 700, fontSize: '0.84rem', cursor: 'pointer',
                                             }}>{si.label}</button>
                                         ))}
                                     </div>
@@ -1045,14 +1065,14 @@ export default function BouwinspectieProject() {
                                             selectedPin.toegewezen_aan && ['Toegewezen aan', selectedPin.toegewezen_aan],
                                         ].filter(Boolean).map(([label, val]) => (
                                             <div key={label} style={{ background: '#f8fafc', borderRadius: '9px', padding: '9px 10px' }}>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>{label}</div>
+                                                <div style={{ fontSize: '0.82rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>{label}</div>
                                                 <div style={{ fontSize: '0.82rem', color: '#334155', fontWeight: 600 }}>{val}</div>
                                             </div>
                                         ))}
                                     </div>
 
                                     <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '10px 12px' }}>
-                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginBottom: '6px', textTransform: 'uppercase' }}>Opmerkingen</div>
+                                        <div style={{ fontSize: '0.82rem', color: '#94a3b8', fontWeight: 700, marginBottom: '6px', textTransform: 'uppercase' }}>Opmerkingen</div>
                                         <textarea
                                             value={pinForm.beschrijving}
                                             onChange={e => setPinForm(f => ({ ...f, beschrijving: e.target.value }))}
@@ -1070,12 +1090,12 @@ export default function BouwinspectieProject() {
                                             }}
                                             placeholder="Voeg opmerkingen toe..."
                                             rows={3}
-                                            style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.84rem', color: '#334155', resize: 'none', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', padding: 0 }}
+                                            style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '1rem', color: '#334155', resize: 'none', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', padding: 0 }}
                                         />
                                     </div>
 
                                     {selectedPin.gemaakt_door && (
-                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8', textAlign: 'center', paddingTop: '4px' }}>
+                                        <div style={{ fontSize: '0.84rem', color: '#94a3b8', textAlign: 'center', paddingTop: '4px' }}>
                                             Aangemaakt door {selectedPin.gemaakt_door}
                                             {selectedPin.gemaakt_op && ` · ${new Date(selectedPin.gemaakt_op).toLocaleDateString('nl-NL')}`}
                                         </div>
@@ -1090,13 +1110,13 @@ export default function BouwinspectieProject() {
                                         <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>
                                             <i className="fa-solid fa-list-check" style={{ fontSize: '1.5rem', display: 'block', marginBottom: '8px', opacity: 0.3 }} />
                                             <div style={{ fontSize: '0.82rem' }}>Geen checklistitems</div>
-                                            <button onClick={() => setSheetMode('edit')} style={{ marginTop: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '7px 14px', color: '#475569', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                            <button onClick={() => setSheetMode('edit')} style={{ marginTop: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '7px 14px', color: '#475569', fontWeight: 700, fontSize: '0.92rem', cursor: 'pointer' }}>
                                                 <i className="fa-solid fa-pen" style={{ marginRight: '5px' }} />Items toevoegen
                                             </button>
                                         </div>
                                     ) : (
                                         <>
-                                            <div style={{ marginBottom: '8px', fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>
+                                            <div style={{ marginBottom: '8px', fontSize: '0.87rem', color: '#94a3b8', fontWeight: 600 }}>
                                                 {checkItems.filter(i => i.gedaan).length} / {checkItems.length} afgerond
                                             </div>
                                             <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden', marginBottom: '12px' }}>
@@ -1111,7 +1131,7 @@ export default function BouwinspectieProject() {
                                                     setPins(prev => prev.map(p => p.id === selectedPin.id ? { ...p, checklist: upd } : p));
                                                 }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 0', borderBottom: '1px solid #f8fafc', cursor: 'pointer' }}>
                                                     <div style={{ width: 22, height: 22, borderRadius: '6px', border: `2px solid ${item.gedaan ? '#22c55e' : '#e2e8f0'}`, background: item.gedaan ? '#22c55e' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                        {item.gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.6rem' }} />}
+                                                        {item.gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.9rem' }} />}
                                                     </div>
                                                     <span style={{ fontSize: '0.85rem', color: item.gedaan ? '#94a3b8' : '#1e293b', textDecoration: item.gedaan ? 'line-through' : 'none' }}>{item.tekst}</span>
                                                 </div>
@@ -1130,7 +1150,7 @@ export default function BouwinspectieProject() {
                                                 <img src={f.url || f.bestand_url} alt="" onClick={() => setPreviewFoto(f.url || f.bestand_url)}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '10px', cursor: 'pointer' }} />
                                                 <button onClick={() => verwijderFoto(f.id)}
-                                                    style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#ef4444', border: 'none', borderRadius: '50%', width: '20px', height: '20px', color: '#fff', fontSize: '0.55rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#ef4444', border: 'none', borderRadius: '50%', width: '20px', height: '20px', color: '#fff', fontSize: '0.87rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                     <i className="fa-solid fa-xmark" />
                                                 </button>
                                             </div>
@@ -1138,7 +1158,7 @@ export default function BouwinspectieProject() {
                                         <label style={{ width: '90px', height: '90px', borderRadius: '10px', border: '2px dashed #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#94a3b8', gap: '5px' }}>
                                             {uploading ? <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '1.1rem' }} /> : <>
                                                 <i className="fa-solid fa-camera" style={{ fontSize: '1.1rem' }} />
-                                                <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>Foto toevoegen</span>
+                                                <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Foto toevoegen</span>
                                             </>}
                                             <input ref={fotoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
                                                 onChange={e => { if (e.target.files[0]) uploadFoto(e.target.files[0]); e.target.value = ''; }} />
@@ -1156,49 +1176,49 @@ export default function BouwinspectieProject() {
                             {(sheetMode === 'edit' || sheetMode === 'nieuw') && pinTab === 'kenmerken' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Titel *</label>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Titel *</label>
                                         <input value={pinForm.titel} onChange={e => setPinForm(f => ({ ...f, titel: e.target.value }))}
                                             placeholder="bijv. Scheur in dragende muur"
                                             autoFocus={sheetMode === 'nieuw'}
-                                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', boxSizing: 'border-box', outline: 'none' }} />
+                                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '1rem', boxSizing: 'border-box', outline: 'none' }} />
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Opmerkingen</label>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Opmerkingen</label>
                                         <textarea value={pinForm.beschrijving} onChange={e => setPinForm(f => ({ ...f, beschrijving: e.target.value }))}
                                             rows={2} placeholder="Voeg opmerkingen toe..."
-                                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.85rem', boxSizing: 'border-box', resize: 'none', outline: 'none', fontFamily: 'inherit' }} />
+                                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '1rem', boxSizing: 'border-box', resize: 'none', outline: 'none', fontFamily: 'inherit' }} />
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>Categorie</label>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>Categorie</label>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' }}>
                                             {CATEGORIEEN.map(c => (
                                                 <button key={c} onClick={() => setPinForm(f => ({ ...f, categorie: c === 'Overig' ? 'Overig' : c }))} style={{
                                                     padding: '5px 10px', borderRadius: '8px', border: `1.5px solid ${(c === 'Overig' ? pinForm.categorie === 'Overig' || !CATEGORIEEN.slice(0,-1).includes(pinForm.categorie) : pinForm.categorie === c) ? '#F5850A' : '#e2e8f0'}`,
                                                     background: (c === 'Overig' ? pinForm.categorie === 'Overig' || !CATEGORIEEN.slice(0,-1).includes(pinForm.categorie) : pinForm.categorie === c) ? '#fff7ed' : '#fff',
                                                     color: (c === 'Overig' ? pinForm.categorie === 'Overig' || !CATEGORIEEN.slice(0,-1).includes(pinForm.categorie) : pinForm.categorie === c) ? '#F5850A' : '#64748b',
-                                                    fontWeight: (c === 'Overig' ? pinForm.categorie === 'Overig' || !CATEGORIEEN.slice(0,-1).includes(pinForm.categorie) : pinForm.categorie === c) ? 700 : 500, fontSize: '0.73rem', cursor: 'pointer',
+                                                    fontWeight: (c === 'Overig' ? pinForm.categorie === 'Overig' || !CATEGORIEEN.slice(0,-1).includes(pinForm.categorie) : pinForm.categorie === c) ? 700 : 500, fontSize: '0.87rem', cursor: 'pointer',
                                                 }}>{c}</button>
                                             ))}
                                             {pinForm.categorie === 'Overig' && (
                                                 <input value={pinForm.categorieOverig || ''} onChange={e => setPinForm(f => ({ ...f, categorieOverig: e.target.value }))}
                                                     placeholder="Omschrijven..."
-                                                    style={{ flex: 1, minWidth: '80px', padding: '5px 9px', border: '1.5px solid #F5850A', borderRadius: '8px', fontSize: '0.73rem', boxSizing: 'border-box', outline: 'none' }} />
+                                                    style={{ flex: 1, minWidth: '80px', padding: '5px 9px', border: '1.5px solid #F5850A', borderRadius: '8px', fontSize: '1rem', boxSizing: 'border-box', outline: 'none' }} />
                                             )}
                                         </div>
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>Status</label>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>Status</label>
                                         <div style={{ display: 'flex', gap: '5px' }}>
                                             {Object.entries(STATUS_INFO).map(([val, si]) => (
-                                                <button key={val} onClick={() => setPinForm(f => ({ ...f, status: val }))} style={{ flex: 1, padding: '7px 4px', borderRadius: '8px', border: `2px solid ${pinForm.status === val ? si.color : '#e2e8f0'}`, background: pinForm.status === val ? si.bg : '#fff', color: pinForm.status === val ? si.color : '#94a3b8', fontWeight: 700, fontSize: '0.68rem', cursor: 'pointer' }}>{si.label}</button>
+                                                <button key={val} onClick={() => setPinForm(f => ({ ...f, status: val }))} style={{ flex: 1, padding: '7px 4px', borderRadius: '8px', border: `2px solid ${pinForm.status === val ? si.color : '#e2e8f0'}`, background: pinForm.status === val ? si.bg : '#fff', color: pinForm.status === val ? si.color : '#94a3b8', fontWeight: 700, fontSize: '0.84rem', cursor: 'pointer' }}>{si.label}</button>
                                             ))}
                                         </div>
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Toegewezen aan</label>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Toegewezen aan</label>
                                         <input value={pinForm.toegewezen_aan} onChange={e => setPinForm(f => ({ ...f, toegewezen_aan: e.target.value }))}
                                             placeholder="Naam"
-                                            style={{ width: '100%', padding: '9px 10px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }} />
+                                            style={{ width: '100%', padding: '9px 10px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '1rem', boxSizing: 'border-box', outline: 'none' }} />
                                     </div>
                                 </div>
                             )}
@@ -1210,7 +1230,7 @@ export default function BouwinspectieProject() {
                                         <div key={item.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '1px solid #f8fafc' }}>
                                             <div style={{ width: 20, height: 20, borderRadius: '5px', border: '2px solid #e2e8f0', background: '#f8fafc', flexShrink: 0 }} />
                                             <span style={{ flex: 1, fontSize: '0.84rem', color: '#1e293b' }}>{item.tekst}</span>
-                                            <button onClick={() => verwijderCheckItem(idx)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px 4px', fontSize: '0.75rem' }}>
+                                            <button onClick={() => verwijderCheckItem(idx)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px 4px', fontSize: '0.9rem' }}>
                                                 <i className="fa-solid fa-xmark" />
                                             </button>
                                         </div>
@@ -1219,7 +1239,7 @@ export default function BouwinspectieProject() {
                                         <input value={nieuwCheckItem} onChange={e => setNieuwCheckItem(e.target.value)}
                                             onKeyDown={e => e.key === 'Enter' && voegCheckItemToe()}
                                             placeholder="Nieuw checkpunt..."
-                                            style={{ flex: 1, padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.85rem', outline: 'none' }} />
+                                            style={{ flex: 1, padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '1rem', outline: 'none' }} />
                                         <button onClick={voegCheckItemToe} style={{ background: '#F5850A', border: 'none', borderRadius: '10px', padding: '0 14px', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '1rem' }}>+</button>
                                     </div>
                                 </div>
@@ -1270,16 +1290,16 @@ export default function BouwinspectieProject() {
                         </h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Naam *</label>
+                                <label style={{ display: 'block', fontSize: '0.92rem', fontWeight: 700, color: '#475569', marginBottom: '5px' }}>Naam *</label>
                                 <input value={tekeningNaam} onChange={e => setTekeningNaam(e.target.value)} placeholder="bijv. Begane grond"
-                                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', boxSizing: 'border-box', outline: 'none' }} />
+                                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '1rem', boxSizing: 'border-box', outline: 'none' }} />
                             </div>
                             {tekeningFile ? (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', border: '2px solid #F5850A', borderRadius: '12px', background: '#fff7ed' }}>
                                     <i className="fa-solid fa-file-check" style={{ color: '#F5850A', fontSize: '1.2rem', flexShrink: 0 }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontSize: '0.85rem', color: '#F5850A', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tekeningFile.name}</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{(tekeningFile.size / 1024 / 1024).toFixed(1)} MB</div>
+                                        <div style={{ fontSize: '0.86rem', color: '#94a3b8' }}>{(tekeningFile.size / 1024 / 1024).toFixed(1)} MB</div>
                                     </div>
                                     <button onClick={() => setTekeningFile(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.85rem', flexShrink: 0 }}>
                                         <i className="fa-solid fa-xmark" />
@@ -1289,15 +1309,15 @@ export default function BouwinspectieProject() {
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <label style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '14px 10px', border: '2px dashed #e2e8f0', borderRadius: '12px', cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }}>
                                         <i className="fa-solid fa-upload" style={{ color: '#94a3b8', fontSize: '1.2rem' }} />
-                                        <span style={{ fontSize: '0.78rem', color: '#475569', fontWeight: 600 }}>Bestand kiezen</span>
-                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>JPG, PNG, PDF</span>
+                                        <span style={{ fontSize: '0.92rem', color: '#475569', fontWeight: 600 }}>Bestand kiezen</span>
+                                        <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>JPG, PNG, PDF</span>
                                         <input ref={tekeningRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
                                             onChange={e => { if (e.target.files[0]) { setTekeningFile(e.target.files[0]); if (!tekeningNaam) setTekeningNaam(e.target.files[0].name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ')); } }} />
                                     </label>
                                     <label style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '14px 10px', border: '2px dashed #e2e8f0', borderRadius: '12px', cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }}>
                                         <i className="fa-solid fa-camera" style={{ color: '#94a3b8', fontSize: '1.2rem' }} />
-                                        <span style={{ fontSize: '0.78rem', color: '#475569', fontWeight: 600 }}>Foto maken</span>
-                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Camera</span>
+                                        <span style={{ fontSize: '0.92rem', color: '#475569', fontWeight: 600 }}>Foto maken</span>
+                                        <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>Camera</span>
                                         <input ref={tekeningCamRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
                                             onChange={e => { if (e.target.files[0]) { setTekeningFile(e.target.files[0]); if (!tekeningNaam) setTekeningNaam('Foto ' + new Date().toLocaleDateString('nl-NL')); } }} />
                                     </label>

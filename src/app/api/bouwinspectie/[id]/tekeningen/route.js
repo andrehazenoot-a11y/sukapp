@@ -20,7 +20,7 @@ export async function GET(req, { params }) {
         );
         return NextResponse.json(rows);
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -38,6 +38,6 @@ export async function POST(req, { params }) {
         const [rows] = await db.query(`SELECT * FROM bouwinspectie_tekeningen WHERE id = ?`, [result.insertId]);
         return NextResponse.json(rows[0]);
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

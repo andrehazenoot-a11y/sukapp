@@ -322,7 +322,7 @@ export default function ChatPage() {
                         </div>
                         <div>
                             <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Chat</div>
-                            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Kies een project</div>
+                            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Kies een project</div>
                         </div>
                     </div>
                 </div>
@@ -330,7 +330,7 @@ export default function ChatPage() {
                     {/* Vandaag ingepland */}
                     {vandaagProjectIds.length > 0 && !zoekterm && (
                         <div style={{ marginBottom: '16px' }}>
-                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Vandaag ingepland</div>
+                            <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Vandaag ingepland</div>
                             {projects.filter(p => vandaagProjectIds.includes(String(p.id))).map(p => (
                                 <button key={p.id} onClick={() => { setSelectedId(String(p.id)); setChatTab('berichten'); }}
                                     style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: '#fff8f0', border: '1.5px solid #F5850A33', borderRadius: '14px', marginBottom: '8px', cursor: 'pointer', textAlign: 'left', boxShadow: '0 2px 8px rgba(245,133,10,0.1)' }}>
@@ -351,7 +351,7 @@ export default function ChatPage() {
                             placeholder="Ander project zoeken…"
                             style={{ width: '100%', padding: '10px 12px 10px 34px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.88rem', outline: 'none', background: '#fff', boxSizing: 'border-box', color: '#1e293b' }} />
                         {zoekterm && (
-                            <button onClick={() => setZoekterm('')} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', padding: 0 }}>
+                            <button onClick={() => setZoekterm('')} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.9rem', padding: 0 }}>
                                 <i className="fa-solid fa-xmark" />
                             </button>
                         )}
@@ -373,7 +373,7 @@ export default function ChatPage() {
                         return (
                             <>
                                 {vandaagProjectIds.length > 0 && !zoekterm && (
-                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Alle projecten</div>
+                                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Alle projecten</div>
                                 )}
                                 {gefilterd.map(p => (
                                     <button key={p.id} onClick={() => { setSelectedId(String(p.id)); setChatTab('berichten'); setZoekterm(''); }}
@@ -409,7 +409,7 @@ export default function ChatPage() {
                                 onLoad={e => setPreviewDims({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
                                 style={{ maxWidth: '100%', maxHeight: '75vh', borderRadius: '12px', objectFit: 'contain', display: 'block' }} />}
                         {previewDims && (
-                            <div style={{ marginTop: '12px', color: 'rgba(255,255,255,0.6)', fontSize: '0.78rem', fontWeight: 500 }}>
+                            <div style={{ marginTop: '12px', color: 'rgba(255,255,255,0.6)', fontSize: '0.92rem', fontWeight: 500 }}>
                                 {previewDims.w} × {previewDims.h} px
                             </div>
                         )}
@@ -428,7 +428,7 @@ export default function ChatPage() {
                     </button>
                     <button onClick={() => setProjectPickerOpen(v => !v)} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                         <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.95rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{projectNaam}</span>
-                        <i className={`fa-solid fa-chevron-${projectPickerOpen ? 'up' : 'down'}`} style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.65rem', flexShrink: 0 }} />
+                        <i className={`fa-solid fa-chevron-${projectPickerOpen ? 'up' : 'down'}`} style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem', flexShrink: 0 }} />
                     </button>
                 </div>
 
@@ -439,7 +439,7 @@ export default function ChatPage() {
                         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', zIndex: 310, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', borderRadius: '0 0 16px 16px', overflow: 'hidden', maxHeight: '60vh', display: 'flex', flexDirection: 'column' }}>
                             <div style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
                                 <div style={{ position: 'relative' }}>
-                                    <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.75rem' }} />
+                                    <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }} />
                                     <input autoFocus value={zoekterm} onChange={e => setZoekterm(e.target.value)}
                                         placeholder="Project zoeken…"
                                         style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: '8px', border: '1.5px solid #e2e8f0', fontSize: '0.83rem', outline: 'none', background: '#f8fafc', boxSizing: 'border-box', color: '#1e293b' }} />
@@ -451,7 +451,7 @@ export default function ChatPage() {
                                         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: String(p.id) === String(selectedId) ? '#fff8f0' : '#fff', border: 'none', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', textAlign: 'left' }}>
                                         <i className="fa-solid fa-hashtag" style={{ color: '#F5850A', fontSize: '0.8rem', width: '16px', flexShrink: 0 }} />
                                         <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: String(p.id) === String(selectedId) ? 700 : 500, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                                        {String(p.id) === String(selectedId) && <i className="fa-solid fa-check" style={{ color: '#F5850A', fontSize: '0.75rem' }} />}
+                                        {String(p.id) === String(selectedId) && <i className="fa-solid fa-check" style={{ color: '#F5850A', fontSize: '0.9rem' }} />}
                                     </button>
                                 ))}
                             </div>
@@ -472,10 +472,10 @@ export default function ChatPage() {
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                             transition: 'all 0.15s',
                         }}>
-                        <i className={`fa-solid ${ic}`} style={{ fontSize: '0.75rem' }} />
+                        <i className={`fa-solid ${ic}`} style={{ fontSize: '0.9rem' }} />
                         {lbl}
                         {key === 'media' && (allFotos.length + (project?.bestanden || []).length) > 0 && (
-                            <span style={{ background: '#F5850A', color: '#fff', borderRadius: '10px', padding: '1px 6px', fontSize: '0.62rem', fontWeight: 700 }}>{allFotos.length + (project?.bestanden || []).length}</span>
+                            <span style={{ background: '#F5850A', color: '#fff', borderRadius: '10px', padding: '1px 6px', fontSize: '0.8rem', fontWeight: 700 }}>{allFotos.length + (project?.bestanden || []).length}</span>
                         )}
                     </button>
                 ))}
@@ -502,25 +502,25 @@ export default function ChatPage() {
                                     onTouchStart={() => setHoveredNoteId(note.id)}
                                     style={{ background: '#fff', borderRadius: '10px', padding: '9px 11px', borderLeft: `3px solid ${nt.color}`, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.62rem', fontWeight: 700, color: nt.color }}>
-                                            <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.55rem' }} />{nt.label}
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.8rem', fontWeight: 700, color: nt.color }}>
+                                            <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.9rem' }} />{nt.label}
                                         </span>
                                         <span style={{ fontSize: '0.66rem', color: '#94a3b8' }}>{note.author} · {note.date}{note.time ? ` · ${note.time}` : ''}</span>
                                         <div style={{ marginLeft: 'auto', display: 'flex', gap: '2px' }}>
                                             <button onClick={() => { setAddingMediaToId(note.id); addMediaRef.current?.click(); }}
                                                 disabled={addMediaUploading && addingMediaToId === note.id}
-                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.72rem', padding: '0 2px', opacity: 0.5 }}>
+                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.87rem', padding: '0 2px', opacity: 0.5 }}>
                                                 {addMediaUploading && addingMediaToId === note.id ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-camera" />}
                                             </button>
                                             {isAuthor && editingId !== note.id && (
                                                 <button onClick={() => { setEditingId(note.id); setEditingText(note.text); }}
-                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.72rem', padding: '0 2px', opacity: 0.5 }}>
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.87rem', padding: '0 2px', opacity: 0.5 }}>
                                                     <i className="fa-solid fa-pencil" />
                                                 </button>
                                             )}
                                             {isAuthor && (
                                                 <button onClick={() => deleteNote(note.id)}
-                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.72rem', padding: '0 2px', opacity: 0.6 }}>
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.87rem', padding: '0 2px', opacity: 0.6 }}>
                                                     <i className="fa-solid fa-trash" />
                                                 </button>
                                             )}
@@ -555,8 +555,8 @@ export default function ChatPage() {
                                         <div style={{ marginTop: '8px', borderLeft: `2px solid ${nt.color}44`, paddingLeft: '10px' }}>
                                             {(note.replies || []).map(r => (
                                                 <div key={r.id} style={{ marginBottom: '5px' }}>
-                                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{r.author}</span>
-                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', marginLeft: '5px' }}>{r.created_at ? new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                                    <span style={{ fontSize: '0.86rem', fontWeight: 700, color: '#475569' }}>{r.author}</span>
+                                                    <span style={{ fontSize: '0.84rem', color: '#94a3b8', marginLeft: '5px' }}>{r.created_at ? new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                                     <div style={{ fontSize: '0.82rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>{r.text}</div>
                                                 </div>
                                             ))}
@@ -566,14 +566,14 @@ export default function ChatPage() {
                                                         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReply(note.id); } if (e.key === 'Escape') { setReplyingToId(null); setReplyText(''); } }}
                                                         placeholder="Typ reactie… (Enter)"
                                                         style={{ flex: 1, padding: '4px 8px', borderRadius: '6px', border: `1.5px solid ${nt.color}88`, fontSize: '0.8rem', fontFamily: 'inherit', outline: 'none' }} />
-                                                    <button onClick={() => addReply(note.id)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: nt.color, color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>↵</button>
+                                                    <button onClick={() => addReply(note.id)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: nt.color, color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>↵</button>
                                                 </div>
                                             )}
                                         </div>
                                     )}
                                     {replyingToId !== note.id && (hoveredNoteId === note.id || (note.replies?.length > 0)) && (
                                         <button onClick={() => { setReplyingToId(note.id); setReplyText(''); }}
-                                            style={{ marginTop: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.72rem', padding: 0, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                            style={{ marginTop: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.87rem', padding: 0, display: 'flex', alignItems: 'center', gap: '3px' }}>
                                             <i className="fa-regular fa-comment" /> Reageer {note.replies?.length > 0 && `(${note.replies.length})`}
                                         </button>
                                     )}
@@ -609,12 +609,12 @@ export default function ChatPage() {
                                     {poNoteMedia.mediaType === 'video'
                                         ? <div onClick={() => setPreview({ url: poNoteMedia.url, mediaType: 'video' })}
                                             style={{ width: 36, height: 36, borderRadius: '8px', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '1.5px solid #10b981' }}>
-                                            <i className="fa-solid fa-play" style={{ color: '#fff', fontSize: '0.65rem' }} />
+                                            <i className="fa-solid fa-play" style={{ color: '#fff', fontSize: '0.82rem' }} />
                                           </div>
                                         : <img src={poNoteMedia.url} alt="" onClick={() => setPreview({ url: poNoteMedia.url })}
                                             style={{ width: 36, height: 36, borderRadius: '8px', objectFit: 'cover', cursor: 'pointer', border: '1.5px solid #10b981', display: 'block' }} />}
                                     <button onClick={() => setPoNoteMedia(null)}
-                                        style={{ position: 'absolute', top: -6, right: -6, width: 16, height: 16, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', fontSize: '0.55rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        style={{ position: 'absolute', top: -6, right: -6, width: 16, height: 16, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <i className="fa-solid fa-xmark" />
                                     </button>
                                 </div>
@@ -643,8 +643,8 @@ export default function ChatPage() {
                         <div style={{ marginBottom: '24px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                                 <i className="fa-solid fa-camera" style={{ color: '#F5850A', fontSize: '0.82rem' }} />
-                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto's</span>
-                                <span style={{ fontSize: '0.68rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 6px', fontWeight: 700 }}>{allFotos.length}</span>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto's</span>
+                                <span style={{ fontSize: '0.84rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 6px', fontWeight: 700 }}>{allFotos.length}</span>
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                                 {allFotos.map((foto, idx) => {
@@ -655,14 +655,14 @@ export default function ChatPage() {
                                         {isVideo
                                             ? <video src={foto.src} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                             : <img src={foto.src} alt={foto.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-                                        {isVideo && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: 'rgba(0,0,0,0.5)', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}><i className="fa-solid fa-play" style={{ color: '#fff', fontSize: '0.7rem', marginLeft: '2px' }} /></div>}
+                                        {isVideo && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: 'rgba(0,0,0,0.5)', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}><i className="fa-solid fa-play" style={{ color: '#fff', fontSize: '0.86rem', marginLeft: '2px' }} /></div>}
                                         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.65))', padding: '16px 6px 4px', pointerEvents: 'none' }}>
                                             {foto.auteur && <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foto.auteur}</div>}
-                                            {foto.tijd && <div style={{ color: '#fff', fontSize: '0.6rem', fontWeight: 600 }}>{foto.tijd}</div>}
+                                            {foto.tijd && <div style={{ color: '#fff', fontSize: '0.92rem', fontWeight: 600 }}>{foto.tijd}</div>}
                                         </div>
                                         {user?.role === 'Beheerder' && (
                                             <button onClick={e => { e.stopPropagation(); if (window.confirm('Foto verwijderen?')) deleteFoto(foto.id); }}
-                                                style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', color: '#fff', cursor: 'pointer', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', color: '#fff', cursor: 'pointer', fontSize: '0.86rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                 <i className="fa-solid fa-xmark" />
                                             </button>
                                         )}
@@ -684,8 +684,8 @@ export default function ChatPage() {
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                                 <i className="fa-solid fa-paperclip" style={{ color: '#F5850A', fontSize: '0.82rem' }} />
-                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bestanden</span>
-                                <span style={{ fontSize: '0.68rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 6px', fontWeight: 700 }}>{(project?.bestanden || []).length}</span>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bestanden</span>
+                                <span style={{ fontSize: '0.84rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 6px', fontWeight: 700 }}>{(project?.bestanden || []).length}</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 {(project?.bestanden || []).map((b, idx) => {

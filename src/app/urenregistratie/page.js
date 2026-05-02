@@ -227,21 +227,49 @@ function MijnUren({ userId, userObj, adminMode = false, adminUserName = null }) 
 
     // loadedRef: voorkomt dat de save-effect de externe data overschrijft op mount
     const loadedRef = useRef(false);
+    const apiSyncTimer = useRef(null);
 
     useEffect(() => {
-        loadedRef.current = false; // Reset bij elke week/user-wissel
-        const saved = loadData(userId, weekNum, yearNum);
-        setProjects(saved || defaultProjects());
-        setStatus(loadStatus(userId, weekNum, yearNum));
+        loadedRef.current = false;
+        fetch(`/api/uren?userId=${userId}&week=${weekNum}&jaar=${yearNum}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(result => {
+                const record = Array.isArray(result) ? result[0] : null;
+                if (record?.data && record.data.length > 0) {
+                    setProjects(record.data);
+                    saveData(userId, weekNum, yearNum, record.data);
+                    setStatus(record.status || 'concept');
+                    saveStatus(userId, weekNum, yearNum, record.status || 'concept');
+                } else {
+                    const saved = loadData(userId, weekNum, yearNum);
+                    setProjects(saved || defaultProjects());
+                    setStatus(loadStatus(userId, weekNum, yearNum));
+                }
+            })
+            .catch(() => {
+                const saved = loadData(userId, weekNum, yearNum);
+                setProjects(saved || defaultProjects());
+                setStatus(loadStatus(userId, weekNum, yearNum));
+            });
     }, [userId, weekNum, yearNum]);
 
     useEffect(() => {
         if (!loadedRef.current) {
-            loadedRef.current = true; // Eerste run overslaan (data nog niet geladen)
+            loadedRef.current = true;
             return;
         }
         saveData(userId, weekNum, yearNum, projects);
         syncProjectsToRegistraties(userId, weekNum, yearNum, projects);
+        // Debounced API sync (2s na laatste wijziging)
+        if (apiSyncTimer.current) clearTimeout(apiSyncTimer.current);
+        apiSyncTimer.current = setTimeout(() => {
+            const st = loadStatus(userId, weekNum, yearNum);
+            fetch('/api/uren', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: String(userId), userName: userObj?.name || adminUserName || null, week: Number(weekNum), jaar: Number(yearNum), data: projects, status: st }),
+            }).catch(() => {});
+        }, 2000);
     }, [projects, userId, weekNum, yearNum]);
 
     // Berekeningen
@@ -273,8 +301,15 @@ function MijnUren({ userId, userObj, adminMode = false, adminUserName = null }) 
     const quickFill75 = () => setProjects(prev => prev.map(p => { const t = { ...p.types }; if (t.normaal) t.normaal = ['7.5', '7.5', '7.5', '7.5', '7.5']; return { ...p, types: t }; }));
 
     const handleSubmit = () => {
-        setStatus('ingediend'); saveStatus(userId, weekNum, yearNum, 'ingediend');
-        setShowSubmit(false); setShowToast('Weekstaat ingediend! ✅');
+        setStatus('ingediend');
+        saveStatus(userId, weekNum, yearNum, 'ingediend');
+        fetch('/api/uren', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: String(userId), userName: userObj?.name || adminUserName || null, week: Number(weekNum), jaar: Number(yearNum), data: projects, status: 'ingediend' }),
+        }).catch(() => {});
+        setShowSubmit(false);
+        setShowToast('Weekstaat ingediend! ✅');
         setTimeout(() => setShowToast(''), 3500);
     };
 

@@ -357,7 +357,7 @@ export default function MedewerkerWerkbon() {
                 style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9', cursor: clickable ? 'pointer' : 'default' }}>
                 <i className={`fa-solid ${icon}`} style={{ width: '16px', color: clickable ? '#F5850A' : '#94a3b8', fontSize: '0.85rem', marginTop: '2px', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                    <div style={{ fontSize: '0.86rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
                     <div style={{ fontSize: '0.88rem', color: clickable ? '#F5850A' : '#1e293b', fontWeight: clickable ? 600 : 400, marginTop: '1px', wordBreak: 'break-word', textDecoration: clickable ? 'underline' : 'none' }}>{value}</div>
                 </div>
                 {clickable && <i className={`fa-solid ${clickable === 'bellen' ? 'fa-phone' : clickable === 'email' ? 'fa-envelope' : 'fa-diamond-turn-right'}`} style={{ color: '#F5850A', fontSize: '0.85rem', marginTop: '2px' }} />}
@@ -376,14 +376,14 @@ export default function MedewerkerWerkbon() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Project Informatie</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Details van jouw projecten</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Details van jouw projecten</div>
                     </div>
                 </div>
             </div>
         <div style={{ padding: '0', background: '#f1f5f9' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: projects.length > 1 ? '12px' : 0, padding: '16px 16px 0' }}>
                     <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                    <h2 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Project Informatie</h2>
+                    <h2 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Project Informatie</h2>
                 </div>
                 {projects.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: '0.85rem' }}>
@@ -434,7 +434,7 @@ export default function MedewerkerWerkbon() {
                                 {project.status && (
                                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '20px', background: (statusColors[st] || '#94a3b8') + '18', border: `1.5px solid ${(statusColors[st] || '#94a3b8')}44`, marginBottom: '12px' }}>
                                         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: statusColors[st] || '#94a3b8' }} />
-                                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: statusColors[st] || '#94a3b8' }}>{statusLabels[st] || st}</span>
+                                        <span style={{ fontSize: '0.92rem', fontWeight: 700, color: statusColors[st] || '#94a3b8' }}>{statusLabels[st] || st}</span>
                                     </div>
                                 )}
                                 {cardRow('fa-hashtag', 'Projectnummer', project.projectnummer)}
@@ -451,7 +451,7 @@ export default function MedewerkerWerkbon() {
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
                                     <i className="fa-solid fa-calendar-days" style={{ width: '16px', color: '#94a3b8', fontSize: '0.85rem', marginTop: '2px', flexShrink: 0 }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' }}>Startdatum</div>
+                                        <div style={{ fontSize: '0.86rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' }}>Startdatum</div>
                                         <input type="date" value={project.startDate || ''} onChange={e => saveProject({ ...project, startDate: e.target.value })}
                                             style={{ fontSize: '0.88rem', color: '#1e293b', border: 'none', background: 'transparent', padding: 0, outline: 'none', cursor: 'pointer', fontFamily: 'inherit', width: '100%' }} />
                                     </div>
@@ -460,7 +460,7 @@ export default function MedewerkerWerkbon() {
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
                                     <i className="fa-solid fa-flag-checkered" style={{ width: '16px', color: '#94a3b8', fontSize: '0.85rem', marginTop: '2px', flexShrink: 0 }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' }}>Opleverdatum</div>
+                                        <div style={{ fontSize: '0.86rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' }}>Opleverdatum</div>
                                         <input type="date" value={project.endDate || ''} onChange={e => saveProject({ ...project, endDate: e.target.value })}
                                             style={{ fontSize: '0.88rem', color: '#1e293b', border: 'none', background: 'transparent', padding: 0, outline: 'none', cursor: 'pointer', fontFamily: 'inherit', width: '100%' }} />
                                     </div>
@@ -477,9 +477,9 @@ export default function MedewerkerWerkbon() {
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                                     <i className="fa-solid fa-paperclip" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
-                                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bestanden</span>
+                                    <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bestanden</span>
                                     {(project.bestanden?.length || 0) > 0 &&
-                                        <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>
+                                        <span style={{ fontSize: '0.86rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>
                                             {project.bestanden.length}
                                         </span>}
                                 </div>
@@ -501,10 +501,10 @@ export default function MedewerkerWerkbon() {
                                                         {b.label || b.name}
                                                     </div>
                                                     {b.label && b.name !== b.label &&
-                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{b.name}</div>}
+                                                        <div style={{ fontSize: '0.86rem', color: '#94a3b8' }}>{b.name}</div>}
                                                 </div>
                                                 <button onClick={() => openPreview(b)}
-                                                    style={{ background: '#F5850A', border: 'none', borderRadius: '7px', color: '#fff', padding: '5px 10px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                                                    style={{ background: '#F5850A', border: 'none', borderRadius: '7px', color: '#fff', padding: '5px 10px', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
                                                     <i className="fa-solid fa-eye" />
                                                 </button>
                                             </div>
@@ -517,9 +517,9 @@ export default function MedewerkerWerkbon() {
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                                     <i className="fa-solid fa-images" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
-                                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto's</span>
+                                    <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto's</span>
                                     {allFotosCount > 0 &&
-                                        <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>
+                                        <span style={{ fontSize: '0.86rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>
                                             {allFotosCount}
                                         </span>}
                                 </div>
@@ -557,8 +557,8 @@ export default function MedewerkerWerkbon() {
                             <div style={{ paddingTop: '12px', borderTop: '1px solid #e2e8f0', marginTop: project.werkomschrijving ? '8px' : 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: localChecklist.length > 0 ? '8px' : '10px' }}>
                                     <i className="fa-solid fa-list-check" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
-                                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Checklist</span>
-                                    {localChecklist.length > 0 && <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>{localChecklist.filter(c => c.done).length}/{localChecklist.length}</span>}
+                                    <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Checklist</span>
+                                    {localChecklist.length > 0 && <span style={{ fontSize: '0.86rem', color: '#64748b', background: '#f1f5f9', borderRadius: '8px', padding: '1px 7px', fontWeight: 700 }}>{localChecklist.filter(c => c.done).length}/{localChecklist.length}</span>}
                                 </div>
                                 {localChecklist.length > 0 && (() => {
                                     const pct = Math.round(localChecklist.filter(c => c.done).length / localChecklist.length * 100);
@@ -567,7 +567,7 @@ export default function MedewerkerWerkbon() {
                                             <div style={{ height: '6px', borderRadius: '3px', background: '#f1f5f9', overflow: 'hidden' }}>
                                                 <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? '#10b981' : '#F5850A', borderRadius: '3px', transition: 'width 0.3s ease' }} />
                                             </div>
-                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>{pct}%</div>
+                                            <div style={{ fontSize: '0.84rem', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>{pct}%</div>
                                         </div>
                                     );
                                 })()}
@@ -602,7 +602,7 @@ export default function MedewerkerWerkbon() {
                             <div>
                                 <div style={{ color: '#e2e8f0', fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70vw' }}>{previewAtt.label || previewAtt.name}</div>
                                 {previewAtt.auteur && (
-                                    <div style={{ color: '#64748b', fontSize: '0.72rem', marginTop: '1px' }}>{previewAtt.auteur} · {previewAtt.datum} {previewAtt.tijd || ''}</div>
+                                    <div style={{ color: '#64748b', fontSize: '0.87rem', marginTop: '1px' }}>{previewAtt.auteur} · {previewAtt.datum} {previewAtt.tijd || ''}</div>
                                 )}
                             </div>
                             <button onClick={closePreview} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#e2e8f0', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontSize: '0.85rem', marginLeft: '12px', flexShrink: 0 }}>

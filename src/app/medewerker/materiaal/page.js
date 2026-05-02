@@ -190,6 +190,18 @@ export default function MateriaalBotPage() {
             text: `Hoi ${user?.name?.split(' ')[0] ?? ''}! 👋 Ik help je snel de prijs van materialen opzoeken. Typ een productnaam en ik zoek het voor je op.`,
             results: null,
         }]);
+        // Laad bestekMap van API zodat product-koppeling up-to-date is
+        fetch('/api/materiaal-data')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data?.bestekMap && Object.keys(data.bestekMap).length > 0) {
+                    saveLS('schildersapp_bestek_producten', data.bestekMap);
+                }
+                if (data?.bestekLocks && Object.keys(data.bestekLocks).length > 0) {
+                    saveLS('schildersapp_bestek_locks', data.bestekLocks);
+                }
+            })
+            .catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -755,7 +767,7 @@ export default function MateriaalBotPage() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Materiaalbot</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>
                             {rows.length > 0 ? `${rows.length} artikelen beschikbaar` : 'Geen materiaallijst geladen'}
                         </div>
                     </div>
@@ -815,8 +827,8 @@ export default function MateriaalBotPage() {
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 {beste && (
                                                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#dcfce7', borderRadius: '6px', padding: '2px 7px', marginBottom: '4px' }}>
-                                                        <i className="fa-solid fa-crown" style={{ color: '#15803d', fontSize: '0.65rem' }} />
-                                                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#15803d' }}>BESTE PRIJS</span>
+                                                        <i className="fa-solid fa-crown" style={{ color: '#15803d', fontSize: '0.82rem' }} />
+                                                        <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#15803d' }}>BESTE PRIJS</span>
                                                     </div>
                                                 )}
                                                 <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', lineHeight: 1.3 }}>{naam}</div>
@@ -825,16 +837,16 @@ export default function MateriaalBotPage() {
                                                         const val = fv[f]; if (!val) return null;
                                                         const { bg, clr } = badgeStyles[f] || { bg: '#f1f5f9', clr: '#64748b' };
                                                         const txt = f === 'eenheid' ? `per ${val}` : f === 'inhoud' ? `${val}L` : val;
-                                                        return <span key={f} style={{ fontSize: '0.62rem', color: clr, background: bg, borderRadius: '5px', padding: '2px 6px', fontWeight: 600 }}>{txt}</span>;
+                                                        return <span key={f} style={{ fontSize: '0.8rem', color: clr, background: bg, borderRadius: '5px', padding: '2px 6px', fontWeight: 600 }}>{txt}</span>;
                                                     })}
                                                     {(() => {
                                                         const entry = parseEntry(tdsLinks[getBasisNaam(naam)]);
                                                         if (!entry.tds && !entry.msds && !entry.certs?.length && !entry.leaflet) return null;
                                                         return <>
-                                                            {entry.tds && <a href={entry.tds} target="_blank" rel="noreferrer" title="TDS" style={{ color: '#ef4444', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-file-pdf" /></a>}
-                                                            {entry.msds && <a href={entry.msds} target="_blank" rel="noreferrer" title="Veiligheidsblad" style={{ color: '#F5850A', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-triangle-exclamation" /></a>}
-                                                            {entry.certs?.length > 0 && <a href={entry.certs[0]} target="_blank" rel="noreferrer" title="Certificaat" style={{ color: '#10b981', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-certificate" /></a>}
-                                                            {entry.leaflet && <a href={entry.leaflet} target="_blank" rel="noreferrer" title="Leaflet" style={{ color: '#6366f1', fontSize: '0.78rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-newspaper" /></a>}
+                                                            {entry.tds && <a href={entry.tds} target="_blank" rel="noreferrer" title="TDS" style={{ color: '#ef4444', fontSize: '0.92rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-file-pdf" /></a>}
+                                                            {entry.msds && <a href={entry.msds} target="_blank" rel="noreferrer" title="Veiligheidsblad" style={{ color: '#F5850A', fontSize: '0.92rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-triangle-exclamation" /></a>}
+                                                            {entry.certs?.length > 0 && <a href={entry.certs[0]} target="_blank" rel="noreferrer" title="Certificaat" style={{ color: '#10b981', fontSize: '0.92rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-certificate" /></a>}
+                                                            {entry.leaflet && <a href={entry.leaflet} target="_blank" rel="noreferrer" title="Leaflet" style={{ color: '#6366f1', fontSize: '0.92rem', lineHeight: 1, textDecoration: 'none' }}><i className="fa-solid fa-newspaper" /></a>}
                                                         </>;
                                                     })()}
                                                 </div>
@@ -844,10 +856,10 @@ export default function MateriaalBotPage() {
                                                 {prijsInfo
                                                     ? <>
                                                         <div style={{ fontWeight: 800, fontSize: '1rem', color: beste ? '#15803d' : '#F5850A' }}>{fmt(prijsInfo.prijs)}</div>
-                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>{eenheid ? `per ${eenheid}` : 'per stuk'}</div>
+                                                        <div style={{ fontSize: '0.92rem', color: '#94a3b8', fontWeight: 600 }}>{eenheid ? `per ${eenheid}` : 'per stuk'}</div>
                                                         <div style={{ fontSize: '0.58rem', color: '#cbd5e1', marginTop: '1px' }}>incl. BTW</div>
                                                       </>
-                                                    : <div style={{ fontSize: '0.72rem', color: '#94a3b8', background: '#f8fafc', borderRadius: '6px', padding: '4px 8px' }}>Op aanvraag</div>}
+                                                    : <div style={{ fontSize: '0.87rem', color: '#94a3b8', background: '#f8fafc', borderRadius: '6px', padding: '4px 8px' }}>Op aanvraag</div>}
                                             </div>
                                             {/* Actieknoppen — horizontaal onderaan, of verticaal smal */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flexShrink: 0 }}>
@@ -912,17 +924,17 @@ export default function MateriaalBotPage() {
                                     const isBeste = idx === 0 && msg.verpakkingResults.length > 1;
                                     return (
                                         <div key={i} style={{ background: isBeste ? '#f0fdf4' : '#fff', borderRadius: '12px', border: `1.5px solid ${isBeste ? '#86efac' : '#f1f5f9'}`, padding: '12px 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-                                            {isBeste && <div style={{ fontSize: '0.6rem', fontWeight: 800, color: '#10b981', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-crown" />BESTE DEAL</div>}
+                                            {isBeste && <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#10b981', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '3px' }}><i className="fa-solid fa-crown" />BESTE DEAL</div>}
                                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', gap: '8px' }}>
                                                 <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', flex: 1 }}>{naam}</div>
                                                 <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
                                                     <button onClick={() => setOpslaanModal({ product: naam, verpakking: `${inhoud ?? msg.gekozenMaat}L`, aantalEmmers: aantal, totaalprijs: totaal ? fmt(totaal) : null, datum: new Date().toLocaleDateString('nl-NL') })}
-                                                        style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#475569', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#475569', cursor: 'pointer', fontSize: '0.92rem', display: 'flex', alignItems: 'center' }}
                                                         title="Opslaan bij project">
                                                         <i className="fa-solid fa-floppy-disk" />
                                                     </button>
                                                     <button onClick={() => voegToeAanBestellijst({ product: naam, aantal, eenheid: `${inhoud ?? msg.gekozenMaat}L`, opmerking: totaal ? `Geschatte prijs: ${fmt(totaal)}` : '', prijs: totaal || null })}
-                                                        style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.92rem', display: 'flex', alignItems: 'center' }}
                                                         title="Toevoegen aan persoonlijke bestellijst">
                                                         <i className="fa-solid fa-cart-plus" />
                                                     </button>
@@ -931,19 +943,19 @@ export default function MateriaalBotPage() {
                                             <div style={{ display: 'flex', gap: '6px' }}>
                                                 <div style={{ flex: 1, background: '#f8fafc', borderRadius: '8px', padding: '7px 10px', textAlign: 'center' }}>
                                                     <div style={{ fontWeight: 800, fontSize: '1rem', color: '#475569' }}>{inhoud ?? msg.gekozenMaat}L</div>
-                                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>PER EMMER</div>
+                                                    <div style={{ fontSize: '0.92rem', color: '#94a3b8', fontWeight: 600 }}>PER EMMER</div>
                                                 </div>
                                                 <div style={{ flex: 1, background: '#f8fafc', borderRadius: '8px', padding: '7px 10px', textAlign: 'center' }}>
                                                     <div style={{ fontWeight: 800, fontSize: '1rem', color: '#475569' }}>{aantal}×</div>
-                                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>EMMERS</div>
+                                                    <div style={{ fontSize: '0.92rem', color: '#94a3b8', fontWeight: 600 }}>EMMERS</div>
                                                 </div>
                                                 {prijsInfo && <div style={{ flex: 1, background: '#f8fafc', borderRadius: '8px', padding: '7px 10px', textAlign: 'center' }}>
                                                     <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#64748b' }}>{fmt(prijsInfo.prijs)}</div>
-                                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>PER EMMER</div>
+                                                    <div style={{ fontSize: '0.92rem', color: '#94a3b8', fontWeight: 600 }}>PER EMMER</div>
                                                 </div>}
                                                 {totaal && <div style={{ flex: 1, background: isBeste ? '#dcfce7' : '#fff8f0', borderRadius: '8px', padding: '7px 10px', textAlign: 'center' }}>
                                                     <div style={{ fontWeight: 800, fontSize: '1rem', color: isBeste ? '#15803d' : '#F5850A' }}>{fmt(totaal)}</div>
-                                                    <div style={{ fontSize: '0.6rem', color: isBeste ? '#86efac' : '#fbbf24', fontWeight: 600 }}>TOTAAL</div>
+                                                    <div style={{ fontSize: '0.92rem', color: isBeste ? '#86efac' : '#fbbf24', fontWeight: 600 }}>TOTAAL</div>
                                                 </div>}
                                             </div>
                                         </div>
@@ -967,12 +979,12 @@ export default function MateriaalBotPage() {
                                                 <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
                                                 <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
                                                     <button onClick={() => setOpslaanModal({ product: naam, verpakking: `${benodigdL} ${eenheid || 'L'}`, aantalEmmers: null, totaalprijs: totaal ? fmt(totaal) : null, datum: new Date().toLocaleDateString('nl-NL') })}
-                                                        style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#475569', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#475569', cursor: 'pointer', fontSize: '0.92rem', display: 'flex', alignItems: 'center' }}
                                                         title="Opslaan bij project">
                                                         <i className="fa-solid fa-floppy-disk" />
                                                     </button>
                                                     <button onClick={() => voegToeAanBestellijst({ product: naam, aantal: benodigdL, eenheid: eenheid || 'L', opmerking: totaal ? `Geschatte prijs: ${fmt(totaal)}` : '', prijs: totaal || null })}
-                                                        style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center' }}
+                                                        style={{ background: '#F5850A', border: 'none', borderRadius: '8px', padding: '5px 8px', color: '#fff', cursor: 'pointer', fontSize: '0.92rem', display: 'flex', alignItems: 'center' }}
                                                         title="Toevoegen aan persoonlijke bestellijst">
                                                         <i className="fa-solid fa-cart-plus" />
                                                     </button>
@@ -981,25 +993,25 @@ export default function MateriaalBotPage() {
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 <div style={{ flex: 1, background: '#f0fdf4', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
                                                     <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#15803d' }}>{benodigdL} {eenheid}</div>
-                                                    <div style={{ fontSize: '0.62rem', color: '#86efac', fontWeight: 600 }}>BENODIGD</div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#86efac', fontWeight: 600 }}>BENODIGD</div>
                                                 </div>
                                                 <div style={{ flex: 1, background: '#fff8f0', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
                                                     {totaal
                                                         ? <><div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#F5850A' }}>{fmt(totaal)}</div>
-                                                            <div style={{ fontSize: '0.62rem', color: '#fbbf24', fontWeight: 600 }}>TOTAALPRIJS</div></>
-                                                        : <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic', paddingTop: '6px' }}>Op aanvraag</div>}
+                                                            <div style={{ fontSize: '0.8rem', color: '#fbbf24', fontWeight: 600 }}>TOTAALPRIJS</div></>
+                                                        : <div style={{ fontSize: '0.92rem', color: '#94a3b8', fontStyle: 'italic', paddingTop: '6px' }}>Op aanvraag</div>}
                                                 </div>
                                                 {prijsInfo && (
                                                     <div style={{ flex: 1, background: '#f8fafc', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
                                                         <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#64748b' }}>{fmt(prijsInfo.prijs)}</div>
-                                                        <div style={{ fontSize: '0.62rem', color: '#cbd5e1', fontWeight: 600 }}>PER {eenheid.toUpperCase()}</div>
+                                                        <div style={{ fontSize: '0.8rem', color: '#cbd5e1', fontWeight: 600 }}>PER {eenheid.toUpperCase()}</div>
                                                     </div>
                                                 )}
                                             </div>
                                         </div>
                                     );
                                 })}
-                                <div style={{ fontSize: '0.72rem', color: '#94a3b8', textAlign: 'center', paddingTop: '2px' }}>
+                                <div style={{ fontSize: '0.87rem', color: '#94a3b8', textAlign: 'center', paddingTop: '2px' }}>
                                     * Gebaseerd op ~{DEKKING_DEFAULT} m² per liter. Werkelijk verbruik kan afwijken.
                                 </div>
                             </div>
@@ -1012,7 +1024,7 @@ export default function MateriaalBotPage() {
                                 <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '1rem', flexShrink: 0 }} />
                                 <div>
                                     <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Volledig verfadvies op Sikkens</div>
-                                    <div style={{ fontSize: '0.68rem', opacity: 0.85, marginTop: '1px' }}>Voer dezelfde keuzes in voor een compleet verfsysteem met lagen</div>
+                                    <div style={{ fontSize: '0.84rem', opacity: 0.85, marginTop: '1px' }}>Voer dezelfde keuzes in voor een compleet verfsysteem met lagen</div>
                                 </div>
                             </a>
                         )}
@@ -1043,7 +1055,7 @@ export default function MateriaalBotPage() {
                 {typing && (
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                         <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'linear-gradient(135deg,#F5850A,#D96800)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <i className="fa-solid fa-box-open" style={{ color: '#fff', fontSize: '0.7rem' }} />
+                            <i className="fa-solid fa-box-open" style={{ color: '#fff', fontSize: '0.86rem' }} />
                         </div>
                         <div style={{ background: '#fff', borderRadius: '18px 18px 18px 4px', padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', display: 'flex', gap: '5px', alignItems: 'center' }}>
                             {[0,1,2].map(n => (
@@ -1062,12 +1074,12 @@ export default function MateriaalBotPage() {
                         style={{ width: '100%', padding: '10px 16px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '8px', boxShadow: '0 2px 8px rgba(245,133,10,0.3)' }}>
                         <i className="fa-solid fa-paint-roller" />
                         Verfadvies op maat
-                        <span style={{ fontWeight: 400, opacity: 0.85, fontSize: '0.75rem' }}>stap voor stap</span>
+                        <span style={{ fontWeight: 400, opacity: 0.85, fontSize: '0.9rem' }}>stap voor stap</span>
                     </button>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {suggestions.map(s => (
                             <button key={s} onClick={() => sendQuery(s)}
-                                style={{ padding: '6px 13px', borderRadius: '20px', border: '1.5px solid #fed7aa', background: '#fff8f0', color: '#c2410c', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                                style={{ padding: '6px 13px', borderRadius: '20px', border: '1.5px solid #fed7aa', background: '#fff8f0', color: '#c2410c', fontSize: '0.92rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
                                 onMouseOver={e => { e.currentTarget.style.background = '#F5850A'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#F5850A'; }}
                                 onMouseOut={e => { e.currentTarget.style.background = '#fff8f0'; e.currentTarget.style.color = '#c2410c'; e.currentTarget.style.borderColor = '#fed7aa'; }}>
                                 {s}
@@ -1087,9 +1099,9 @@ export default function MateriaalBotPage() {
                         ))}
                     </div>
                     {/* Breadcrumb */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '0.7rem', color: '#94a3b8', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '0.86rem', color: '#94a3b8', flexWrap: 'wrap' }}>
                         <button onClick={() => setWizard(null)}
-                            style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}>
+                            style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: '0.86rem' }}>
                             ↩ Annuleren
                         </button>
                         {Object.values(wizard.keuzes).filter(Boolean).map((v, i) => (
@@ -1099,7 +1111,7 @@ export default function MateriaalBotPage() {
                     {/* Stap label + stap nr */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                         <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>{WIZARD_STAPPEN[wizard.stap].label}</div>
-                        <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Stap {wizard.stap + 1} / {WIZARD_STAPPEN.length}</div>
+                        <div style={{ fontSize: '0.84rem', color: '#94a3b8' }}>Stap {wizard.stap + 1} / {WIZARD_STAPPEN.length}</div>
                     </div>
                     {/* Knoppen */}
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
@@ -1114,7 +1126,7 @@ export default function MateriaalBotPage() {
                                     border: wizard.keuzes[WIZARD_STAPPEN[wizard.stap].key] === opt ? '1.5px solid #F5850A' : '1.5px solid #e2e8f0',
                                     background: wizard.keuzes[WIZARD_STAPPEN[wizard.stap].key] === opt ? 'rgba(245,133,10,0.08)' : '#f8fafc',
                                     color: wizard.keuzes[WIZARD_STAPPEN[wizard.stap].key] === opt ? '#F5850A' : '#475569',
-                                    fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', lineHeight: 1.4,
+                                    fontSize: '0.92rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', lineHeight: 1.4,
                                 }}>
                                 {opt}
                             </button>
@@ -1169,7 +1181,7 @@ export default function MateriaalBotPage() {
                         <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '10px auto 0' }} />
                         <div style={{ padding: '12px 20px 10px', borderBottom: '1px solid #f1f5f9' }}>
                             <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#1e293b' }}>Systeemopbouw</div>
-                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>{systeemModal.product}</div>
+                            <div style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: '2px' }}>{systeemModal.product}</div>
                         </div>
                         {systeemModal.loading && (
                             <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
@@ -1187,13 +1199,13 @@ export default function MateriaalBotPage() {
                                 {systeemModal.bestekCode && (
                                     <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: '#0369a1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            <i className="fa-solid fa-file-lines" style={{ color: '#fff', fontSize: '0.72rem' }} />
+                                            <i className="fa-solid fa-file-lines" style={{ color: '#fff', fontSize: '0.87rem' }} />
                                         </div>
                                         <div style={{ minWidth: 0 }}>
-                                            <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>OnderhoudNL Bestek</div>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>OnderhoudNL Bestek</div>
                                             <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
                                                 <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0369a1' }}>{systeemModal.bestekCode}</span>
-                                                {systeemModal.bestekNaam && <span style={{ color: '#475569', fontSize: '0.75rem' }}>{systeemModal.bestekNaam}</span>}
+                                                {systeemModal.bestekNaam && <span style={{ color: '#475569', fontSize: '0.9rem' }}>{systeemModal.bestekNaam}</span>}
                                             </div>
                                         </div>
                                     </div>
@@ -1221,18 +1233,18 @@ export default function MateriaalBotPage() {
                                             {/* Info */}
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                                                    <div style={{ fontSize: '0.62rem', fontWeight: 700, color: laagStijl.clr, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stap.laag}</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: laagStijl.clr, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stap.laag}</div>
                                                 </div>
                                                 <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', marginBottom: '6px' }}>{stap.product}</div>
                                                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                                    <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#fff', borderRadius: '6px', padding: '2px 7px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <span style={{ fontSize: '0.86rem', color: '#64748b', background: '#fff', borderRadius: '6px', padding: '2px 7px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                         <i className="fa-solid fa-paintbrush" />{stap.verwerking}
                                                     </span>
-                                                    <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#fff', borderRadius: '6px', padding: '2px 7px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <span style={{ fontSize: '0.86rem', color: '#64748b', background: '#fff', borderRadius: '6px', padding: '2px 7px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                         <i className="fa-solid fa-clone" />{stap.aantal_lagen}
                                                     </span>
                                                     {stap.opmerking && (
-                                                        <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontStyle: 'italic', alignSelf: 'center' }}>{stap.opmerking}</span>
+                                                        <span style={{ fontSize: '0.84rem', color: '#94a3b8', fontStyle: 'italic', alignSelf: 'center' }}>{stap.opmerking}</span>
                                                     )}
                                                 </div>
                                             </div>
@@ -1242,10 +1254,10 @@ export default function MateriaalBotPage() {
                                 {systeemModal.onderhoud && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: '#f0fdf4', borderRadius: '12px', border: '1.5px solid #86efac' }}>
                                         <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            <i className="fa-solid fa-calendar-check" style={{ color: '#fff', fontSize: '0.75rem' }} />
+                                            <i className="fa-solid fa-calendar-check" style={{ color: '#fff', fontSize: '0.9rem' }} />
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Onderhoudsverwachting</div>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Onderhoudsverwachting</div>
                                             <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#15803d' }}>{systeemModal.onderhoud}</div>
                                         </div>
                                     </div>
@@ -1255,7 +1267,7 @@ export default function MateriaalBotPage() {
                                     <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '1rem', flexShrink: 0 }} />
                                     <div>
                                         <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Controleer op Sikkens bestekservice</div>
-                                        <div style={{ fontSize: '0.68rem', opacity: 0.85, marginTop: '1px' }}>Voor officieel verfsysteem met bestektekst</div>
+                                        <div style={{ fontSize: '0.84rem', opacity: 0.85, marginTop: '1px' }}>Voor officieel verfsysteem met bestektekst</div>
                                     </div>
                                 </a>
                             </div>
@@ -1306,9 +1318,9 @@ export default function MateriaalBotPage() {
                                     <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: project.color ?? '#94a3b8', flexShrink: 0 }} />
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b' }}>{project.name}</div>
-                                        {project.client && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{project.client}</div>}
+                                        {project.client && <div style={{ fontSize: '0.87rem', color: '#94a3b8' }}>{project.client}</div>}
                                     </div>
-                                    <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.75rem' }} />
+                                    <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.9rem' }} />
                                 </button>
                             ))}
                         </div>

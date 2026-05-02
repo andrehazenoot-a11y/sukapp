@@ -2,7 +2,22 @@ import { NextResponse } from 'next/server';
 import { getDbConnection } from '@/lib/db';
 import { hashWachtwoord } from '@/lib/toolboxAuth';
 
-export async function GET() {
+export async function GET(request) {
+    // Alleen toegankelijk met geldig sessie-cookie
+    const token = request.cookies.get('schildersapp_session')?.value;
+    if (token) {
+        try {
+            const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+            const payload = decoded.data ? JSON.parse(decoded.data) : decoded;
+            if (!payload.id || !payload.username) {
+                return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 });
+            }
+        } catch {
+            return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 });
+        }
+    } else {
+        return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 });
+    }
     try {
         const pool = await getDbConnection();
 
@@ -59,8 +74,8 @@ export async function GET() {
             );
         }
 
-        return NextResponse.json({ ok: true, bericht: 'Tabellen aangemaakt, standaard admin: Andre / admin123' });
+        return NextResponse.json({ ok: true, bericht: 'Tabellen aangemaakt' });
     } catch (err) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

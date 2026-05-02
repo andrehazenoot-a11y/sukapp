@@ -183,7 +183,7 @@ export default function MedewerkerWerkbonnen() {
                         <div style={{ marginTop: '10px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '14px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                                 <span style={{
-                                    fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px',
+                                    fontSize: '0.86rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px',
                                     background: selectedProject.status === 'active' ? '#dcfce7' : '#f1f5f9',
                                     color: selectedProject.status === 'active' ? '#16a34a' : '#64748b',
                                 }}>
@@ -257,7 +257,7 @@ export default function MedewerkerWerkbonnen() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Werkbonnen</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Maak werkbonnen aan en beheer ze</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Maak werkbonnen aan en beheer ze</div>
                     </div>
                 </div>
             </div>
@@ -278,7 +278,7 @@ export default function MedewerkerWerkbonnen() {
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                         transition: 'all 0.15s',
                     }}>
-                        <i className={`fa-solid ${tab.icon}`} style={{ fontSize: '0.78rem' }} />
+                        <i className={`fa-solid ${tab.icon}`} style={{ fontSize: '0.92rem' }} />
                         {tab.label}
                     </button>
                 ))}
@@ -294,7 +294,7 @@ export default function MedewerkerWerkbonnen() {
                         </div>
                     )}
                     <div style={{ background: '#fff', borderRadius: '18px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', border: '1.5px solid #f1f5f9' }}>
-                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '16px' }}>
+                        <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '16px' }}>
                             Snel een werkbon aanmaken
                         </div>
                         <div style={{ marginBottom: '14px' }}>
@@ -330,7 +330,7 @@ export default function MedewerkerWerkbonnen() {
                         }}>
                             {snelSaving ? <><i className="fa-solid fa-spinner fa-spin" /> Opslaan...</> : <><i className="fa-solid fa-bolt" /> Snel opslaan</>}
                         </button>
-                        <div style={{ marginTop: '12px', fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center' }}>
+                        <div style={{ marginTop: '12px', fontSize: '0.9rem', color: '#94a3b8', textAlign: 'center' }}>
                             Project wordt later door je baas gekoppeld
                         </div>
                     </div>
@@ -340,10 +340,10 @@ export default function MedewerkerWerkbonnen() {
             {/* ─── LIJST TAB ─── */}
             {view === 'lijst' && (<>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#94a3b8' }}>{bonnen.length} werkbon{bonnen.length !== 1 ? 'nen' : ''}</span>
+                    <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#94a3b8' }}>{bonnen.length} werkbon{bonnen.length !== 1 ? 'nen' : ''}</span>
                     <button onClick={() => setView('nieuw')} style={{
                         background: '#fff8f0', color: '#F5850A', border: '1.5px solid #F5850A',
-                        borderRadius: '10px', padding: '7px 14px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700,
+                        borderRadius: '10px', padding: '7px 14px', cursor: 'pointer', fontSize: '0.92rem', fontWeight: 700,
                         display: 'flex', alignItems: 'center', gap: '6px',
                     }}>
                         <i className="fa-solid fa-plus" /> Uitgebreid aanmaken
@@ -370,18 +370,18 @@ export default function MedewerkerWerkbonnen() {
                         </div>
                         {bon.projectNaam && (
                             <div style={{ fontSize: '0.77rem', color: '#64748b', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <i className="fa-solid fa-folder-tree" style={{ color: '#F5850A', fontSize: '0.7rem' }} />
+                                <i className="fa-solid fa-folder-tree" style={{ color: '#F5850A', fontSize: '0.86rem' }} />
                                 {bon.projectNaam}
                             </div>
                         )}
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                             {bon.uren && (
-                                <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', background: '#f0f9ff', color: '#0891b2', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '0.87rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', background: '#f0f9ff', color: '#0891b2', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                                     <i className="fa-solid fa-clock" /> {bon.uren}u
                                 </span>
                             )}
                             {bon.opdrachtgever && (
-                                <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', background: '#f8fafc', color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '0.87rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', background: '#f8fafc', color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                                     <i className="fa-solid fa-building" /> {bon.opdrachtgever}
                                 </span>
                             )}
@@ -406,7 +406,7 @@ const infoRow = {
     display: 'flex', gap: '8px', alignItems: 'baseline',
 };
 const infoLabel = {
-    fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, minWidth: '90px', flexShrink: 0,
+    fontSize: '0.87rem', color: '#94a3b8', fontWeight: 600, minWidth: '90px', flexShrink: 0,
 };
 const infoValue = {
     fontSize: '0.82rem', color: '#1e293b', fontWeight: 500,

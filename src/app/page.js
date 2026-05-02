@@ -3,12 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { useLanguage } from '../components/LanguageContext';
+import { useToast } from '../components/Toast';
 import Link from 'next/link';
 import TestDataGenerator from '../components/TestDataGenerator';
 
 export default function Home() {
   const { user, getAllUsers } = useAuth();
   const { t } = useLanguage();
+  const toast = useToast();
   const currentUser = user?.name || 'Jan Modaal';
   const [meldingen, setMeldingen] = useState([]);
   const [docs, setDocs]               = useState([]);
@@ -33,7 +35,25 @@ const docInputRef                   = useRef();
   });
 
   useEffect(() => {
-    const load = () => {
+    if (currentUser) {
+      fetch(`/api/meldingen?aan=${encodeURIComponent(currentUser)}`, { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!Array.isArray(data)) return;
+          try {
+            const bestaande = JSON.parse(localStorage.getItem('schildersapp_meldingen') || '[]');
+            const andereOntvangers = bestaande.filter(m => m.aan !== currentUser);
+            const merged = [...data, ...andereOntvangers];
+            localStorage.setItem('schildersapp_meldingen', JSON.stringify(merged));
+            setMeldingen(merged);
+          } catch {}
+        })
+        .catch(() => {});
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    const loadLocal = () => {
       const data = JSON.parse(localStorage.getItem('schildersapp_meldingen') || '[]');
       setMeldingen(data);
       const contracten = JSON.parse(localStorage.getItem('wa_contracten') || '[]');
@@ -42,8 +62,21 @@ const docInputRef                   = useRef();
       const projecten = JSON.parse(localStorage.getItem('wa_projecten') || '[]');
       setStats({ contracten, medewerkers, urenLog, projecten });
     };
-    load();
-    const interval = setInterval(load, 3000);
+    loadLocal();
+    // Laad medewerkers en contracten van API voor actuele stats
+    Promise.all([
+      fetch('/api/medewerkers').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/contracten').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([medewerkers, contracten]) => {
+      if (Array.isArray(medewerkers)) localStorage.setItem('wa_medewerkers', JSON.stringify(medewerkers));
+      if (Array.isArray(contracten)) localStorage.setItem('wa_contracten', JSON.stringify(contracten));
+      setStats(prev => ({
+        ...prev,
+        medewerkers: medewerkers ?? prev.medewerkers,
+        contracten: contracten ?? prev.contracten,
+      }));
+    }).catch(() => {});
+    const interval = setInterval(loadLocal, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -78,8 +111,15 @@ fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(
   async function handleVjSync() {
     setVjSyncing(true); setVjSyncResult(null);
     try {
-      const raw = localStorage.getItem('wa_medewerkers');
-      const medewerkers = raw ? JSON.parse(raw) : [];
+      let medewerkers = [];
+      try {
+        const r = await fetch('/api/medewerkers');
+        if (r.ok) medewerkers = await r.json();
+      } catch {}
+      if (!medewerkers.length) {
+        const raw = localStorage.getItem('wa_medewerkers');
+        medewerkers = raw ? JSON.parse(raw) : [];
+      }
       const metDatum = medewerkers
         .filter(m => m.geboortedatum)
         .map(m => ({ naam: [m.voornaam, m.achternaam].filter(Boolean).join(' ') || m.naam || m.bedrijfsnaam || 'Onbekend', geboortedatum: m.geboortedatum }));
@@ -90,9 +130,10 @@ fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(
       });
       const data = await res.json();
       setVjSyncResult(data.ingevoegd ?? 0);
+      toast.success(`${data.ingevoegd ?? 0} verjaardagen gesynchroniseerd`);
       // Herlaad de lijst
       fetch('/api/verjaardagen').then(r => r.json()).then(d => { if (Array.isArray(d)) setVerjaardagen(d); }).catch(() => {});
-    } catch { setVjSyncResult(-1); }
+    } catch { setVjSyncResult(-1); toast.error('Synchronisatie mislukt'); }
     setVjSyncing(false);
   }
 
@@ -103,12 +144,18 @@ fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(
     const updated = meldingen.map(m => m.id === id ? { ...m, gelezen: true } : m);
     setMeldingen(updated);
     localStorage.setItem('schildersapp_meldingen', JSON.stringify(updated));
+    fetch('/api/meldingen', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
   };
 
   const verwijderMelding = (id) => {
     const updated = meldingen.filter(m => m.id !== id);
     setMeldingen(updated);
     localStorage.setItem('schildersapp_meldingen', JSON.stringify(updated));
+    fetch(`/api/meldingen?id=${id}`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
   };
 
   const formatTijd = (iso) => {
@@ -137,10 +184,11 @@ fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(
             body: JSON.stringify({ titel: file.name.replace(/\.[^.]+$/, ''), bestandsnaam: file.name, type: file.type, data: ev.target.result, geuploadDoor: user?.name || 'Beheerder', zichtbaarVanaf: null }),
           });
           const doc = await res.json();
-          if (doc.error) { setDocFout(doc.error); } else {
+          if (doc.error) { setDocFout(doc.error); toast.error(doc.error); } else {
             setDocs(prev => [{ ...doc, gelezen: [] }, ...prev]);
+            toast.success(`"${file.name}" geüpload`);
           }
-        } catch { setDocFout('Upload mislukt.'); }
+        } catch { setDocFout('Upload mislukt.'); toast.error('Upload mislukt'); }
         setDocUploading(false);
       };
       reader.readAsDataURL(file);
@@ -149,8 +197,14 @@ fetch('/api/verjaardagen').then(r => r.json()).then(data => { if (Array.isArray(
   }
 
   async function verwijderDoc(id) {
-    await fetch(`/api/documenten/${id}`, { method: 'DELETE' }).catch(() => {});
-    setDocs(prev => prev.filter(d => d.id !== id));
+    try {
+      const res = await fetch(`/api/documenten/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      setDocs(prev => prev.filter(d => d.id !== id));
+      toast.success('Document verwijderd');
+    } catch {
+      toast.error('Verwijderen mislukt');
+    }
   }
 
 
@@ -219,7 +273,7 @@ const teOndertekenen = stats.contracten.filter(c => !c.getekend && (c.kanbanStat
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
         <div style={{ flexShrink: 0 }}>
           <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#1e293b' }}>
-            {t('dashboard.welcomeBack')}, {currentUser.split(' ')[0]}.
+            {t('dashboard.welcomeBack')}, {(currentUser || '').split(' ')[0]}.
           </h1>
           <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.75rem' }}>
             {new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -582,7 +636,7 @@ const teOndertekenen = stats.contracten.filter(c => !c.getekend && (c.kanbanStat
                           </div>
                           {gelezenEntries.map((e, ei) => (
                             <div key={ei} style={{ fontSize: '0.63rem', color: '#94a3b8', marginTop: '2px', lineHeight: 1.4 }}>
-                              <span style={{ fontWeight: 600, color: '#64748b' }}>{e.naam.split(' ')[0]}</span>
+                              <span style={{ fontWeight: 600, color: '#64748b' }}>{(e.naam || '').split(' ')[0]}</span>
                               {e.timestamp && <> · {new Date(e.timestamp).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} {new Date(e.timestamp).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</>}
                             </div>
                           ))}

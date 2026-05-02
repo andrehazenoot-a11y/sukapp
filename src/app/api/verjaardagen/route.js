@@ -32,7 +32,7 @@ export async function GET() {
         data.sort((a, b) => a.dagenTot - b.dagenTot);
         return NextResponse.json(data);
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -50,6 +50,6 @@ export async function POST(req) {
         const [rows] = await pool.query(`SELECT * FROM schilders_verjaardagen WHERE id = ?`, [result.insertId]);
         return NextResponse.json({ ...rows[0], dagenTot: dagenTot(rows[0].datum) }, { status: 201 });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

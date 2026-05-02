@@ -74,7 +74,7 @@ export async function DELETE(req) {
     if (!taskId || !etag) return NextResponse.json({ error: 'taskId en etag zijn vereist' }, { status: 400 });
 
     try {
-        const token = await getAppToken();
+        const token = await getUserToken();
         const res = await fetch(`https://graph.microsoft.com/v1.0/planner/tasks/${taskId}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}`, 'If-Match': etag },
@@ -97,7 +97,7 @@ export async function PATCH(req) {
     if (assignments !== undefined) body.assignments = assignments;
 
     try {
-        const token = await getAppToken();
+        const token = await getUserToken();
         const res = await fetch(`https://graph.microsoft.com/v1.0/planner/tasks/${taskId}`, {
             method: 'PATCH',
             headers: {

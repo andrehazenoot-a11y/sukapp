@@ -95,7 +95,7 @@ function QuickCard({ icon, label, color, onClick }) {
             <div style={{ width: '42px', height: '42px', borderRadius: '13px', background: color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <i className={`fa-solid ${icon}`} style={{ color, fontSize: '1.05rem' }} />
             </div>
-            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
+            <span style={{ fontSize: '0.84rem', fontWeight: 700, color: '#475569', textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
         </button>
     );
 }
@@ -106,9 +106,9 @@ function SectionHeader({ title, linkLabel, linkPath }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                 <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                <h3 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</h3>
+                <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</h3>
             </div>
-            {linkLabel && <button onClick={() => router.push(linkPath)} style={{ background: '#fff8f0', border: '1.5px solid #fde8cc', borderRadius: '8px', cursor: 'pointer', color: '#F5850A', fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px' }}>{linkLabel} →</button>}
+            {linkLabel && <button onClick={() => router.push(linkPath)} style={{ background: '#fff8f0', border: '1.5px solid #fde8cc', borderRadius: '8px', cursor: 'pointer', color: '#F5850A', fontSize: '0.9rem', fontWeight: 700, padding: '4px 10px' }}>{linkLabel} →</button>}
         </div>
     );
 }
@@ -175,12 +175,45 @@ export default function MedewerkerHome() {
 
     useEffect(() => {
         if (!user) return;
-        setVandaag(getTodayProjects(user.id));
-        setWeekUren(getWeekHours(user.id));
-        setOpenTaken(getMyOpenTasks(user.id));
 
-        // Verjaardagen worden geladen via API hieronder
+        // Projecten: API-first, dan localStorage-functies opnieuw uitvoeren
+        fetch('/api/projecten')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    try { localStorage.setItem('schildersapp_projecten', JSON.stringify(data)); } catch {}
+                }
+                setVandaag(getTodayProjects(user.id));
+                setOpenTaken(getMyOpenTasks(user.id));
+            })
+            .catch(() => {
+                setVandaag(getTodayProjects(user.id));
+                setOpenTaken(getMyOpenTasks(user.id));
+            });
 
+        // Week uren: API-first, localStorage als fallback
+        const today = new Date();
+        const week = getISOWeek(today);
+        const jaar = today.getFullYear();
+        fetch(`/api/uren?userId=${user.id}&week=${week}&jaar=${jaar}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(result => {
+                const record = Array.isArray(result) ? result[0] : null;
+                if (record?.data) {
+                    let total = 0;
+                    for (const p of record.data) {
+                        for (const type of Object.keys(p.types || {})) {
+                            for (const v of (p.types[type] || [])) {
+                                total += parseFloat(String(v).replace(',', '.')) || 0;
+                            }
+                        }
+                    }
+                    setWeekUren(total);
+                } else {
+                    setWeekUren(getWeekHours(user.id));
+                }
+            })
+            .catch(() => setWeekUren(getWeekHours(user.id)));
 
         // Verjaardagen laden via API (alleen komende 14 dagen tonen)
         fetch('/api/verjaardagen').then(r => r.json()).then(data => {
@@ -206,6 +239,7 @@ export default function MedewerkerHome() {
 
         // Luister naar aanvinken vanuit de PDF viewer iframe
         const onMsg = (e) => {
+            if (e.origin !== window.location.origin) return;
             if (e.data?.type !== 'gelezen') return;
             const { docId, userId, naam, timestamp } = e.data;
             setDocs(prev => prev.map(d => d.id !== docId ? d : {
@@ -312,7 +346,7 @@ export default function MedewerkerHome() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Hoi, {user?.name?.split(' ')[0]} 👋</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>{todayLabel}</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>{todayLabel}</div>
                     </div>
                 </div>
             </div>
@@ -338,9 +372,9 @@ export default function MedewerkerHome() {
                                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.color || '#F5850A', flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.taskName}</div>
-                                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>{t.projectName}</div>
+                                    <div style={{ fontSize: '0.87rem', color: '#64748b', marginTop: '1px' }}>{t.projectName}</div>
                                 </div>
-                                <div style={{ fontSize: '0.72rem', color: '#F5850A', fontWeight: 700, flexShrink: 0 }}>
+                                <div style={{ fontSize: '0.87rem', color: '#F5850A', fontWeight: 700, flexShrink: 0 }}>
                                     t/m {t.endDate ? new Date(t.endDate + 'T00:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}
                                 </div>
                             </div>
@@ -358,9 +392,9 @@ export default function MedewerkerHome() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                                 <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                                <h3 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Openstaande taken</h3>
+                                <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Openstaande taken</h3>
                             </div>
-                            <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: '0.65rem', fontWeight: 700, borderRadius: '999px', padding: '2px 8px' }}>
+                            <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: '0.82rem', fontWeight: 700, borderRadius: '999px', padding: '2px 8px' }}>
                                 {openTaken.length}
                             </span>
                         </div>
@@ -371,10 +405,10 @@ export default function MedewerkerHome() {
                                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.color || '#F5850A', flexShrink: 0 }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 600, fontSize: '0.86rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.taskName}</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '1px' }}>{t.projectName}</div>
+                                        <div style={{ fontSize: '0.86rem', color: '#94a3b8', marginTop: '1px' }}>{t.projectName}</div>
                                     </div>
                                     {t.endDate && (
-                                        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: isLaat(t) ? '#ef4444' : '#94a3b8', flexShrink: 0 }}>
+                                        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: isLaat(t) ? '#ef4444' : '#94a3b8', flexShrink: 0 }}>
                                             {isLaat(t) ? '⚠ ' : ''}{new Date(t.endDate + 'T00:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
                                         </div>
                                     )}
@@ -382,12 +416,12 @@ export default function MedewerkerHome() {
                             ))}
                         </div>
                         {openTaken.length > 3 && (
-                            <button onClick={() => setOpenTakenUitgeklapt(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, marginTop: '6px', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                <i className={`fa-solid fa-chevron-${openTakenUitgeklapt ? 'up' : 'down'}`} style={{ fontSize: '0.6rem' }} />
+                            <button onClick={() => setOpenTakenUitgeklapt(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600, marginTop: '6px', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <i className={`fa-solid fa-chevron-${openTakenUitgeklapt ? 'up' : 'down'}`} style={{ fontSize: '0.92rem' }} />
                                 {openTakenUitgeklapt ? 'Minder tonen' : `${openTaken.length - 3} meer taken`}
                             </button>
                         )}
-                        <div style={{ marginTop: '8px', fontSize: '0.72rem', color: '#94a3b8' }}>
+                        <div style={{ marginTop: '8px', fontSize: '0.87rem', color: '#94a3b8' }}>
                             Deze week: <strong style={{ color: '#475569' }}>{weekUren}u</strong> geregistreerd
                         </div>
                     </div>
@@ -413,7 +447,7 @@ export default function MedewerkerHome() {
                                         ? `${v.naam} is vandaag jarig! 🎉`
                                         : `${v.naam} is over ${v.dagenTot} dag${v.dagenTot === 1 ? '' : 'en'} jarig`}
                                 </div>
-                                {v.notitie && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>{v.notitie}</div>}
+                                {v.notitie && <div style={{ fontSize: '0.87rem', color: '#64748b', marginTop: '2px' }}>{v.notitie}</div>}
                             </div>
                         </div>
                     ))}
@@ -441,21 +475,21 @@ export default function MedewerkerHome() {
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
                                         <span style={{ fontSize: '1.5rem', fontWeight: 900, color: '#1e293b', letterSpacing: '-0.03em' }}>{Math.round(cur.temperature_2m)}°C</span>
-                                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>voelt als {Math.round(cur.apparent_temperature)}°</span>
+                                        <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>voelt als {Math.round(cur.apparent_temperature)}°</span>
                                     </div>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '1px' }}>{wmo.nl}</div>
+                                    <div style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '1px' }}>{wmo.nl}</div>
                                 </div>
                                 {/* Werk-advies dot */}
                                 {advies && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: advies.bg, border: `1px solid ${advies.border}`, borderRadius: '999px', padding: '4px 9px', flexShrink: 0 }}>
                                         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: advies.color, flexShrink: 0 }} />
-                                        <span style={{ fontSize: '0.68rem', color: advies.color, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <span style={{ fontSize: '0.84rem', color: advies.color, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                             {advies.color === '#10b981' ? 'Gunstig' : 'Let op'}
                                         </span>
                                     </div>
                                 )}
                                 {/* Toggle pijl */}
-                                <i className={`fa-solid fa-chevron-${weerUitgeklapt ? 'up' : 'down'}`} style={{ color: '#cbd5e1', fontSize: '0.75rem', flexShrink: 0 }} />
+                                <i className={`fa-solid fa-chevron-${weerUitgeklapt ? 'up' : 'down'}`} style={{ color: '#cbd5e1', fontSize: '0.9rem', flexShrink: 0 }} />
                             </div>
 
                             {/* Uitklapbaar gedeelte */}
@@ -471,7 +505,7 @@ export default function MedewerkerHome() {
                                                 <i className={`fa-solid ${s.icon}`} style={{ color: '#94a3b8', fontSize: '0.8rem' }} />
                                                 <div>
                                                     <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{s.val}</div>
-                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>{s.lbl}</div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{s.lbl}</div>
                                                 </div>
                                             </div>
                                         ))}
@@ -481,7 +515,7 @@ export default function MedewerkerHome() {
                                     {advies && (
                                         <div style={{ margin: '0 12px 12px', background: advies.bg, border: `1px solid ${advies.border}`, borderRadius: '10px', padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fa-solid fa-hard-hat" style={{ color: advies.color, fontSize: '0.82rem', flexShrink: 0 }} />
-                                            <span style={{ fontSize: '0.78rem', color: advies.color, fontWeight: 700 }}>{advies.text}</span>
+                                            <span style={{ fontSize: '0.92rem', color: advies.color, fontWeight: 700 }}>{advies.text}</span>
                                         </div>
                                     )}
 
@@ -494,7 +528,7 @@ export default function MedewerkerHome() {
                                             const precip = daily.precipitation_probability_max[di];
                                             return (
                                                 <div key={dateStr} style={{ flex: 1, padding: '11px 4px', textAlign: 'center', borderRight: di < 3 ? '1px solid #f8fafc' : 'none' }}>
-                                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, color: di === 0 ? '#F5850A' : '#94a3b8', textTransform: 'capitalize', marginBottom: '4px' }}>{label}</div>
+                                                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: di === 0 ? '#F5850A' : '#94a3b8', textTransform: 'capitalize', marginBottom: '4px' }}>{label}</div>
                                                     <div style={{ fontSize: '1.25rem', marginBottom: '3px' }}>{dw.emoji}</div>
                                                     <div style={{ fontSize: '0.77rem', fontWeight: 800, color: '#1e293b' }}>{Math.round(daily.temperature_2m_max[di])}°</div>
                                                     <div style={{ fontSize: '0.63rem', color: precip > 40 ? '#3b82f6' : '#cbd5e1', fontWeight: 600, marginTop: '2px' }}>{precip}%</div>
@@ -506,11 +540,11 @@ export default function MedewerkerHome() {
                                     {/* Link naar volledig */}
                                     <button
                                         onClick={e => { e.stopPropagation(); router.push('/medewerker/weer'); }}
-                                        style={{ width: '100%', padding: '11px', background: '#f8fafc', border: 'none', borderTop: '1px solid #f1f5f9', color: '#F5850A', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                                        style={{ width: '100%', padding: '11px', background: '#f8fafc', border: 'none', borderTop: '1px solid #f1f5f9', color: '#F5850A', fontWeight: 700, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
                                     >
                                         <i className="fa-solid fa-cloud-sun" />
                                         Volledig weerbericht bekijken
-                                        <i className="fa-solid fa-arrow-right" style={{ fontSize: '0.7rem' }} />
+                                        <i className="fa-solid fa-arrow-right" style={{ fontSize: '0.86rem' }} />
                                     </button>
                                 </>
                             )}
@@ -528,10 +562,10 @@ export default function MedewerkerHome() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                                 <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                                <h3 style={{ margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Documenten</h3>
+                                <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Documenten</h3>
                             </div>
                             {ongelezen.length > 0 && (
-                                <span style={{ background: '#F5850A', color: '#fff', fontSize: '0.65rem', fontWeight: 700, borderRadius: '999px', padding: '2px 8px' }}>
+                                <span style={{ background: '#F5850A', color: '#fff', fontSize: '0.82rem', fontWeight: 700, borderRadius: '999px', padding: '2px 8px' }}>
                                     {ongelezen.length} nieuw
                                 </span>
                             )}
@@ -544,17 +578,17 @@ export default function MedewerkerHome() {
                                     </div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
-                                        {doc.omschrijving && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.omschrijving}</div>}
+                                        {doc.omschrijving && <div style={{ fontSize: '0.87rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.omschrijving}</div>}
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
-                                        <button onClick={() => bekijkDoc(doc)} style={{ padding: '4px 10px', background: '#F5850A', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>Bekijk</button>
-                                        <button onClick={() => bevestigGelezen(doc.id)} style={{ padding: '4px 10px', background: '#f0fdf4', color: '#10b981', border: '1px solid #86efac', borderRadius: '7px', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}>Aanvinken</button>
+                                        <button onClick={() => bekijkDoc(doc)} style={{ padding: '4px 10px', background: '#F5850A', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: 700, fontSize: '0.87rem', cursor: 'pointer' }}>Bekijk</button>
+                                        <button onClick={() => bevestigGelezen(doc.id)} style={{ padding: '4px 10px', background: '#f0fdf4', color: '#10b981', border: '1px solid #86efac', borderRadius: '7px', fontWeight: 700, fontSize: '0.87rem', cursor: 'pointer' }}>Aanvinken</button>
                                     </div>
                                 </div>
                             ))}
                             {gelezen.length > 0 && (
-                                <button onClick={() => setGelezenDocsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textAlign: 'left', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                    <i className={`fa-solid fa-chevron-${gelezenDocsOpen ? 'up' : 'down'}`} style={{ fontSize: '0.65rem' }} />
+                                <button onClick={() => setGelezenDocsOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600, textAlign: 'left', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <i className={`fa-solid fa-chevron-${gelezenDocsOpen ? 'up' : 'down'}`} style={{ fontSize: '0.82rem' }} />
                                     {gelezen.length} gelezen document{gelezen.length !== 1 ? 'en' : ''}
                                 </button>
                             )}
@@ -564,7 +598,7 @@ export default function MedewerkerHome() {
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.titel}</div>
                                     </div>
-                                    <button onClick={() => bekijkDoc(doc)} style={{ padding: '4px 10px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '7px', fontWeight: 600, fontSize: '0.72rem', cursor: 'pointer' }}>Bekijk</button>
+                                    <button onClick={() => bekijkDoc(doc)} style={{ padding: '4px 10px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '7px', fontWeight: 600, fontSize: '0.87rem', cursor: 'pointer' }}>Bekijk</button>
                                 </div>
                             ))}
                         </div>
@@ -585,9 +619,9 @@ export default function MedewerkerHome() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                                 <div style={{ width: '3px', height: '16px', background: '#F5850A', borderRadius: '2px' }} />
-                                <h3 style={{ margin: 0, fontSize: '0.72rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Toolbox — nog te tekenen</h3>
+                                <h3 style={{ margin: 0, fontSize: '0.87rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Toolbox — nog te tekenen</h3>
                             </div>
-                            <button onClick={() => router.push('/medewerker/mijn-suk?tab=toolbox')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.72rem', color: '#F5850A', fontWeight: 700 }}>Alles bekijken</button>
+                            <button onClick={() => router.push('/medewerker/mijn-suk?tab=toolbox')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.87rem', color: '#F5850A', fontWeight: 700 }}>Alles bekijken</button>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {openMeetings.slice(0, 3).map(m => (
@@ -598,9 +632,9 @@ export default function MedewerkerHome() {
                                     </div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.onderwerp}</div>
-                                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>{m.datum} · {m.project}</div>
+                                        <div style={{ fontSize: '0.87rem', color: '#64748b', marginTop: '1px' }}>{m.datum} · {m.project}</div>
                                     </div>
-                                    <div style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700, flexShrink: 0 }}>
+                                    <div style={{ fontSize: '0.87rem', color: '#f59e0b', fontWeight: 700, flexShrink: 0 }}>
                                         {m.aanwezig?.filter(a => a.getekend).length ?? 0}/{m.aanwezig?.length ?? 0} ✓
                                     </div>
                                 </button>

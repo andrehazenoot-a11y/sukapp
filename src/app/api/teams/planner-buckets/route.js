@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 
 const TENANT = 'cd3d3914-6711-4801-9d09-f83f5a0645d3';
 const CLIENT_ID = process.env.OUTLOOK_CLIENT_ID;
@@ -18,6 +19,11 @@ async function getAppToken() {
     const data = await res.json();
     if (!data.access_token) throw new Error('App token ophalen mislukt');
     return data.access_token;
+}
+
+async function getUserToken() {
+    const jar = await cookies();
+    return jar.get('ms_access_token')?.value || null;
 }
 
 export async function GET(req) {
@@ -61,7 +67,7 @@ export async function DELETE(req) {
     if (!bucketId || !etag) return NextResponse.json({ error: 'bucketId en etag zijn vereist' }, { status: 400 });
 
     try {
-        const token = await getAppToken();
+        const token = await getUserToken();
         const res = await fetch(`https://graph.microsoft.com/v1.0/planner/buckets/${bucketId}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}`, 'If-Match': etag },

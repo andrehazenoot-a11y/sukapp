@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../components/AuthContext';
 
 const LOCATIES = ['Magazijn', 'Bus 1', 'Bus 2', 'Bus 3', 'Project Den Haag', 'Project Leiden', 'Project Katwijk', 'Werkplaats'];
@@ -80,7 +80,29 @@ export default function MaterieelPage() {
         try { const s = localStorage.getItem('schildersapp_materieel'); if (s) return JSON.parse(s); } catch {}
         return INITIAL_ITEMS;
     });
-    const saveItems = (updated) => { setItems(updated); try { localStorage.setItem('schildersapp_materieel', JSON.stringify(updated)); } catch {} };
+
+    useEffect(() => {
+        fetch('/api/materieel')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setItems(data);
+                    try { localStorage.setItem('schildersapp_materieel', JSON.stringify(data)); } catch {}
+                }
+            })
+            .catch(() => {});
+    }, []);
+
+    const saveItems = (updated) => {
+        setItems(updated);
+        try { localStorage.setItem('schildersapp_materieel', JSON.stringify(updated)); } catch {}
+        // Bulk sync naar API
+        fetch('/api/materieel', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updated),
+        }).catch(() => {});
+    };
     const [filter, setFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('alle');
     const [selectedItem, setSelectedItem] = useState(null);
@@ -181,6 +203,11 @@ export default function MaterieelPage() {
         const bestaande = JSON.parse(localStorage.getItem('schildersapp_meldingen') || '[]');
         bestaande.unshift(melding);
         localStorage.setItem('schildersapp_meldingen', JSON.stringify(bestaande));
+        fetch('/api/meldingen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(melding),
+        }).catch(() => {});
         setAanvraagBevestiging(`Aanvraag verstuurd naar ${item.inGebruikDoor} voor ${item.naam}!`);
         setTimeout(() => setAanvraagBevestiging(''), 4000);
     };

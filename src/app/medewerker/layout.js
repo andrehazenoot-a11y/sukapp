@@ -43,7 +43,7 @@ export default function MedewerkerLayout({ children }) {
         path === '/medewerker' ? pathname === '/medewerker' : pathname.startsWith(path);
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column', maxWidth: '480px', margin: '0 auto', position: 'relative' }}>
+        <div style={{ height: '100dvh', background: '#f1f5f9', display: 'flex', flexDirection: 'column', maxWidth: '480px', margin: '0 auto', position: 'relative', overflow: 'hidden' }}>
 
             {/* ── Header ── */}
             <header style={{
@@ -74,15 +74,15 @@ export default function MedewerkerLayout({ children }) {
                 <button onClick={() => router.push('/')} style={{
                     background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.2)',
                     borderRadius: 8, padding: '6px 11px',
-                    color: '#fff', fontSize: '0.75rem', fontWeight: 600,
+                    color: '#fff', fontSize: '0.9rem', fontWeight: 600,
                     display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
                 }}>
-                    <i className="fa-solid fa-arrow-left" style={{ fontSize: '0.65rem' }} />Beheer
+                    <i className="fa-solid fa-arrow-left" style={{ fontSize: '0.9rem' }} />Beheer
                 </button>
             </header>
 
             {/* ── Content ── */}
-            <main style={{ flex: 1, overflowY: 'auto' }}>
+            <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {children}
             </main>
 
@@ -115,7 +115,7 @@ export default function MedewerkerLayout({ children }) {
                         <img src="/ds-logo-rond-nieuw.png" alt="Logo" style={{ height: 38, borderRadius: '50%', filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.25))' }} />
                         <div>
                             <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{user.name}</div>
-                            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.68rem' }}>{user.role}</div>
+                            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.9rem' }}>{user.role}</div>
                         </div>
                     </div>
                     <button onClick={() => setOpen(false)} style={{
@@ -160,7 +160,7 @@ export default function MedewerkerLayout({ children }) {
                                     color: active ? '#fff' : 'rgba(255,255,255,0.65)',
                                     fontSize: '0.88rem', fontWeight: active ? 700 : 500,
                                 }}>{item.label}</span>
-                                {active && <i className="fa-solid fa-chevron-right" style={{ marginLeft: 'auto', color: '#F5850A', fontSize: '0.6rem' }} />}
+                                {active && <i className="fa-solid fa-chevron-right" style={{ marginLeft: 'auto', color: '#F5850A', fontSize: '0.9rem' }} />}
                             </button>
                         );
                     })}

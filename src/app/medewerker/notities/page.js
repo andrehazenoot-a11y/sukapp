@@ -29,8 +29,27 @@ export default function NotitiesPage() {
     const nieuwItemRef = useRef();
 
     useEffect(() => {
-        if (user) setNotities(loadNotities(user.id));
+        if (!user) return;
+        fetch(`/api/notities?userId=${user.id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setNotities(data);
+                    saveNotities(user.id, data);
+                } else {
+                    setNotities(loadNotities(user.id));
+                }
+            })
+            .catch(() => setNotities(loadNotities(user.id)));
     }, [user]);
+
+    function syncNaarApi(notitie) {
+        fetch('/api/notities', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: String(user.id), userName: user.name, notitie }),
+        }).catch(() => {});
+    }
 
     function opslaan() {
         if (!titel.trim()) return;
@@ -46,6 +65,7 @@ export default function NotitiesPage() {
         const updated = [item, ...notities];
         setNotities(updated);
         saveNotities(user.id, updated);
+        syncNaarApi(item);
         sluitModal();
     }
 
@@ -59,6 +79,11 @@ export default function NotitiesPage() {
         const updated = notities.filter(n => n.id !== id);
         setNotities(updated);
         saveNotities(user.id, updated);
+        fetch('/api/notities', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, userId: String(user.id) }),
+        }).catch(() => {});
     }
 
     function toggleCheck(notitieId, itemIdx) {
@@ -68,6 +93,8 @@ export default function NotitiesPage() {
         });
         setNotities(updated);
         saveNotities(user.id, updated);
+        const gewijzigd = updated.find(n => n.id === notitieId);
+        if (gewijzigd) syncNaarApi(gewijzigd);
     }
 
     function voegItemToe() {
@@ -89,7 +116,7 @@ export default function NotitiesPage() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Mijn Notities</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Persoonlijke memo's en checklists</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Persoonlijke memo's en checklists</div>
                     </div>
                 </div>
             </div>
@@ -104,6 +131,7 @@ export default function NotitiesPage() {
                         <i className="fa-solid fa-list-check" /> Checklist
                     </button>
                 </div>
+            </div>
             </div>
 
             {/* Lege staat */}
@@ -131,7 +159,7 @@ export default function NotitiesPage() {
                             {/* Type badge + titel */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', paddingRight: '24px' }}>
                                 <i className={`fa-solid ${n.type === 'memo' ? 'fa-note-sticky' : 'fa-list-check'}`}
-                                    style={{ color: n.type === 'memo' ? '#F5850A' : '#10b981', fontSize: '0.75rem' }} />
+                                    style={{ color: n.type === 'memo' ? '#F5850A' : '#10b981', fontSize: '0.9rem' }} />
                                 <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1e293b' }}>{n.titel}</span>
                             </div>
 
@@ -148,7 +176,7 @@ export default function NotitiesPage() {
                                             <div key={i} onClick={() => toggleCheck(n.id, i)}
                                                 style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                                                 <div style={{ width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0, border: `2px solid ${it.gedaan ? '#10b981' : '#cbd5e1'}`, background: it.gedaan ? '#10b981' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>
-                                                    {it.gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.55rem' }} />}
+                                                    {it.gedaan && <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.9rem' }} />}
                                                 </div>
                                                 <span style={{ fontSize: '0.85rem', color: it.gedaan ? '#94a3b8' : '#334155', textDecoration: it.gedaan ? 'line-through' : 'none', flex: 1 }}>{it.tekst}</span>
                                             </div>
@@ -159,13 +187,13 @@ export default function NotitiesPage() {
                                         <div style={{ flex: 1, height: '4px', borderRadius: '2px', background: '#e2e8f0', overflow: 'hidden' }}>
                                             <div style={{ height: '100%', width: `${totaal ? (gedaan / totaal) * 100 : 0}%`, background: gedaan === totaal && totaal > 0 ? '#10b981' : '#F5850A', borderRadius: '2px', transition: 'width 0.3s' }} />
                                         </div>
-                                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: gedaan === totaal && totaal > 0 ? '#10b981' : '#94a3b8', flexShrink: 0 }}>{gedaan}/{totaal}</span>
+                                        <span style={{ fontSize: '0.84rem', fontWeight: 700, color: gedaan === totaal && totaal > 0 ? '#10b981' : '#94a3b8', flexShrink: 0 }}>{gedaan}/{totaal}</span>
                                     </div>
                                 </>
                             )}
 
                             {/* Datum */}
-                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                            <div style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
                                 {new Date(n.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                             </div>
                         </div>
@@ -222,7 +250,7 @@ export default function NotitiesPage() {
                             {KLEUREN.map(k => (
                                 <button key={k.id} onClick={() => setKleur(k.id)} style={{ width: '28px', height: '28px', borderRadius: '50%', background: k.bg, border: `2.5px solid ${kleur === k.id ? '#F5850A' : k.border}`, cursor: 'pointer', transition: 'border-color 0.15s' }} />
                             ))}
-                            <span style={{ fontSize: '0.72rem', color: '#94a3b8', alignSelf: 'center', marginLeft: '4px' }}>kleur</span>
+                            <span style={{ fontSize: '0.87rem', color: '#94a3b8', alignSelf: 'center', marginLeft: '4px' }}>kleur</span>
                         </div>
 
                         {/* Opslaan */}

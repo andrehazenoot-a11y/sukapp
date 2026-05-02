@@ -28,9 +28,11 @@ export async function POST(req) {
             kolommen:      body.kolommen      ?? huidig.kolommen ?? {},
             opslagen:      body.opslagen      ?? huidig.opslagen ?? {},
             verkoopprijzen: body.verkoopprijzen ?? huidig.verkoopprijzen ?? {},
+            bestekMap:     body.bestekMap     ?? huidig.bestekMap ?? {},
+            bestekLocks:   body.bestekLocks   ?? huidig.bestekLocks ?? {},
         });
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

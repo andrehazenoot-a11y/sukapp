@@ -73,6 +73,7 @@ export default function MijnSuk() {
 
     useEffect(() => {
         const onMsg = (e) => {
+            if (e.origin !== window.location.origin) return;
             if (e.data?.type !== 'gelezen') return;
             const { docId, userId: msgUserId, naam: msgNaam, timestamp } = e.data;
             setTbDocs(prev => prev.map(d => d.id !== docId ? d : {
@@ -86,9 +87,29 @@ export default function MijnSuk() {
     useEffect(() => {
         if (!user) return;
         setProfiel(getProfile(user.id));
-        setNotities(loadLS(`schildersapp_notities_${user.id}`, []));
-        setBestellingen(loadLS(`schildersapp_bestellingen_${user.id}`, []));
         setProjecten((loadLS('schildersapp_projecten', [])).map(p => p.name));
+        fetch(`/api/notities?userId=${user.id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setNotities(data);
+                    saveLS(`schildersapp_notities_${user.id}`, data);
+                } else {
+                    setNotities(loadLS(`schildersapp_notities_${user.id}`, []));
+                }
+            })
+            .catch(() => setNotities(loadLS(`schildersapp_notities_${user.id}`, [])));
+        fetch(`/api/bestellingen?userId=${user.id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setBestellingen(data);
+                    saveLS(`schildersapp_bestellingen_${user.id}`, data);
+                } else {
+                    setBestellingen(loadLS(`schildersapp_bestellingen_${user.id}`, []));
+                }
+            })
+            .catch(() => setBestellingen(loadLS(`schildersapp_bestellingen_${user.id}`, [])));
         setTbMeetings(loadTbMeetings());
         fetch('/api/medewerker-toolbox')
             .then(r => r.json())
@@ -141,6 +162,13 @@ export default function MijnSuk() {
         setNotitiesModal(null); setNotitiesTitel(''); setNotitiesInhoud('');
         setNotitiesKleur('wit'); setNotitiesCheckItems([]); setNotitiesNieuwItem('');
     }
+    function syncNotitieApi(notitie) {
+        fetch('/api/notities', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: String(user.id), userName: user.name, notitie }),
+        }).catch(() => {});
+    }
     function opslaanNotitie() {
         if (!notitiesTitel.trim()) return;
         const item = {
@@ -153,6 +181,7 @@ export default function MijnSuk() {
         const updated = [item, ...notities];
         setNotities(updated);
         saveLS(`schildersapp_notities_${user.id}`, updated);
+        syncNotitieApi(item);
         sluitNotitiesModal();
     }
     function deleteNotitie(id) {
@@ -160,6 +189,11 @@ export default function MijnSuk() {
         const updated = notities.filter(n => n.id !== id);
         setNotities(updated);
         saveLS(`schildersapp_notities_${user.id}`, updated);
+        fetch('/api/notities', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, userId: String(user.id) }),
+        }).catch(() => {});
     }
     function toggleNotitieCheck(notitieId, itemIdx) {
         const updated = notities.map(n => {
@@ -168,6 +202,8 @@ export default function MijnSuk() {
         });
         setNotities(updated);
         saveLS(`schildersapp_notities_${user.id}`, updated);
+        const gewijzigd = updated.find(n => n.id === notitieId);
+        if (gewijzigd) syncNotitieApi(gewijzigd);
     }
     function voegNotitieItemToe() {
         if (!notitiesNieuwItem.trim()) return;
@@ -182,6 +218,11 @@ export default function MijnSuk() {
         const updated = [entry, ...bestellingen];
         setBestellingen(updated);
         saveLS(`schildersapp_bestellingen_${user.id}`, updated);
+        fetch('/api/bestellingen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: String(user.id), userName: user.name, bestelling: entry }),
+        }).catch(() => {});
         setBestSaved(true);
         setTimeout(() => { setBestOpen(false); setBestSaved(false); setBestForm({ product:'', aantal:'', eenheid:'stuk', project:'', opmerking:'' }); }, 1400);
     }
@@ -190,6 +231,11 @@ export default function MijnSuk() {
         const updated = bestellingen.filter(b=>b.id!==id);
         setBestellingen(updated);
         saveLS(`schildersapp_bestellingen_${user.id}`, updated);
+        fetch('/api/bestellingen', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, userId: String(user.id) }),
+        }).catch(() => {});
     }
     // ── Toolbox functies ──
     function tbMarkeerGelezen(meetingId) {
@@ -233,6 +279,11 @@ export default function MijnSuk() {
         const updated = bestellingen.map(b => b.id === notitieModal.id ? { ...b, notitie: notitieInput } : b);
         setBestellingen(updated);
         saveLS(`schildersapp_bestellingen_${user.id}`, updated);
+        fetch('/api/bestellingen', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: notitieModal.id, userId: String(user.id), notitie: notitieInput }),
+        }).catch(() => {});
         setNotitieModal(null);
         setNotitieInput('');
     }

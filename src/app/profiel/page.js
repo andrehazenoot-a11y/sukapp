@@ -148,6 +148,19 @@ export default function ProfielPage() {
     });
     const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
 
+    // Laad medewerkers van API bij mount
+    useEffect(() => {
+        fetch('/api/medewerkers')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setTeamList(data);
+                    localStorage.setItem('wa_medewerkers', JSON.stringify(data));
+                }
+            })
+            .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     const openEmployee = (emp) => {
         setSelectedEmployeeId(emp.id);
         const defaultW = { voornaam: '', achternaam: '', geboortedatum: '', telefoon: '', email: '', adres: '', postcode: '', woonplaats: '', bsn: '', iban: '', nationaliteit: 'Nederlands', burgerlijkeStaat: '', noodcontact: '', noodcontactTel: '', datumInDienst: '', datumUitDienst: '', contractType: 'Vast', proeftijdTot: '', functie: '', afdeling: '', arbeidsovereenkomstGetekend: false, arbeidsovereenkomstDatum: '', aanvullendeOvereenkomsten: [], docIdentiteitsbewijs: false, docIdType: 'Paspoort', docIdVerloopdatum: '', docLoonbelasting: false, docLoonbelastingDatum: '', docWerkvergunning: false, docWerkvergunningNummer: '', docWerkvergunningVerloopdatum: '', docSollicitatie: false, docSollicitatieDatum: '', uurloon: '', salarisschaal: '', periodiek: '', pensioen: false, pensioenOmschrijving: '', eindejaarsuitkering: false, eindejaarsPercentage: '', onkostenvergoeding: '', autoVanDeZaak: false, autoKenteken: '', autoType: '', fietsVanDeZaak: false, fietsType: '', vcaNummer: '', vcaVerloopdatum: '', vcaType: 'VCA Basis', bhvCertificaat: false, bhvNummer: '', bhvVerloopdatum: '', vogVerklaring: false, vogDatum: '', opleidingen: [], leerovereenkomst: false, leerovereenkomstNotitie: '', loopbaanAfspraken: '', contractUren: 37.5, werkdagen: ['ma', 'di', 'wo', 'do', 'vr'], overwerkAfspraken: '', advDagen: 0, verlofRegelingen: '', vakDagenJaar: 25, vakDagenVorigJaar: 0, competenties: [], functioneringsGesprekken: [], persoonlijkOntwikkelingsplan: '', bijzonderhedenVertrouwelijk: '', zorgverzekeraar: '', zorgPolisnummer: '', medischeKeuring: false, medischeKeuringDatum: '', ziekteverzuimLog: [], specialiteiten: [], notities: '', afspraken: [] };
@@ -237,6 +250,13 @@ export default function ProfielPage() {
             
             localStorage.setItem('wa_medewerkers', JSON.stringify(waMedewerkers));
             setTeamList(waMedewerkers); // Update dashboard list immediately
+
+            // Sync naar API
+            fetch('/api/medewerkers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fullData),
+            }).catch(() => {});
         } catch (e) {
             console.error('Failed saving to wa_medewerkers', e);
         }

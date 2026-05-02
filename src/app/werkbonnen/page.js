@@ -85,6 +85,27 @@ export default function WerkbonnenBeheer() {
         } catch { return {}; }
     });
 
+    // Ververs medewerker-uurtarieven vanuit API
+    useEffect(() => {
+        fetch('/api/medewerkers')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!Array.isArray(data)) return;
+                localStorage.setItem('wa_medewerkers', JSON.stringify(data));
+                setMedUurlonen(prev => {
+                    const updated = { ...prev };
+                    for (const lid of data) {
+                        const vk = parseFloat(lid.verkoopUurloon) || null;
+                        if (!vk) continue;
+                        if (lid.id && !updated[lid.id]) updated[lid.id] = vk;
+                        if (lid.naam && !updated[lid.naam]) updated[lid.naam] = vk;
+                    }
+                    return updated;
+                });
+            })
+            .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     useEffect(() => {
         Promise.all([
             fetch('/api/werkbonnen').then(r => r.json()),

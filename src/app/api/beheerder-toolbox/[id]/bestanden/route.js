@@ -27,7 +27,7 @@ export async function POST(req, { params }) {
         );
         return NextResponse.json({ ok: true, bestand_id: result.insertId, originele_naam: file.name });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -43,6 +43,6 @@ export async function DELETE(req, { params }) {
         await pool.query('DELETE FROM toolbox_bestanden WHERE id = ?', [bestandId]);
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

@@ -147,6 +147,13 @@ export default function MedewerkerPlanning() {
     const [detail, setDetail] = useState(null);
     const [dagKiezer, setDagKiezer] = useState(null); // { date, iso } — keuze menu voor lege dag
     const [detailTab, setDetailTab] = useState('uren'); // 'info' | 'checklist' | 'uren'
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [inlineExpanded, setInlineExpanded] = useState(null); // { taskId, dayIso }
+    const [inlineUrenInput, setInlineUrenInput] = useState('');
+    const [inlineNote, setInlineNote] = useState('');
+    const [inlineSaved, setInlineSaved] = useState(false);
+    const [inlineType, setInlineType] = useState('project'); // 'project' | 'meerwerk'
+    const [inlineMatOpen, setInlineMatOpen] = useState(false);
     const [vacDays, setVacDays] = useState(new Set());
     const [urenAantal, setUrenAantal] = useState('');
     const [urenNote, setUrenNote] = useState('');
@@ -489,15 +496,29 @@ export default function MedewerkerPlanning() {
         } catch { setVacDays(new Set()); }
     }, [user, year]);
 
-    // Admin-afwezigheid laden (gezet via personeelsplanning)
+    // Admin-afwezigheid laden van API
     const [myAbsences, setMyAbsences] = useState([]);
     useEffect(() => {
         if (!user) return;
-        try {
-            const all = JSON.parse(localStorage.getItem('schilders-absences') || '[]');
-            setMyAbsences(all.filter(a => String(a.userId) === String(user.id)));
-        } catch { setMyAbsences([]); }
-    }, [user]);
+        fetch(`/api/absences?userId=${user.id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setMyAbsences(data);
+                } else {
+                    try {
+                        const all = JSON.parse(localStorage.getItem('schilders-absences') || '[]');
+                        setMyAbsences(all.filter(a => String(a.userId) === String(user.id)));
+                    } catch { setMyAbsences([]); }
+                }
+            })
+            .catch(() => {
+                try {
+                    const all = JSON.parse(localStorage.getItem('schilders-absences') || '[]');
+                    setMyAbsences(all.filter(a => String(a.userId) === String(user.id)));
+                } catch { setMyAbsences([]); }
+            });
+    }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Notities laden zodra detail-modal opent
     useEffect(() => {
@@ -548,6 +569,31 @@ export default function MedewerkerPlanning() {
     // Alleen ma-vr tonen
     const workDays = planning.slice(0, 5);
     const hasAny = workDays.some(d => d.items.length > 0);
+
+    // Dag-swipe navigatie
+    const todayDayIdx = (() => {
+        const dow = today.getDay(); // 0=Zo, 1=Ma..5=Vr
+        return dow >= 1 && dow <= 5 ? dow - 1 : 0;
+    })();
+    const isCurrentWeek = week === getISOWeek(today) && year === today.getFullYear();
+    const [selectedDayIdx, setSelectedDayIdx] = useState(isCurrentWeek ? todayDayIdx : 0);
+    const swipeTouchStart = useRef(null);
+
+    useEffect(() => {
+        setSelectedDayIdx(isCurrentWeek ? todayDayIdx : 0);
+    }, [week, year]);
+
+    function handleSwipeStart(e) {
+        swipeTouchStart.current = e.touches[0].clientX;
+    }
+    function handleSwipeEnd(e) {
+        if (swipeTouchStart.current === null) return;
+        const dx = e.changedTouches[0].clientX - swipeTouchStart.current;
+        swipeTouchStart.current = null;
+        if (Math.abs(dx) < 50) return;
+        if (dx < 0) setSelectedDayIdx(i => Math.min(4, i + 1));
+        else setSelectedDayIdx(i => Math.max(0, i - 1));
+    }
 
     function handleImageSelect(e) {
         const file = e.target.files[0];
@@ -780,6 +826,40 @@ export default function MedewerkerPlanning() {
         }
         if (detail) syncToUrv2(detail.date, detail.projectId);
         syncUrenToApi(user.id, week, year);
+    }
+
+    function saveUrenInline(hours, note) {
+        const h = parseFloat(hours);
+        if (!h || h <= 0 || !detail || !user) return;
+        const entry = {
+            id: Date.now(),
+            userId: user.id,
+            userName: user.name,
+            projectId: detail.projectId,
+            projectName: detail.projectName,
+            taskId: detail.taskId,
+            taskName: detail.taskName,
+            date: detail.date,
+            hours: h,
+            note: (note || '').trim(),
+        };
+        try {
+            const raw = localStorage.getItem('schildersapp_uren_registraties');
+            const all = raw ? JSON.parse(raw) : [];
+            const gefilterd = all.filter(e =>
+                !(String(e.taskId) === String(detail.taskId) && e.date === detail.date && e.userId === user.id && !e.type)
+            );
+            gefilterd.push(entry);
+            localStorage.setItem('schildersapp_uren_registraties', JSON.stringify(gefilterd));
+        } catch {}
+        setUrenLijst(prev => [
+            ...prev.filter(e => !(String(e.taskId) === String(detail.taskId) && e.date === detail.date && e.userId === user.id && !e.type)),
+            entry,
+        ]);
+        setInlineUrenInput('');
+        setInlineNote('');
+        setInlineSaved(true);
+        setTimeout(() => { setInlineSaved(false); setInlineExpanded(null); }, 1500);
     }
 
     function saveUrenEdit(id) {
@@ -1204,6 +1284,7 @@ export default function MedewerkerPlanning() {
         setWerkbonZoek('');
         setUrenSection(null);
         setShowNieuwWerkbon(false);
+        setShowDetailModal(false);
         setTimeout(() => setWerkbonSaved(false), 2000);
     }
 
@@ -1733,9 +1814,9 @@ export default function MedewerkerPlanning() {
             <i className={`fa-solid ${icon}`} style={{ color: '#F5850A', fontSize: '0.9rem', width: '18px' }} />
             <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{title}</span>
             {badge != null && badge > 0 && (
-                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '2px 8px' }}>{badge}</span>
+                <span style={{ fontSize: '0.86rem', fontWeight: 700, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '2px 8px' }}>{badge}</span>
             )}
-            <i className={`fa-solid fa-chevron-${poSectOpen[key] ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.78rem' }} />
+            <i className={`fa-solid fa-chevron-${poSectOpen[key] ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.92rem' }} />
         </div>
     );
 
@@ -1884,19 +1965,32 @@ export default function MedewerkerPlanning() {
         if (videoRecording) stopVideoRecording();
     }
 
+    // ── Per-dag stats (uren, vol, ziek, vrij, vakantie) ───────────────────
+    const DAG_AFR_MAP = {1:'Ma',2:'Di',3:'Wo',4:'Do',5:'Vr'};
+    const dagStats = workDays.map(d => {
+        const holiday = HOLIDAYS[d.iso];
+        const isVac = vacDays.has(d.iso);
+        const dagPlanningItems = planning.find(p => p.iso === d.iso)?.items || [];
+        const duRaw = dagPlanningItems.length > 0
+            ? dagPlanningItems.flatMap(item =>
+                weekUren.filter(u => String(u.taskId) === String(item.taskId) && u.date === d.iso)
+              )
+            : weekUren.filter(u => u.date === d.iso && !u._fromUrv2 && !String(u.id).startsWith('urv2_'));
+        const du = duRaw.filter((u, idx, arr) => arr.findIndex(x => String(x.id) === String(u.id)) === idx);
+        const u = Math.round(du.filter(e => e.type !== 'ziek').reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
+        const ziek = du.some(e => e.type === 'ziek');
+        const dagNr = new Date(d.iso + 'T00:00:00').getDay();
+        return { iso: d.iso, u, ziek, holiday, isVac, vol: !holiday && !isVac && (ziek || u >= 7.5), label: DAG_AFR_MAP[dagNr] || '' };
+    });
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#f1f5f9', overflowY: 'auto' }}>
 
             {/* Oranje header */}
-            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '14px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
+            <div style={{ background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', padding: '10px 20px', flexShrink: 0, boxShadow: '0 2px 12px rgba(245,133,10,0.3)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <i className="fa-solid fa-calendar-days" style={{ color: '#fff', fontSize: '1.1rem' }} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                        <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Planning</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Week {week} · {weekLabel}</div>
-                    </div>
+                    <i className="fa-solid fa-calendar-days" style={{ color: '#fff', fontSize: '1.1rem' }} />
+                    <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Planning</div>
                 </div>
             </div>
 
@@ -1908,98 +2002,121 @@ export default function MedewerkerPlanning() {
                 </button>
                 <div style={{ textAlign: 'center' }}>
                     <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>Week {week}</div>
-                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{weekLabel}</div>
+                    <div style={{ fontSize: '0.87rem', color: '#94a3b8', marginTop: '1px' }}>{weekLabel}</div>
                 </div>
                 <button onClick={nextWeek} style={{ background: '#f8fafc', border: 'none', borderRadius: '10px', padding: '9px 14px', cursor: 'pointer', fontSize: '0.9rem', color: '#475569' }}>
                     <i className="fa-solid fa-chevron-right" />
                 </button>
             </div>
 
+            {/* ── Dag tabs ── */}
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
+                {workDays.map((d, i) => {
+                    const isToday = d.iso === todayIso;
+                    const isSelected = i === selectedDayIdx;
+                    const stat = dagStats[i];
+                    const dayName = DAY_NAMES[i];
+                    const dayNum = new Date(d.iso + 'T00:00:00').getDate();
+                    const borderColor = isSelected ? 'transparent'
+                        : isToday ? '#F5850A'
+                        : stat.vol ? '#86efac'
+                        : 'transparent';
+                    const bg = isSelected ? '#F5850A'
+                        : stat.vol ? '#f0fdf4'
+                        : isToday ? '#fff7ed'
+                        : '#fff';
+                    return (
+                        <button key={i} onClick={() => setSelectedDayIdx(i)} style={{
+                            flex: 1, padding: '8px 3px 8px', border: `1.5px solid ${borderColor}`,
+                            borderRadius: '12px', background: bg, cursor: 'pointer',
+                            display: 'flex', flexDirection: 'column', alignItems: 'center',
+                            justifyContent: 'space-between', gap: '4px', minHeight: '86px',
+                            boxShadow: isSelected ? '0 2px 8px rgba(245,133,10,0.35)' : '0 1px 3px rgba(0,0,0,0.06)',
+                        }}>
+                            {/* Dagnaam */}
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, lineHeight: 1,
+                                color: isSelected ? '#fff' : isToday ? '#F5850A' : '#64748b' }}>
+                                {dayName}
+                            </span>
+
+                            {/* Dagnummer + optioneel icoon */}
+                            <div style={{
+                                width: '34px', height: '34px', borderRadius: '9px', flexShrink: 0,
+                                background: isSelected ? 'rgba(255,255,255,0.22)'
+                                    : stat.holiday ? '#fff7ed'
+                                    : stat.isVac ? '#f0fdf4'
+                                    : stat.ziek ? '#fef2f2'
+                                    : stat.vol ? '#10b981'
+                                    : '#f8fafc',
+                                border: isSelected ? '1px solid rgba(255,255,255,0.3)'
+                                    : stat.vol ? 'none'
+                                    : '1px solid #e2e8f0',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1px',
+                            }}>
+                                <span style={{ fontSize: '1rem', fontWeight: 900, lineHeight: 1,
+                                    color: isSelected ? '#fff' : stat.vol ? '#fff' : stat.holiday ? '#fb923c' : stat.isVac ? '#10b981' : stat.ziek ? '#ef4444' : isToday ? '#F5850A' : '#94a3b8' }}>
+                                    {dayNum}
+                                </span>
+                            </div>
+
+                            {/* Uren / status */}
+                            {stat.holiday ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                    <i className="fa-solid fa-star" style={{ fontSize: '0.6rem', color: isSelected ? 'rgba(255,255,255,0.85)' : '#fb923c' }} />
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 600, lineHeight: 1, color: isSelected ? 'rgba(255,255,255,0.85)' : '#fb923c' }}>vrij</span>
+                                </div>
+                            ) : stat.isVac ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                    <i className="fa-solid fa-umbrella-beach" style={{ fontSize: '0.6rem', color: isSelected ? 'rgba(255,255,255,0.85)' : '#10b981' }} />
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 600, lineHeight: 1, color: isSelected ? 'rgba(255,255,255,0.85)' : '#10b981' }}>vak.</span>
+                                </div>
+                            ) : stat.ziek ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                    <i className="fa-solid fa-bed-pulse" style={{ fontSize: '0.6rem', color: isSelected ? 'rgba(255,255,255,0.85)' : '#ef4444' }} />
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 600, lineHeight: 1, color: isSelected ? 'rgba(255,255,255,0.85)' : '#ef4444' }}>ziek</span>
+                                </div>
+                            ) : stat.vol ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                    <i className="fa-solid fa-check" style={{ fontSize: '0.6rem',
+                                        color: isSelected ? '#fff' : '#10b981' }} />
+                                    <span style={{ fontSize: '0.68rem', fontWeight: 800, lineHeight: 1,
+                                        color: isSelected ? '#fff' : '#10b981' }}>{stat.u}u</span>
+                                </div>
+                            ) : stat.u > 0 ? (
+                                <span style={{ fontSize: '0.68rem', fontWeight: 700, lineHeight: 1,
+                                    color: isSelected ? '#fff' : '#f97316' }}>{stat.u}u</span>
+                            ) : (
+                                <span style={{ fontSize: '0.65rem', lineHeight: 1,
+                                    color: isSelected ? 'rgba(255,255,255,0.4)' : '#cbd5e1' }}>—</span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
+
             {/* ── Week uren tracker ── */}
             {(() => {
-                const DAG_AFR_MAP = {1:'Ma',2:'Di',3:'Wo',4:'Do',5:'Vr'};
-                // Alle 5 werkdagen (Ma-Vr) tonen, inclusief feestdagen en vakantie
-                const alleDagen = workDays.map(d => {
-                    const holiday = HOLIDAYS[d.iso];
-                    const isVac = vacDays.has(d.iso);
-                    // Haal de taskIds op die écht ingepland staan op deze dag
-                    const dagPlanningItems = planning.find(p => p.iso === d.iso)?.items || [];
-                    const dagTaskIds = new Set(dagPlanningItems.map(t => String(t.taskId)));
-                    const duRaw = weekUren.filter(u =>
-                        u.date === d.iso &&
-                        !u._fromUrv2 &&
-                        !String(u.id).startsWith('urv2_') &&
-                        // Alleen uren meerekenen die bij een ingeplande taak horen, of vrij-dag uren als er geen taken zijn
-                        (dagPlanningItems.length === 0 || dagTaskIds.has(String(u.taskId)))
-                    );
-                    const du = duRaw.filter((u, idx, arr) => arr.findIndex(x => String(x.id) === String(u.id)) === idx);
-                    const mw = weekMeerwerk.filter(m => m.date === d.iso);
-                    const u  = Math.round((du.filter(e => e.type !== 'ziek').reduce((s, e) => s + (e.hours || 0), 0) + mw.reduce((s, m) => s + (m.hours || 0), 0)) * 10) / 10;
-                    const ziek = du.some(e => e.type === 'ziek');
-                    const dagNr = new Date(d.iso + 'T00:00:00').getDay();
-                    return { iso: d.iso, u, ziek, holiday, isVac, vol: ziek || u >= 7.5, label: DAG_AFR_MAP[dagNr] || '' };
-                });
-                const werkDagen = alleDagen.filter(d => !d.holiday && !d.isVac);
+                const werkDagen = dagStats.filter(d => !d.holiday && !d.isVac);
                 const weekTotaal = Math.round(werkDagen.reduce((s, d) => s + d.u, 0) * 10) / 10;
                 const dagenVol   = werkDagen.filter(d => d.vol).length;
                 const volledig   = werkDagen.length > 0 && dagenVol === werkDagen.length;
                 return (
-                    <div style={{ background: '#fff', borderRadius: '14px', padding: '10px 14px', marginBottom: '10px', border: `1px solid ${volledig ? '#bbf7d0' : '#f1f5f9'}` }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{ minWidth: '52px' }}>
-                                <div style={{ fontSize: '0.6rem', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1, marginBottom: '2px' }}>Deze week</div>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '2px' }}>
-                                    <span style={{ fontSize: '1.15rem', fontWeight: 900, lineHeight: 1, color: volledig ? '#10b981' : weekTotaal > 0 ? '#f97316' : '#cbd5e1' }}>{weekTotaal}</span>
-                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8' }}>u</span>
-                                </div>
-                                <div style={{ fontSize: '0.58rem', color: volledig ? '#10b981' : '#94a3b8', fontWeight: 600, marginTop: '1px' }}>
-                                    {volledig ? '✓ volledig' : `${dagenVol}/${werkDagen.length} dagen`}
-                                </div>
-                            </div>
-                            <div style={{ flex: 1, display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
-                                {alleDagen.map((d) => {
-                                    const vol = d.vol;
-                                    const deels = !vol && d.u > 0;
-                                    const isHoliday = !!d.holiday;
-                                    const isVac = d.isVac;
-                                    const ziek = d.ziek;
-                                    // Feestdag stijl: oranje/goud
-                                    const bg    = isHoliday ? '#fff7ed' : isVac ? '#f0fdf4' : vol ? '#10b981' : ziek ? '#fef2f2' : deels ? '#f97316' : '#f8fafc';
-                                    const border= isHoliday ? '#fb923c' : isVac ? '#86efac' : vol ? '#10b981' : ziek ? '#fca5a5' : deels ? '#ea580c' : '#e2e8f0';
-                                    const shortName = isHoliday ? d.holiday.replace('dag','').replace('eerste','1e').replace('tweede','2e').substring(0,6) : null;
-                                    return (
-                                        <div key={d.iso} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                                            <span style={{ fontSize: '0.58rem', fontWeight: 700, color: isHoliday ? '#fb923c' : isVac ? '#10b981' : '#94a3b8', lineHeight: 1 }}>{d.label}</span>
-                                            <div style={{
-                                                width: '32px', height: '32px', borderRadius: '50%',
-                                                background: bg, border: `2px solid ${border}`,
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                                            }}>
-                                                {isHoliday
-                                                    ? <i className="fa-solid fa-star" style={{ color: '#fb923c', fontSize: '0.6rem' }} />
-                                                    : isVac
-                                                        ? <i className="fa-solid fa-umbrella-beach" style={{ color: '#10b981', fontSize: '0.6rem' }} />
-                                                        : vol
-                                                            ? <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.65rem' }} />
-                                                            : ziek
-                                                                ? <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.6rem' }} />
-                                                                : deels
-                                                                    ? <span style={{ fontSize: '0.52rem', fontWeight: 900, color: '#fff', lineHeight: 1 }}>{d.u}</span>
-                                                                    : null}
-                                            </div>
-                                            {isHoliday && <span style={{ fontSize: '0.46rem', fontWeight: 700, color: '#fb923c', lineHeight: 1, textAlign: 'center', maxWidth: '34px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName}</span>}
-                                            {isVac && <span style={{ fontSize: '0.46rem', fontWeight: 700, color: '#10b981', lineHeight: 1 }}>Vak.</span>}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
+                    <div style={{ background: '#fff', borderRadius: '14px', padding: '10px 14px', marginBottom: '10px', border: `1px solid ${volledig ? '#bbf7d0' : '#f1f5f9'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deze week</span>
+                        <span style={{ color: '#e2e8f0', fontSize: '0.85rem' }}>·</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: 900, color: volledig ? '#10b981' : weekTotaal > 0 ? '#f97316' : '#cbd5e1' }}>{weekTotaal}<span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', marginLeft: '1px' }}>u</span></span>
+                        <span style={{ color: '#e2e8f0', fontSize: '0.85rem' }}>·</span>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: volledig ? '#10b981' : '#94a3b8' }}>
+                            {volledig ? '✓ volledig' : `${dagenVol}/${werkDagen.length} dagen ingevuld`}
+                        </span>
                     </div>
                 );
             })()}
 
+            {/* Swipe container — toont alleen de geselecteerde dag */}
+            <div onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
             {workDays.map((day, di) => {
-
+                    if (di !== selectedDayIdx) return null;
                     const isToday = day.iso === todayIso;
                     const isPast = day.iso < todayIso;
                     const holiday = HOLIDAYS[day.iso];
@@ -2021,73 +2138,104 @@ export default function MedewerkerPlanning() {
                     // Dag-level uren totaal — alleen uren die ook zichtbaar zijn in de uren tab
                     // Bij vrij-dag: alle uren voor die datum; bij echte taak: alleen uren die matchen met een van de taskIds
                     const dagTaskIds = new Set(day.items.map(t => String(t.taskId)));
-                    const dagTotaalUren = Math.round(weekUren.filter(u =>
-                        u.date === day.iso &&
-                        u.type !== 'ziek' &&
-                        !u._fromUrv2 &&
-                        !String(u.id).startsWith('urv2_') &&
-                        (day.items.length === 0 || dagTaskIds.has(String(u.taskId)))
-                    ).reduce((s, u) => s + (u.hours || 0), 0) * 10) / 10;
+                    const dagTotaalUren = Math.round(
+                        displayItems.reduce((total, item) => {
+                            const isVrijItem = String(item.taskId).startsWith('vrij-');
+                            const uren = isVrijItem
+                                ? weekUren.filter(u => u.date === day.iso && !u._fromUrv2 && !String(u.id).startsWith('urv2_') && u.type !== 'ziek')
+                                : weekUren.filter(u => String(u.taskId) === String(item.taskId) && u.date === day.iso && u.type !== 'ziek');
+                            const dedup = uren.filter((u, idx, arr) => arr.findIndex(x => String(x.id) === String(u.id)) === idx);
+                            return total + dedup.reduce((s, u) => s + (u.hours || 0), 0);
+                        }, 0) * 10
+                    ) / 10;
                     const dagVol = !isFree && (ziekEntry || dagTotaalUren >= 7.5);
                     const dagDeels = !isFree && !dagVol && dagTotaalUren > 0;
                     const dagAccent = dagVol ? '#10b981' : dagDeels ? '#f97316' : isToday ? '#F5850A' : '#e2e8f0';
                     const datumKleur = isToday ? '#F5850A' : '#64748b';
 
                     const datumKolom = (
-                        <div style={{ width: '52px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', paddingRight: '8px', paddingTop: '8px', gap: '2px' }}>
-                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: datumKleur, lineHeight: 1, textTransform: 'uppercase', marginBottom: '1px' }}>{DAY_NAMES_FULL[di].substring(0, 2)}</span>
-                            <div style={{
-                                width: '36px', height: '36px', borderRadius: '10px',
-                                background: dagVol ? '#10b981' : dagDeels ? '#fff7ed' : isToday ? '#fff8f0' : '#f8fafc',
-                                border: `2px solid ${dagAccent}`,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
-                            }}>
-                                {ziekEntry
-                                    ? <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.7rem' }} />
-                                    : <span style={{ fontSize: '1rem', fontWeight: 900, lineHeight: 1, color: dagVol ? '#fff' : dagDeels ? '#f97316' : isToday ? '#F5850A' : '#94a3b8' }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
-                                }
+                        <div style={{ width: '52px', flexShrink: 0, alignSelf: 'stretch', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', paddingRight: '8px', paddingTop: '8px', paddingBottom: '8px', gap: '2px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                <span style={{ fontSize: '0.92rem', fontWeight: 700, color: datumKleur, lineHeight: 1, textTransform: 'uppercase', marginBottom: '1px' }}>{DAY_NAMES_FULL[di].substring(0, 2)}</span>
+                                <div style={{
+                                    width: '36px', height: '36px', borderRadius: '10px',
+                                    background: dagVol ? '#10b981' : dagDeels ? '#fff7ed' : isToday ? '#fff8f0' : '#f8fafc',
+                                    border: `2px solid ${dagAccent}`,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
+                                }}>
+                                    {ziekEntry
+                                        ? <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.86rem' }} />
+                                        : <span style={{ fontSize: '1rem', fontWeight: 900, lineHeight: 1, color: dagVol ? '#fff' : dagDeels ? '#f97316' : isToday ? '#F5850A' : '#94a3b8' }}>{new Date(day.iso + 'T00:00:00').getDate()}</span>
+                                    }
+                                </div>
                             </div>
+                            {dagTotaalUren > 0 && !ziekEntry && (
+                                <div style={{
+                                    fontSize: '0.72rem', fontWeight: 800,
+                                    color: dagVol ? '#10b981' : '#f97316',
+                                    background: dagVol ? '#f0fdf4' : '#fff7ed',
+                                    border: `1px solid ${dagVol ? '#bbf7d0' : '#fed7aa'}`,
+                                    borderRadius: '6px', padding: '2px 5px',
+                                    lineHeight: 1, textAlign: 'center', width: '100%',
+                                }}>
+                                    {dagTotaalUren}u
+                                </div>
+                            )}
+                            {ziekEntry && (
+                                <div style={{
+                                    fontSize: '0.65rem', fontWeight: 700,
+                                    color: '#ef4444', background: '#fef2f2',
+                                    border: '1px solid #fca5a5',
+                                    borderRadius: '6px', padding: '2px 4px',
+                                    lineHeight: 1, textAlign: 'center', width: '100%',
+                                }}>
+                                    ziek
+                                </div>
+                            )}
                         </div>
                     );
 
                     return (
                         <div key={day.iso} style={{ marginBottom: '8px' }}>
-                            {/* Items — datum-kolom links */}
+                            {/* Dag header */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', paddingLeft: '2px' }}>
+                                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isToday ? '#F5850A' : '#475569' }}>
+                                    {DAY_NAMES_FULL[di]} {new Date(day.iso + 'T00:00:00').getDate()} {['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'][new Date(day.iso + 'T00:00:00').getMonth()]}
+                                </span>
+                                {dagTotaalUren > 0 && !isFree && !ziekEntry && (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: dagVol ? '#10b981' : '#f97316',
+                                        background: dagVol ? '#f0fdf4' : '#fff7ed',
+                                        border: `1px solid ${dagVol ? '#bbf7d0' : '#fed7aa'}`,
+                                        borderRadius: '20px', padding: '2px 8px' }}>
+                                        {dagVol && <i className="fa-solid fa-check" style={{ marginRight: '4px', fontSize: '0.65rem' }} />}
+                                        {dagTotaalUren}u
+                                    </span>
+                                )}
+                            </div>
+
                             {isFree ? (
-                                <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
-                                    {datumKolom}
-                                    <div style={{ flex: 1, padding: '10px 14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#64748b', fontWeight: 600, alignSelf: 'flex-start', marginTop: '6px' }}>
-                                        {holiday ? `⭐ ${holiday}` : '☂ Vakantie'}
-                                    </div>
+                                <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
+                                    {holiday ? `⭐ ${holiday}` : '☂ Vakantie'}
                                 </div>
                             ) : absEntry && (absEntry.type === 'ziek' || absEntry.type === 'dokter') ? (
-                                <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
-                                    {datumKolom}
-                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px',
-                                        background: absEntry.type === 'ziek' ? '#fef2f2' : '#fefce8',
-                                        borderRadius: '12px', border: `1px solid ${absEntry.type === 'ziek' ? '#fca5a5' : '#fde047'}`,
-                                        alignSelf: 'flex-start', marginTop: '6px' }}>
-                                        <i className={`fa-solid ${absEntry.type === 'ziek' ? 'fa-face-thermometer' : 'fa-stethoscope'}`}
-                                            style={{ color: absEntry.type === 'ziek' ? '#ef4444' : '#ca8a04', fontSize: '0.85rem', flexShrink: 0 }} />
-                                        <span style={{ fontSize: '0.82rem', color: absEntry.type === 'ziek' ? '#ef4444' : '#92400e', fontWeight: 700, flex: 1 }}>
-                                            {absEntry.type === 'ziek' ? 'Ziek (geregistreerd door beheerder)' : 'Dokter / Tandarts'}
-                                        </span>
-                                    </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px',
+                                    background: absEntry.type === 'ziek' ? '#fef2f2' : '#fefce8',
+                                    borderRadius: '12px', border: `1px solid ${absEntry.type === 'ziek' ? '#fca5a5' : '#fde047'}` }}>
+                                    <i className={`fa-solid ${absEntry.type === 'ziek' ? 'fa-face-thermometer' : 'fa-stethoscope'}`}
+                                        style={{ color: absEntry.type === 'ziek' ? '#ef4444' : '#ca8a04', fontSize: '0.85rem', flexShrink: 0 }} />
+                                    <span style={{ fontSize: '0.85rem', color: absEntry.type === 'ziek' ? '#ef4444' : '#92400e', fontWeight: 700 }}>
+                                        {absEntry.type === 'ziek' ? 'Ziek (geregistreerd door beheerder)' : 'Dokter / Tandarts'}
+                                    </span>
                                 </div>
                             ) : ziekEntry && day.items.length === 0 ? (
-                                <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
-                                    {datumKolom}
-                                    <div onClick={() => { setZiekEditEntry(ziekEntry); setZiekEditNote(ziekEntry.note || ''); }}
-                                        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#fef2f2', borderRadius: '12px', border: '1px solid #fca5a5', cursor: 'pointer', alignSelf: 'flex-start', marginTop: '6px' }}>
-                                        <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.85rem', flexShrink: 0 }} />
-                                        <span style={{ fontSize: '0.82rem', color: '#ef4444', fontWeight: 700, flex: 1 }}>{ziekEntry.note && ziekEntry.note !== 'Ziek gemeld' ? ziekEntry.note : 'Ziek gemeld'}</span>
-                                        <i className="fa-solid fa-pen" style={{ color: '#fca5a5', fontSize: '0.7rem' }} />
-                                    </div>
+                                <div onClick={() => { setZiekEditEntry(ziekEntry); setZiekEditNote(ziekEntry.note || ''); }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#fef2f2', borderRadius: '12px', border: '1px solid #fca5a5', cursor: 'pointer' }}>
+                                    <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '0.85rem', flexShrink: 0 }} />
+                                    <span style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: 700, flex: 1 }}>{ziekEntry.note && ziekEntry.note !== 'Ziek gemeld' ? ziekEntry.note : 'Ziek gemeld'}</span>
+                                    <i className="fa-solid fa-pen" style={{ color: '#fca5a5', fontSize: '0.86rem' }} />
                                 </div>
                             ) : (
-                            <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
-                                {datumKolom}
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '6px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 {displayItems.map((item, ii) => {
                                 const isVrijItem = String(item.taskId).startsWith('vrij-');
                                 const dagUrenRaw = isVrijItem
@@ -2101,8 +2249,20 @@ export default function MedewerkerPlanning() {
                                 const werkbonEntry = dagUren.find(u => u.type === 'werkbon');
                                 const totaalU = Math.round(dagUren.reduce((s, u) => s + (u.hours || 0), 0) * 10) / 10;
                                 const urenIngevuld = totaalU > 0;
+                                const isInline = inlineExpanded?.taskId === item.taskId && inlineExpanded?.dayIso === day.iso;
                                 return (
-                                <div key={ii} onClick={() => item.projectId === null && String(item.taskId).startsWith('vrij-') ? setDagKiezer({ date: day.iso }) : openDetail(item, day.iso)} style={{
+                                <div key={ii} style={{ display: 'contents' }}>
+                                <div onClick={() => {
+                                    const same = inlineExpanded?.taskId === item.taskId && inlineExpanded?.dayIso === day.iso;
+                                    if (same) { setInlineExpanded(null); return; }
+                                    openDetail(item, day.iso);
+                                    setShowDetailModal(false);
+                                    setInlineExpanded({ taskId: item.taskId, dayIso: day.iso });
+                                    setInlineUrenInput('');
+                                    setInlineNote('');
+                                    setInlineSaved(false);
+                                    setInlineType('project');
+                                }} style={{
                                     background: item.completed ? '#fafafa' : '#fff',
                                     borderRadius: '12px', display: 'flex', flexDirection: 'row', overflow: 'hidden',
                                     borderTop: `1.5px solid ${urenIngevuld ? '#bbf7d0' : item.color + '22'}`,
@@ -2112,33 +2272,41 @@ export default function MedewerkerPlanning() {
                                     cursor: 'pointer', opacity: item.completed ? 0.65 : 1,
                                 }}>
                                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                                        <div style={{ flex: 1, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                        <div style={{ flex: 1, padding: '12px 12px', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 {werkbonEntry ? (
                                                     <>
                                                         <div style={{ fontWeight: 700, fontSize: '0.87rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{werkbonEntry.werkbonNaam}</div>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                                                            <i className="fa-solid fa-file-pen" style={{ fontSize: '0.62rem', color: '#F5850A' }} />
-                                                            <span style={{ fontSize: '0.73rem', color: '#F5850A', fontWeight: 600 }}>Werkbon</span>
+                                                            <i className="fa-solid fa-file-pen" style={{ fontSize: '0.8rem', color: '#F5850A' }} />
+                                                            <span style={{ fontSize: '0.87rem', color: '#F5850A', fontWeight: 600 }}>Werkbon</span>
                                                         </div>
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.projectName}</div>
-                                                        {item.taskName && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.taskName}</div>}
-                                                        {item.client && <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><i className="fa-solid fa-location-dot" style={{ marginRight: '3px', fontSize: '0.6rem' }} />{item.client}</div>}
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
+                                                            <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{item.projectName}</span>
+                                                            {(
+                                                                <button onClick={e => { e.stopPropagation(); openDetail(item, day.iso); setShowDetailModal(true); setDetailTab('wijzigen'); setInlineExpanded(null); }}
+                                                                    style={{ flexShrink: 0, background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer', color: '#cbd5e1', lineHeight: 1 }}>
+                                                                    <i className="fa-solid fa-pencil" style={{ fontSize: '0.7rem' }} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        {item.taskName && <div style={{ fontSize: '0.87rem', color: '#64748b', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.taskName}</div>}
+                                                        {item.client && <div style={{ fontSize: '0.84rem', color: '#94a3b8', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><i className="fa-solid fa-location-dot" style={{ marginRight: '3px', fontSize: '0.92rem' }} />{item.client}</div>}
                                                     </>
                                                 )}
                                                 {item.notes && item.notes.length > 0 && (
                                                     <div style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.6rem', color: '#f59e0b' }} />
+                                                        <i className="fa-solid fa-note-sticky" style={{ fontSize: '0.92rem', color: '#f59e0b' }} />
                                                         <span style={{ fontSize: '0.63rem', color: '#f59e0b', fontWeight: 600 }}>{item.notes.length} notitie{item.notes.length !== 1 ? 's' : ''}</span>
                                                     </div>
                                                 )}
                                             </div>
                                             {/* Rechts: pijltje */}
                                             <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.55rem' }} />
+                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.9rem' }} />
                                             </div>
                                             {(() => {
                                                 const dagLosMat = weekLosMateriaal.filter(e => String(e.taskId) === String(item.taskId) && e.date === day.iso);
@@ -2150,8 +2318,8 @@ export default function MedewerkerPlanning() {
                                                     <button
                                                         onClick={e => { e.stopPropagation(); setMateriaalPopup(popupOpen ? null : { dayIso: day.iso, taskId: item.taskId }); }}
                                                         style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', background: popupOpen ? '#fff8f0' : '#fef3c7', border: `1.5px solid ${popupOpen ? '#F5850A' : '#fcd34d'}`, borderRadius: '8px', cursor: 'pointer' }}>
-                                                        <i className="fa-solid fa-box-open" style={{ color: '#f59e0b', fontSize: '0.65rem' }} />
-                                                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#b45309' }}>{totaalItems}</span>
+                                                        <i className="fa-solid fa-box-open" style={{ color: '#f59e0b', fontSize: '0.82rem' }} />
+                                                        <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#b45309' }}>{totaalItems}</span>
                                                     </button>
                                                 );
                                             })()}
@@ -2163,27 +2331,27 @@ export default function MedewerkerPlanning() {
                                         if (matEntries.length === 0 && dagLosMat.length === 0) return null;
                                         return (
                                             <div style={{ padding: '10px 12px', background: '#fffbeb', borderTop: '1px solid #fcd34d' }}>
-                                                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '7px' }}>
+                                                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '7px' }}>
                                                     <i className="fa-solid fa-box-open" style={{ marginRight: '5px' }} />Gebruikte materialen
                                                 </div>
                                                 {dagLosMat.map((mat, i) => (
                                                     <div key={'los_' + i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0' }}>
                                                         <i className="fa-solid fa-circle" style={{ color: '#f59e0b', fontSize: '0.3rem', flexShrink: 0 }} />
-                                                        <span style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, flex: 1 }}>{mat.naam}</span>
-                                                        {mat.hoeveelheid && <span style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>}
+                                                        <span style={{ fontSize: '0.92rem', color: '#1e293b', fontWeight: 600, flex: 1 }}>{mat.naam}</span>
+                                                        {mat.hoeveelheid && <span style={{ fontSize: '0.87rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>}
                                                     </div>
                                                 ))}
                                                 {dagLosMat.length > 0 && matEntries.length > 0 && <hr style={{ border: 'none', borderTop: '1px solid #fde68a', margin: '6px 0' }} />}
                                                 {matEntries.map((m, mi) => (
                                                     <div key={mi}>
                                                         {matEntries.length > 1 && m.text && (
-                                                            <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: 600, marginBottom: '3px', marginTop: mi > 0 ? '6px' : 0 }}>{m.text}</div>
+                                                            <div style={{ fontSize: '0.84rem', color: '#92400e', fontWeight: 600, marginBottom: '3px', marginTop: mi > 0 ? '6px' : 0 }}>{m.text}</div>
                                                         )}
                                                         {m.materiaal.map((mat, i) => (
                                                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0' }}>
                                                                 <i className="fa-solid fa-circle" style={{ color: '#f59e0b', fontSize: '0.3rem', flexShrink: 0 }} />
-                                                                <span style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, flex: 1 }}>{mat.naam}</span>
-                                                                {mat.hoeveelheid && <span style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>}
+                                                                <span style={{ fontSize: '0.92rem', color: '#1e293b', fontWeight: 600, flex: 1 }}>{mat.naam}</span>
+                                                                {mat.hoeveelheid && <span style={{ fontSize: '0.87rem', color: '#b45309', fontWeight: 700 }}>{mat.hoeveelheid}</span>}
                                                             </div>
                                                         ))}
                                                     </div>
@@ -2228,23 +2396,23 @@ export default function MedewerkerPlanning() {
                                             <div key={r.key}
                                                 onClick={r.entry?.type === 'ziek' ? (e) => { e.stopPropagation(); setZiekEditEntry(r.entry); setZiekEditNote(r.entry.note || ''); } : r.entry?._type === 'meerwerk' ? (e) => { e.stopPropagation(); setMeerwerkEditEntry(r.entry); setMeerwerkText(r.entry.text || ''); setMeerwerkUren(r.entry.hours ? String(r.entry.hours) : ''); setMeerwerkImage(r.entry.image || null); setMeerwerkVideoUrl(r.entry.video || null); setMeerwerkVideoServerUrl(r.entry.video || null); openDetail(item, day.iso); setUrenSection('meerwerk'); } : undefined}
                                                 style={{ borderTop: `1px solid ${r.stijl.border}`, background: r.stijl.bg, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '6px', cursor: (r.entry?.type === 'ziek' || r.entry?._type === 'meerwerk') ? 'pointer' : 'default' }}>
-                                                <i className={`fa-solid ${r.stijl.icon}`} style={{ color: r.stijl.color, fontSize: '0.72rem', flexShrink: 0, alignSelf: 'flex-start', marginTop: '2px' }} />
+                                                <i className={`fa-solid ${r.stijl.icon}`} style={{ color: r.stijl.color, fontSize: '0.87rem', flexShrink: 0, alignSelf: 'flex-start', marginTop: '2px' }} />
                                                 <div style={{ flex: 1 }}>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: r.stijl.color }}>{r.label}</div>
-                                                    {r.note && <div style={{ fontSize: '0.68rem', color: r.stijl.color, opacity: 0.7, marginTop: '1px' }}>{r.note}</div>}
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: r.stijl.color }}>{r.label}</div>
+                                                    {r.note && <div style={{ fontSize: '0.84rem', color: r.stijl.color, opacity: 0.7, marginTop: '1px' }}>{r.note}</div>}
                                                 </div>
-                                                {r.uren && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: r.stijl.color }}>{r.uren}u</span>}
+                                                {r.uren && <span style={{ fontSize: '0.9rem', fontWeight: 800, color: r.stijl.color }}>{r.uren}u</span>}
                                             </div>
                                         ));
                                     })()}
                                     </div>{/* einde content column */}
                                     {/* Voortgangsbalk rechts — verticaal */}
-                                    <div style={{ width: '28px', background: item.completed ? '#d1fae5' : (item.color || '#F5850A') + '22', position: 'relative', flexShrink: 0, minHeight: '52px' }}>
+                                    <div style={{ width: '28px', background: item.completed ? '#d1fae5' : (item.color || '#F5850A') + '22', position: 'relative', flexShrink: 0, minHeight: '70px' }}>
                                         <div style={{ width: '100%', height: `${item.completed ? 100 : item.progress || 0}%`, background: item.completed ? 'linear-gradient(to top, #059669, #10b981)' : `linear-gradient(to top, ${item.color}cc, ${item.color})`, transition: 'height 0.3s', position: 'absolute', bottom: 0, left: 0, borderRadius: '0 0 2px 2px' }} />
                                         {/* Label bovenaan gevuld deel */}
                                         {item.completed ? (
                                             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1 }}>
-                                                <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.65rem' }} />
+                                                <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.82rem' }} />
                                             </div>
                                         ) : item.progress > 0 ? (
                                             <div style={{
@@ -2269,9 +2437,191 @@ export default function MedewerkerPlanning() {
                                         ) : null}
                                     </div>
                                 </div>
+                                {/* ── Inline uren invoer ── */}
+                                {isInline && (() => {
+                                    const canSaveMw = (meerwerkText.trim() || meerwerkImage || meerwerkVideoServerUrl || meerwerkMateriaal.length > 0) && !videoUploading;
+                                    return (
+                                    <div onClick={e => e.stopPropagation()} style={{ background: '#fff', border: `1.5px solid ${item.color || '#F5850A'}22`, borderRadius: '14px', padding: '12px', marginTop: '4px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)' }}>
+
+                                        {/* ── PROJECTUREN ── */}
+                                        <div style={{ marginBottom: '12px' }}>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: item.color || '#F5850A', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <i className="fa-solid fa-clock" style={{ fontSize: '0.7rem' }} />Projecturen
+                                            </div>
+                                            {totaalU > 0 && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', padding: '6px 10px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                                                    <i className="fa-solid fa-check" style={{ color: '#10b981', fontSize: '0.75rem' }} />
+                                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#10b981' }}>{totaalU}u geregistreerd</span>
+                                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 'auto' }}>Overschrijven?</span>
+                                                </div>
+                                            )}
+                                            <input value={inlineNote} onChange={e => setInlineNote(e.target.value)}
+                                                placeholder="Opmerking (optioneel)"
+                                                style={{ width: '100%', padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '0.8rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
+                                            <button onClick={() => saveUrenInline('7.5', inlineNote)}
+                                                style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: inlineSaved ? '#10b981' : `linear-gradient(135deg, ${item.color || '#F5850A'} 0%, #D96800 100%)`, color: '#fff', fontWeight: 800, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                {inlineSaved ? <><i className="fa-solid fa-check" />Opgeslagen</> : <><i className="fa-solid fa-clock" />7.5u registreren</>}
+                                            </button>
+                                        </div>
+
+                                        {/* ── SCHEIDINGSLIJN ── */}
+                                        <div style={{ borderTop: '1.5px solid #f1f5f9', marginBottom: '12px' }} />
+
+                                        {/* ── MEERWERK ── */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <i className="fa-solid fa-circle-plus" style={{ fontSize: '0.7rem' }} />Meerwerk
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                <label style={{ fontSize: '0.87rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Extra uren</label>
+                                                <input type="number" min="0.5" max="24" step="0.5"
+                                                    value={meerwerkUren} onChange={e => setMeerwerkUren(e.target.value)}
+                                                    placeholder="bijv. 2"
+                                                    style={{ width: '90px', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.92rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
+                                            </div>
+                                            <textarea value={meerwerkText} onChange={e => setMeerwerkText(e.target.value)}
+                                                placeholder="Omschrijf het meerwerk... wat heb je extra gedaan en waarom?"
+                                                rows={3}
+                                                style={{ width: '100%', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '10px 12px', fontSize: '0.87rem', resize: 'none', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', color: '#1e293b' }} />
+
+                                            {/* Actieknoppen */}
+                                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                                {!sttActive ? (
+                                                    <button onClick={startSpeechToText} style={{ flex: '0 0 auto', padding: '8px 11px', background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: '9px', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <i className="fa-solid fa-microphone" />Inspreken
+                                                    </button>
+                                                ) : (
+                                                    <button onClick={stopSpeechToText} style={{ flex: '0 0 auto', padding: '8px 11px', background: '#ef4444', border: 'none', borderRadius: '9px', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <i className="fa-solid fa-stop" />Stop
+                                                    </button>
+                                                )}
+                                                {!meerwerkImage && (
+                                                    <label style={{ flex: '0 0 auto', padding: '8px 11px', background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '9px', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <i className="fa-solid fa-camera" />Foto
+                                                        <input type="file" accept="image/*" capture="environment" onChange={handleMeerwerkImage} style={{ display: 'none' }} />
+                                                    </label>
+                                                )}
+                                                {!meerwerkVideoUrl && !videoRecording && (
+                                                    <button onClick={startVideoRecording} style={{ flex: '0 0 auto', padding: '8px 11px', background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: '9px', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', color: '#7c3aed', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <i className="fa-solid fa-video" />Video
+                                                    </button>
+                                                )}
+                                                <label style={{ flex: '0 0 auto', padding: '8px 11px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '9px', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <i className="fa-solid fa-photo-film" />Gallerij
+                                                    <input type="file" accept="image/*,video/*" onChange={e => { const f = e.target.files[0]; if (!f) return; if (f.type.startsWith('image/')) handleMeerwerkImage(e); else handleVideoFile(e); }} style={{ display: 'none' }} />
+                                                </label>
+                                            </div>
+
+                                            {/* Materiaal — inklapbaar */}
+                                            <div style={{ borderRadius: '10px', border: '1.5px solid #fde68a', overflow: 'hidden' }}>
+                                                <button onClick={() => setInlineMatOpen(v => !v)}
+                                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: inlineMatOpen ? '#fffbeb' : '#fefce8', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                                                    <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.85rem' }} />
+                                                    <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 700, color: '#92400e' }}>
+                                                        Materiaal toevoegen
+                                                        {meerwerkMateriaal.length > 0 && <span style={{ marginLeft: '6px', background: '#f59e0b', color: '#fff', borderRadius: '10px', padding: '1px 7px', fontSize: '0.72rem', fontWeight: 800 }}>{meerwerkMateriaal.length}</span>}
+                                                    </span>
+                                                    <i className={`fa-solid fa-chevron-${inlineMatOpen ? 'up' : 'down'}`} style={{ color: '#d97706', fontSize: '0.8rem' }} />
+                                                </button>
+                                                {inlineMatOpen && <div style={{ padding: '10px 12px 12px', background: '#fff', borderTop: '1px solid #fde68a' }}>
+                                                    <div style={{ position: 'relative', marginBottom: '6px' }}>
+                                                        <input type="text" value={meerwerkMatNaam}
+                                                            onChange={e => { const q = e.target.value; setMeerwerkMatNaam(q); if (q.length >= 2 && matRijen.length > 0 && matKolommen.naam) { const ql = q.toLowerCase(); setMatZoekResultaten(matRijen.filter(r => String(r[matKolommen.naam] ?? '').toLowerCase().includes(ql)).slice(0, 8)); } else { setMatZoekResultaten([]); } }}
+                                                            onKeyDown={e => { if (e.key === 'Enter' && meerwerkMatNaam.trim()) { setMeerwerkMateriaal(prev => [...prev, { naam: meerwerkMatNaam.trim(), hoeveelheid: meerwerkMatHoeveelheid.trim() }]); setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]); } }}
+                                                            placeholder="Zoek product..."
+                                                            style={{ width: '100%', padding: '8px 34px 8px 10px', border: '1.5px solid #fde68a', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b', boxSizing: 'border-box', background: '#fffbeb' }} />
+                                                        <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#d97706', fontSize: '0.8rem', pointerEvents: 'none' }} />
+                                                        {matZoekResultaten.length > 0 && (
+                                                            <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, background: '#fff', border: '1.5px solid #fde68a', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: '200px', overflowY: 'auto' }}>
+                                                                {matZoekResultaten.map((r, i) => { const naam = String(r[matKolommen.naam] ?? ''); const eenheid = matKolommen.eenheid ? String(r[matKolommen.eenheid] ?? '') : ''; return (
+                                                                    <button key={i} onClick={() => { setMeerwerkMateriaal(prev => [...prev, { naam, hoeveelheid: meerwerkMatHoeveelheid.trim() || eenheid }]); setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]); }}
+                                                                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: 'none', border: 'none', borderBottom: i < matZoekResultaten.length - 1 ? '1px solid #fef3c7' : 'none', cursor: 'pointer', textAlign: 'left' }}>
+                                                                        <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.83rem', flexShrink: 0 }} />
+                                                                        <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, whiteSpace: 'nowrap' }}>{naam}</span>
+                                                                        {eenheid && <span style={{ fontSize: '0.8rem', color: '#94a3b8', flexShrink: 0 }}>{eenheid}</span>}
+                                                                    </button>
+                                                                ); })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                                                        <input type="text" value={meerwerkMatHoeveelheid} onChange={e => setMeerwerkMatHoeveelheid(e.target.value)} placeholder="Hoeveelheid"
+                                                            style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#1e293b' }} />
+                                                        <button onClick={() => { if (!meerwerkMatNaam.trim()) return; setMeerwerkMateriaal(prev => [...prev, { naam: meerwerkMatNaam.trim(), hoeveelheid: meerwerkMatHoeveelheid.trim() }]); setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setMatZoekResultaten([]); }}
+                                                            style={{ padding: '0 14px', background: '#f59e0b', border: 'none', borderRadius: '9px', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer' }}>+</button>
+                                                    </div>
+                                                    {meerwerkMateriaal.length > 0 && (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                            {meerwerkMateriaal.map((mat, i) => (
+                                                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                                                                    <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.82rem', flexShrink: 0 }} />
+                                                                    <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{mat.naam}</span>
+                                                                    {mat.hoeveelheid && <span style={{ fontSize: '0.85rem', color: '#78716c' }}>{mat.hoeveelheid}</span>}
+                                                                    <button onClick={() => setMeerwerkMateriaal(prev => prev.filter((_, j) => j !== i))}
+                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', padding: '2px 4px', fontSize: '0.85rem' }}>
+                                                                        <i className="fa-solid fa-xmark" />
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>}
+                                            </div>
+
+                                                {/* STT indicator */}
+                                                {sttActive && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background: '#fef2f2', borderRadius: '10px', border: '1.5px solid #fca5a5' }}>
+                                                        <div style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
+                                                        <div style={{ flex: 1 }}>
+                                                            <div style={{ fontSize: '0.82rem', color: '#ef4444', fontWeight: 600 }}>Luisteren... spreek nu</div>
+                                                            {sttInterim && <div style={{ fontSize: '0.82rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '1px' }}>{sttInterim}</div>}
+                                                        </div>
+                                                        <button onClick={stopSpeechToText} style={{ padding: '5px 12px', background: '#ef4444', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', flexShrink: 0 }}>Stop</button>
+                                                    </div>
+                                                )}
+
+                                                {/* Foto preview */}
+                                                {meerwerkImage && (
+                                                    <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                                                        <img src={meerwerkImage} alt="preview" style={{ maxWidth: '100%', maxHeight: '140px', borderRadius: '10px', border: '1.5px solid #e2e8f0', display: 'block' }} />
+                                                        <button onClick={() => setMeerwerkImage(null)}
+                                                            style={{ position: 'absolute', top: '5px', right: '5px', background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <i className="fa-solid fa-xmark" />
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {/* Video preview */}
+                                                {(meerwerkVideoUrl || videoUploading) && !videoRecording && (
+                                                    <div style={{ position: 'relative', width: '100%' }}>
+                                                        {meerwerkVideoUrl && <video src={meerwerkVideoUrl} controls playsInline style={{ width: '100%', maxHeight: '160px', borderRadius: '10px', border: '1.5px solid #e2e8f0', display: 'block', background: '#000' }} />}
+                                                        {videoUploading && (
+                                                            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', borderRadius: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                                <i className="fa-solid fa-cloud-arrow-up" style={{ color: '#fff', fontSize: '1.8rem' }} />
+                                                                <span style={{ color: '#fff', fontSize: '0.85rem', fontWeight: 700 }}>Uploaden... {uploadProgress}%</span>
+                                                            </div>
+                                                        )}
+                                                        <button onClick={() => { setMeerwerkVideoServerUrl(null); setMeerwerkVideoUrl(null); setVideoUploading(false); setUploadProgress(0); }}
+                                                            style={{ position: 'absolute', top: '5px', right: '5px', background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <i className="fa-solid fa-xmark" />
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                <button onClick={saveMeerwerk} disabled={!canSaveMw}
+                                                    style={{ width: '100%', padding: '11px', background: canSaveMw ? '#f59e0b' : '#f1f5f9', border: 'none', borderRadius: '11px', fontWeight: 700, fontSize: '0.9rem', cursor: canSaveMw ? 'pointer' : 'default', color: canSaveMw ? '#fff' : '#94a3b8' }}>
+                                                    {videoUploading
+                                                        ? <><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: '7px' }} />Video uploaden...</>
+                                                        : <><i className="fa-solid fa-paper-plane" style={{ marginRight: '7px' }} />Meerwerk indienen</>
+                                                    }
+                                                </button>
+                                            </div>
+                                    </div>
+                                    );
+                                })()}
+                                </div>
                                 );
                             })}
-                                </div>
                             </div>
 
                             )}
@@ -2283,9 +2633,9 @@ export default function MedewerkerPlanning() {
 
 
             {/* Detail modal */}
-            {detail && (
+            {detail && showDetailModal && (
                 <>
-                    <div onClick={() => setDetail(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300 }} />
+                    <div onClick={() => { setDetail(null); setShowDetailModal(false); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300 }} />
                     <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', zIndex: 310, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
                         {/* Header */}
                         <div style={{ padding: '16px 20px 0', flexShrink: 0 }}>
@@ -2296,69 +2646,31 @@ export default function MedewerkerPlanning() {
                                     <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.projectName}</div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.taskName}</div>
                                 </div>
-                                <button onClick={() => { setShowProjectChange(v => !v); setShowWerkbonPicker(false); setChangeProject(null); setProjectSearch(''); }}
-                                    style={{ background: showProjectChange ? '#fff8f0' : '#f8fafc', border: `1.5px solid ${showProjectChange ? '#F5850A' : '#e2e8f0'}`, borderRadius: '10px', padding: '7px 10px', cursor: 'pointer', color: showProjectChange ? '#F5850A' : '#94a3b8', flexShrink: 0 }}>
-                                    <i className="fa-solid fa-pencil" style={{ fontSize: '0.82rem' }} />
+                                <button onClick={() => { setDetailTab('wijzigen'); setShowWerkbonPicker(false); setChangeProject(null); setProjectSearch(''); }}
+                                    style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '7px 10px', cursor: 'pointer', color: '#94a3b8', flexShrink: 0 }}>
+                                    <i className="fa-solid fa-right-left" style={{ fontSize: '0.82rem' }} />
                                 </button>
                             </div>
 
-                            {/* Project wisselen — inline panel */}
-                            {showProjectChange && (() => {
-                                const allProjects = (() => { try { return JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); } catch { return []; } })();
-                                const filtered = allProjects.filter(p => p.name?.toLowerCase().includes(projectSearch.toLowerCase()));
-                                return (
-                                    <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '10px', marginBottom: '10px' }}>
-                                        <input autoFocus value={projectSearch}
-                                            onChange={e => { setProjectSearch(e.target.value); setChangeProject(null); }}
-                                            placeholder="Zoek project..."
-                                            style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
-                                        {!changeProject && filtered.slice(0, 5).map(p => (
-                                            <div key={p.id} onClick={() => setChangeProject(p)}
-                                                style={{ padding: '8px 10px', borderRadius: '9px', border: '1px solid #e2e8f0', marginBottom: '5px', cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: p.color || '#F5850A', flexShrink: 0, display: 'inline-block' }} />
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                                                    {p.client && <div style={{ fontSize: '0.71rem', color: '#94a3b8' }}>{p.client}</div>}
-                                                </div>
-                                                <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.65rem' }} />
-                                            </div>
-                                        ))}
-                                        {changeProject && (
-                                            <div>
-                                                <button onClick={() => setChangeProject(null)}
-                                                    style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', marginBottom: '8px', padding: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <i className="fa-solid fa-chevron-left" style={{ fontSize: '0.65rem' }} />{changeProject.name}
-                                                </button>
-                                                {(changeProject.tasks || []).filter(t => t.name).map(t => (
-                                                    <div key={t.id} onClick={() => { saveProjectChange(t, changeProject); setShowProjectChange(false); setChangeProject(null); setProjectSearch(''); setUrenSection(null); }}
-                                                        style={{ padding: '8px 10px', borderRadius: '9px', border: '1px solid #e2e8f0', marginBottom: '5px', cursor: 'pointer', background: '#fff' }}>
-                                                        <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b' }}>{t.name}</div>
-                                                        {(t.startDate || t.endDate) && <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate}{t.startDate && t.endDate ? ' – ' : ''}{t.endDate}</div>}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })()}
 
-                            {/* Tabs */}
-                            <div className="tab-nav" style={{ marginBottom: 0, overflowX: 'auto', scrollbarWidth: 'none' }}>
-                                {[['uren','fa-clock','Uren'],['werkbon','fa-file-pen','Werkbon'],['materialen','fa-box-open','Materiaalbot']].map(([t, ic, l]) => (
-                                    <button key={t} onClick={() => setDetailTab(t)}
-                                        className={`tab-btn${detailTab === t ? ' active' : ''}`}
-                                        style={{ flexShrink: 0, position: 'relative' }}>
-                                        <i className={`fa-solid ${ic}`} style={{ fontSize: '0.7rem' }} />
-                                        {l}
-                                        {t === 'werkbon' && selectedWerkbon && (
-                                            <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#F5850A' }} />
-                                        )}
-                                        {t === 'materialen' && wbMaterialen.length > 0 && (
-                                            <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }} />
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
+                        </div>
+
+                        {/* Tabs */}
+                        <div className="tab-nav" style={{ marginBottom: 0, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                            {[['uren','fa-clock','Uren'],['wijzigen','fa-right-left','Wijzigen'],['werkbon','fa-file-pen','Werkbon'],['materialen','fa-box-open','Materiaalbot']].map(([t, ic, l]) => (
+                                <button key={t} onClick={() => setDetailTab(t)}
+                                    className={`tab-btn${detailTab === t ? ' active' : ''}`}
+                                    style={{ flexShrink: 0, position: 'relative' }}>
+                                    <i className={`fa-solid ${ic}`} style={{ fontSize: '0.86rem' }} />
+                                    {l}
+                                    {(t === 'werkbon' || t === 'wijzigen') && selectedWerkbon && (
+                                        <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#F5850A' }} />
+                                    )}
+                                    {t === 'materialen' && wbMaterialen.length > 0 && (
+                                        <span style={{ position: 'absolute', top: '4px', right: '6px', width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }} />
+                                    )}
+                                </button>
+                            ))}
                         </div>
 
                         {/* Tab inhoud — scrollbaar */}
@@ -2379,7 +2691,7 @@ export default function MedewerkerPlanning() {
                                     {infoRow('fa-location-dot', detail.address && (
                                         <a href={`https://maps.google.com/?q=${encodeURIComponent(detail.address)}`} target="_blank" rel="noreferrer"
                                             style={{ fontSize: '0.88rem', color: '#F5850A', textDecoration: 'none', fontWeight: 600 }}>
-                                            {detail.address} <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '0.65rem' }} />
+                                            {detail.address} <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '0.82rem' }} />
                                         </a>
                                     ))}
 
@@ -2432,21 +2744,21 @@ export default function MedewerkerPlanning() {
                                                                     return (
                                                                         <div key={note.id} style={{ background: nt.bg, border: `1.5px solid ${nt.color}33`, borderRadius: '10px', padding: '10px 12px', marginLeft: isOwn ? '16px' : 0, marginRight: isOwn ? 0 : '16px' }}>
                                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                                                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '20px', background: nt.color, color: '#fff', fontSize: '0.65rem', fontWeight: 700 }}>
-                                                                                    <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.6rem' }} />
+                                                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '20px', background: nt.color, color: '#fff', fontSize: '0.82rem', fontWeight: 700 }}>
+                                                                                    <i className={`fa-solid ${nt.icon}`} style={{ fontSize: '0.92rem' }} />
                                                                                     {nt.label}
                                                                                 </span>
-                                                                                <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{note.author}</span>
-                                                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8', marginLeft: 'auto' }}>{note.date}</span>
+                                                                                <span style={{ fontSize: '0.84rem', color: '#94a3b8' }}>{note.author}</span>
+                                                                                <span style={{ fontSize: '0.82rem', color: '#94a3b8', marginLeft: 'auto' }}>{note.date}</span>
                                                                                 {isOwn && editingNoteId !== note.id && (
                                                                                     <button onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.text || ''); }}
-                                                                                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0 2px', fontSize: '0.7rem' }}>
+                                                                                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0 2px', fontSize: '0.86rem' }}>
                                                                                         <i className="fa-solid fa-pencil" />
                                                                                     </button>
                                                                                 )}
                                                                                 {user?.role === 'Beheerder' && (
                                                                                     <button onClick={() => deleteInfoNote(note.id)}
-                                                                                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 2px', fontSize: '0.7rem', opacity: 0.6 }}>
+                                                                                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 2px', fontSize: '0.86rem', opacity: 0.6 }}>
                                                                                         <i className="fa-solid fa-trash" />
                                                                                     </button>
                                                                                 )}
@@ -2468,8 +2780,8 @@ export default function MedewerkerPlanning() {
                                                                                 <div style={{ marginTop: '8px', borderLeft: `2px solid ${nt.color}44`, paddingLeft: '10px' }}>
                                                                                     {(note.replies || []).map(r => (
                                                                                         <div key={r.id} style={{ marginBottom: '5px' }}>
-                                                                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{r.author}</span>
-                                                                                            <span style={{ fontSize: '0.68rem', color: '#94a3b8', marginLeft: '5px' }}>{r.created_at ? new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                                                                            <span style={{ fontSize: '0.86rem', fontWeight: 700, color: '#475569' }}>{r.author}</span>
+                                                                                            <span style={{ fontSize: '0.84rem', color: '#94a3b8', marginLeft: '5px' }}>{r.created_at ? new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                                                                             <div style={{ fontSize: '0.82rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>{r.text}</div>
                                                                                         </div>
                                                                                     ))}
@@ -2479,14 +2791,14 @@ export default function MedewerkerPlanning() {
                                                                                                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addInfoReply(note.id); } if (e.key === 'Escape') { setReplyingToNoteId(null); } }}
                                                                                                 placeholder="Typ reactie… (Enter)"
                                                                                                 style={{ flex: 1, padding: '4px 8px', borderRadius: '6px', border: `1.5px solid ${nt.color}88`, fontSize: '0.8rem', fontFamily: 'inherit', outline: 'none' }} />
-                                                                                            <button onClick={() => addInfoReply(note.id)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: nt.color, color: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>↵</button>
+                                                                                            <button onClick={() => addInfoReply(note.id)} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: nt.color, color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>↵</button>
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
                                                                             )}
                                                                             {replyingToNoteId !== note.id && (
                                                                                 <button onClick={() => { setReplyingToNoteId(note.id); setInfoReplyText(''); }}
-                                                                                    style={{ marginTop: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.72rem', padding: 0, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                                                    style={{ marginTop: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.87rem', padding: 0, display: 'flex', alignItems: 'center', gap: '3px' }}>
                                                                                     <i className="fa-regular fa-comment" /> Reageer {note.replies?.length > 0 && `(${note.replies.length})`}
                                                                                 </button>
                                                                             )}
@@ -2505,7 +2817,7 @@ export default function MedewerkerPlanning() {
                                                                         {poNoteMedia.mediaType === 'video'
                                                                             ? <video src={poNoteMedia.url} style={{ maxHeight: '80px', borderRadius: '6px', display: 'block' }} />
                                                                             : <img src={poNoteMedia.url} alt="" style={{ maxHeight: '80px', borderRadius: '6px', display: 'block' }} />}
-                                                                        <button onClick={() => setPoNoteMedia(null)} style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '18px', height: '18px', color: '#fff', cursor: 'pointer', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fa-solid fa-xmark" /></button>
+                                                                        <button onClick={() => setPoNoteMedia(null)} style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '18px', height: '18px', color: '#fff', cursor: 'pointer', fontSize: '0.92rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fa-solid fa-xmark" /></button>
                                                                     </div>
                                                                 )}
                                                                 <input ref={noteMediaInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleNoteMedia} />
@@ -2513,17 +2825,17 @@ export default function MedewerkerPlanning() {
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
                                                                     {Object.entries(NOTE_TYPES_MW).map(([key, nt]) => (
                                                                         <button key={key} onClick={() => setPoNoteType(key)}
-                                                                            style={{ padding: '3px 9px', borderRadius: '20px', border: `1.5px solid ${poNoteType === key ? nt.color : nt.color + '55'}`, background: poNoteType === key ? nt.bg : nt.color + '12', color: nt.color, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', opacity: poNoteType === key ? 1 : 0.65 }}>
+                                                                            style={{ padding: '3px 9px', borderRadius: '20px', border: `1.5px solid ${poNoteType === key ? nt.color : nt.color + '55'}`, background: poNoteType === key ? nt.bg : nt.color + '12', color: nt.color, fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer', opacity: poNoteType === key ? 1 : 0.65 }}>
                                                                             {nt.label}
                                                                         </button>
                                                                     ))}
                                                                     <button type="button" onClick={() => noteMediaInputRef.current?.click()} disabled={poNoteMediaUploading}
-                                                                        style={{ padding: '3px 9px', borderRadius: '20px', border: `1.5px solid ${poNoteMedia ? '#10b981' : '#e2e8f0'}`, background: poNoteMedia ? '#f0fdf4' : 'transparent', color: poNoteMedia ? '#10b981' : '#94a3b8', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                        style={{ padding: '3px 9px', borderRadius: '20px', border: `1.5px solid ${poNoteMedia ? '#10b981' : '#e2e8f0'}`, background: poNoteMedia ? '#f0fdf4' : 'transparent', color: poNoteMedia ? '#10b981' : '#94a3b8', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                         {poNoteMediaUploading ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-paperclip" />}
                                                                         {poNoteMedia ? '✓' : 'Bijlage'}
                                                                     </button>
                                                                     <button onClick={addNotitie} disabled={!poNoteText.trim() && !poNoteMedia}
-                                                                        style={{ marginLeft: 'auto', padding: '6px 14px', borderRadius: '8px', border: 'none', background: (poNoteText.trim() || poNoteMedia) ? '#F5850A' : '#e2e8f0', color: (poNoteText.trim() || poNoteMedia) ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.78rem', cursor: (poNoteText.trim() || poNoteMedia) ? 'pointer' : 'default' }}>
+                                                                        style={{ marginLeft: 'auto', padding: '6px 14px', borderRadius: '8px', border: 'none', background: (poNoteText.trim() || poNoteMedia) ? '#F5850A' : '#e2e8f0', color: (poNoteText.trim() || poNoteMedia) ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: '0.92rem', cursor: (poNoteText.trim() || poNoteMedia) ? 'pointer' : 'default' }}>
                                                                         <i className="fa-solid fa-paper-plane" />
                                                                     </button>
                                                                 </div>
@@ -2548,7 +2860,7 @@ export default function MedewerkerPlanning() {
                                                                                 <i className={`fa-solid ${isImg ? 'fa-image' : isPdf ? 'fa-file-pdf' : 'fa-file'}`} style={{ color: isImg ? '#10b981' : isPdf ? '#ef4444' : '#64748b', fontSize: '1.1rem', width: '20px', flexShrink: 0 }} />
                                                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                                                     <div style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.label || b.name}</div>
-                                                                                    {b.label && b.name !== b.label && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{b.name}</div>}
+                                                                                    {b.label && b.name !== b.label && <div style={{ fontSize: '0.87rem', color: '#94a3b8' }}>{b.name}</div>}
                                                                                 </div>
                                                                                 <button onClick={() => openPreview(b)} style={{ padding: '5px 10px', borderRadius: '7px', border: 'none', background: '#f1f5f9', color: '#64748b', cursor: 'pointer', fontSize: '0.82rem' }}>
                                                                                     <i className="fa-solid fa-eye" />
@@ -2567,8 +2879,8 @@ export default function MedewerkerPlanning() {
                                                         <div onClick={() => setPoSectOpen(s => ({ ...s, fotos: !s.fotos }))} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 16px', cursor: 'pointer' }}>
                                                             <i className="fa-solid fa-camera" style={{ color: '#F5850A', fontSize: '0.9rem', width: '18px' }} />
                                                             <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>Projectfoto's</span>
-                                                            {allFotos.length > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '2px 8px' }}>{allFotos.length}</span>}
-                                                            <i className={`fa-solid fa-chevron-${poSectOpen.fotos ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.78rem' }} />
+                                                            {allFotos.length > 0 && <span style={{ fontSize: '0.86rem', fontWeight: 700, color: '#64748b', background: '#f1f5f9', borderRadius: '10px', padding: '2px 8px' }}>{allFotos.length}</span>}
+                                                            <i className={`fa-solid fa-chevron-${poSectOpen.fotos ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.92rem' }} />
                                                         </div>
                                                         {poSectOpen.fotos && (
                                                             <button onClick={() => cameraInputRef.current?.click()} disabled={fotoUploading}
@@ -2593,11 +2905,11 @@ export default function MedewerkerPlanning() {
                                                                             <img src={foto.src} alt={foto.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                                                             <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.65))', padding: '16px 6px 4px', pointerEvents: 'none' }}>
                                                                                 {foto.auteur && <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foto.auteur}</div>}
-                                                                                {foto.tijd && <div style={{ color: '#fff', fontSize: '0.6rem', fontWeight: 600 }}>{foto.tijd}</div>}
+                                                                                {foto.tijd && <div style={{ color: '#fff', fontSize: '0.92rem', fontWeight: 600 }}>{foto.tijd}</div>}
                                                                             </div>
                                                                             {!foto.isAdmin && (
                                                                                 <button onClick={e => { e.stopPropagation(); if (window.confirm('Foto verwijderen?')) deleteFoto(foto.id); }}
-                                                                                    style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', color: '#fff', cursor: 'pointer', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                    style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', color: '#fff', cursor: 'pointer', fontSize: '0.86rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                                                     <i className="fa-solid fa-xmark" />
                                                                                 </button>
                                                                             )}
@@ -2624,11 +2936,11 @@ export default function MedewerkerPlanning() {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', padding: '10px 12px', background: '#fff8f0', borderRadius: '10px', border: '1px solid #fde8cc' }}>
                                         <i className="fa-solid fa-list-check" style={{ color: '#F5850A', fontSize: '0.9rem' }} />
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#F5850A' }}>{detail.projectName}</div>
-                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Checklist — {done}/{checklist.length} voltooid</div>
+                                            <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#F5850A' }}>{detail.projectName}</div>
+                                            <div style={{ fontSize: '0.84rem', color: '#94a3b8' }}>Checklist — {done}/{checklist.length} voltooid</div>
                                         </div>
                                         {checklist.length > 0 && (
-                                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#F5850A', background: '#fff3e0', borderRadius: '20px', padding: '3px 10px' }}>
+                                            <div style={{ fontSize: '0.87rem', fontWeight: 700, color: '#F5850A', background: '#fff3e0', borderRadius: '20px', padding: '3px 10px' }}>
                                                 {Math.round((done / checklist.length) * 100)}%
                                             </div>
                                         )}
@@ -2717,14 +3029,14 @@ export default function MedewerkerPlanning() {
                                                         </div>
                                                         <div style={{ textAlign: 'center' }}>
                                                             <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>{detailDayName}</div>
-                                                            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '1px' }}>{detailMonth} {detailYear}</div>
+                                                            <div style={{ fontSize: '0.92rem', color: '#64748b', marginTop: '1px' }}>{detailMonth} {detailYear}</div>
                                                         </div>
                                                     </div>
                                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                                                         <div style={{ fontWeight: 900, fontSize: '1.1rem', color: heeftUren ? '#10b981' : '#cbd5e1', lineHeight: 1 }}>
                                                             {heeftUren ? `${Math.round(totalVandaag * 10) / 10}u` : '—'}
                                                         </div>
-                                                        {heeftUren && <i className="fa-solid fa-check" style={{ fontSize: '0.6rem', color: '#10b981' }} />}
+                                                        {heeftUren && <i className="fa-solid fa-check" style={{ fontSize: '0.92rem', color: '#10b981' }} />}
                                                     </div>
                                                     <button onClick={() => goToDay(nextWorkday(detail.date))}
                                                         style={{ width: '36px', height: '36px', borderRadius: '10px', border: 'none', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', cursor: 'pointer', color: '#475569', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -2737,7 +3049,7 @@ export default function MedewerkerPlanning() {
                                         {/* Notities van de taak */}
                                         {detail.notes && detail.notes.length > 0 && (
                                             <div style={{ marginBottom: '14px' }}>
-                                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '7px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <div style={{ fontSize: '0.87rem', fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '7px', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                     <i className="fa-solid fa-note-sticky" style={{ color: '#f59e0b' }} />Notities
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -2747,7 +3059,7 @@ export default function MedewerkerPlanning() {
                                                                 <img src={n.photo} alt="" style={{ width: '100%', borderRadius: '8px', marginBottom: '7px', maxHeight: '160px', objectFit: 'cover' }} />
                                                             )}
                                                             <div style={{ fontSize: '0.83rem', color: '#1e293b', lineHeight: 1.4 }}>{n.text || n.content || ''}</div>
-                                                            <div style={{ fontSize: '0.68rem', color: '#b45309', marginTop: '4px', display: 'flex', gap: '8px' }}>
+                                                            <div style={{ fontSize: '0.84rem', color: '#b45309', marginTop: '4px', display: 'flex', gap: '8px' }}>
                                                                 {n.author && <span>{n.author}</span>}
                                                                 {n.date && <span>{n.date}</span>}
                                                             </div>
@@ -2771,7 +3083,7 @@ export default function MedewerkerPlanning() {
                                                             /* Bewerkbare modus */
                                                             <div style={{ padding: '10px 12px', background: '#fff8f0' }}>
                                                                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                                                                    <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Uren</label>
+                                                                    <label style={{ fontSize: '0.87rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Uren</label>
                                                                     <input type="number" min="0.5" max="24" step="0.5"
                                                                         value={urenEditVal}
                                                                         onChange={ev => setUrenEditVal(ev.target.value)}
@@ -2808,7 +3120,7 @@ export default function MedewerkerPlanning() {
                                                                 {e.hours ? <span style={{ fontWeight: 700, color: '#F5850A', fontSize: '0.95rem' }}>{e.hours}u</span> : null}
                                                                 {e.type === 'ziek'
                                                                     ? <button onClick={ev => { ev.stopPropagation(); deleteUren(e.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px 4px', fontSize: '0.8rem' }}><i className="fa-solid fa-trash" /></button>
-                                                                    : <i className="fa-solid fa-pen" style={{ color: '#cbd5e1', fontSize: '0.68rem' }} />
+                                                                    : <i className="fa-solid fa-pen" style={{ color: '#cbd5e1', fontSize: '0.84rem' }} />
                                                                 }
                                                             </div>
                                                         )}
@@ -2822,7 +3134,7 @@ export default function MedewerkerPlanning() {
                                                             <i className="fa-solid fa-triangle-exclamation" style={{ color: '#ea580c', fontSize: '0.8rem', flexShrink: 0 }} />
                                                             <div style={{ flex: 1 }}>
                                                                 <div style={{ fontSize: '0.85rem', color: '#ea580c', fontWeight: 700 }}>Meerwerk</div>
-                                                                {m.text && <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>{m.text}</div>}
+                                                                {m.text && <div style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: '2px' }}>{m.text}</div>}
                                                             </div>
                                                             {m.hours && <span style={{ fontWeight: 700, color: '#ea580c', fontSize: '0.95rem' }}>{m.hours}u</span>}
                                                             <button onClick={() => { setMeerwerkEditEntry(m); setMeerwerkText(m.text || ''); setMeerwerkUren(m.hours ? String(m.hours) : ''); setMeerwerkImage(m.image || null); setMeerwerkVideoUrl(m.video || null); setMeerwerkVideoServerUrl(m.video || null); setMeerwerkMateriaal(Array.isArray(m.materiaal) ? m.materiaal : []); setMeerwerkMatNaam(''); setMeerwerkMatHoeveelheid('1 stuk'); setUrenSection('meerwerk'); }}
@@ -2837,8 +3149,8 @@ export default function MedewerkerPlanning() {
                                                         {m.materiaal && m.materiaal.length > 0 && (
                                                             <div style={{ padding: '7px 12px 8px', borderTop: '1px solid #fde8cc', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                                                 {m.materiaal.map((mat, i) => (
-                                                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem' }}>
-                                                                        <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.65rem', flexShrink: 0 }} />
+                                                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.92rem' }}>
+                                                                        <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.82rem', flexShrink: 0 }} />
                                                                         <span style={{ flex: 1, color: '#78716c', fontWeight: 600 }}>{mat.naam}</span>
                                                                         {mat.hoeveelheid && <span style={{ color: '#a8a29e' }}>{mat.hoeveelheid}</span>}
                                                                     </div>
@@ -2860,13 +3172,13 @@ export default function MedewerkerPlanning() {
                                                         border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
                                                     <i className="fa-solid fa-clock" style={{ color: '#F5850A', fontSize: '1rem' }} />
                                                     <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{selectedWerkbon ? 'Werkbon uren' : 'Projecturen'}</span>
-                                                    <i className={`fa-solid fa-chevron-${!urenSection ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                                                    <i className={`fa-solid fa-chevron-${!urenSection ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.9rem' }} />
                                                 </button>
                                                 {!urenSection && (
                                                     <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde8cc' }}>
                                                         <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '10px' }}>
                                                             <div style={{ flex: 1 }}>
-                                                                <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
+                                                                <label style={{ fontSize: '0.87rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Aantal uren</label>
                                                                 <input type="number" min="0.5" max="24" step="0.5"
                                                                     value={urenAantal}
                                                                     onChange={e => setUrenAantal(e.target.value)}
@@ -2894,7 +3206,7 @@ export default function MedewerkerPlanning() {
                                                                     <i className="fa-solid fa-circle-info" style={{ color: '#3b82f6', fontSize: '1rem', flexShrink: 0, marginTop: '1px' }} />
                                                                     <div>
                                                                         <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e40af', marginBottom: '2px' }}>Overwerkuren</div>
-                                                                        <div style={{ fontSize: '0.78rem', color: '#1e3a8a', lineHeight: 1.45 }}>
+                                                                        <div style={{ fontSize: '0.92rem', color: '#1e3a8a', lineHeight: 1.45 }}>
                                                                             <strong>7,5u</strong> normale uren + <strong>{overwerk}u</strong> overwerkuren worden geregistreerd.
                                                                         </div>
                                                                     </div>
@@ -2925,12 +3237,12 @@ export default function MedewerkerPlanning() {
                                                         border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
                                                     <i className="fa-solid fa-circle-plus" style={{ color: '#f59e0b', fontSize: '1rem' }} />
                                                     <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{meerwerkEditEntry ? 'Meerwerk uren' : 'Meerwerk uren melden'}</span>
-                                                    <i className={`fa-solid fa-chevron-${urenSection === 'meerwerk' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                                                    <i className={`fa-solid fa-chevron-${urenSection === 'meerwerk' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.9rem' }} />
                                                 </button>
                                                 {urenSection === 'meerwerk' && (
                                                     <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fde68a' }}>
                                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
-                                                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Extra uren</label>
+                                                            <label style={{ fontSize: '0.92rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Extra uren</label>
                                                             <input type="number" min="0.5" max="24" step="0.5"
                                                                 value={meerwerkUren}
                                                                 onChange={e => setMeerwerkUren(e.target.value)}
@@ -2950,7 +3262,7 @@ export default function MedewerkerPlanning() {
 
                                                         {/* ── Materiaal ── */}
                                                         <div style={{ marginBottom: '10px' }}>
-                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', marginBottom: '7px' }}>
+                                                            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#64748b', marginBottom: '7px' }}>
                                                                 <i className="fa-solid fa-box" style={{ marginRight: '5px', color: '#f59e0b' }} />Materiaal toevoegen
                                                             </div>
                                                             {/* Zoekveld */}
@@ -2997,9 +3309,9 @@ export default function MedewerkerPlanning() {
                                                                                     onMouseOver={e => e.currentTarget.style.background = '#fffbeb'}
                                                                                     onMouseOut={e => e.currentTarget.style.background = 'none'}
                                                                                 >
-                                                                                    <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                                                    <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.86rem', flexShrink: 0 }} />
                                                                                     <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, whiteSpace: 'nowrap' }}>{naam}</span>
-                                                                                    {(eenheid || code) && <span style={{ fontSize: '0.72rem', color: '#94a3b8', flexShrink: 0 }}>{eenheid || code}</span>}
+                                                                                    {(eenheid || code) && <span style={{ fontSize: '0.87rem', color: '#94a3b8', flexShrink: 0 }}>{eenheid || code}</span>}
                                                                                 </button>
                                                                             );
                                                                         })}
@@ -3026,11 +3338,11 @@ export default function MedewerkerPlanning() {
                                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                                                                     {meerwerkMateriaal.map((mat, i) => (
                                                                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a' }}>
-                                                                            <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.72rem', flexShrink: 0 }} />
+                                                                            <i className="fa-solid fa-box" style={{ color: '#f59e0b', fontSize: '0.87rem', flexShrink: 0 }} />
                                                                             <span style={{ flex: 1, fontSize: '0.83rem', color: '#1e293b', fontWeight: 600 }}>{mat.naam}</span>
-                                                                            {mat.hoeveelheid && <span style={{ fontSize: '0.78rem', color: '#78716c', fontWeight: 500 }}>{mat.hoeveelheid}</span>}
+                                                                            {mat.hoeveelheid && <span style={{ fontSize: '0.92rem', color: '#78716c', fontWeight: 500 }}>{mat.hoeveelheid}</span>}
                                                                             <button onClick={() => setMeerwerkMateriaal(prev => prev.filter((_, j) => j !== i))}
-                                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', padding: '2px 4px', fontSize: '0.75rem' }}>
+                                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', padding: '2px 4px', fontSize: '0.9rem' }}>
                                                                                 <i className="fa-solid fa-xmark" />
                                                                             </button>
                                                                         </div>
@@ -3045,7 +3357,7 @@ export default function MedewerkerPlanning() {
                                                                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
                                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                                     <div style={{ fontSize: '0.82rem', color: '#ef4444', fontWeight: 600 }}>Luisteren... spreek nu</div>
-                                                                    {sttInterim && <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sttInterim}</div>}
+                                                                    {sttInterim && <div style={{ fontSize: '0.92rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sttInterim}</div>}
                                                                 </div>
                                                                 <button onClick={stopSpeechToText}
                                                                     style={{ padding: '6px 14px', background: '#ef4444', border: 'none', borderRadius: '8px',
@@ -3076,7 +3388,7 @@ export default function MedewerkerPlanning() {
                                                                 <img src={meerwerkImage} alt="preview" style={{ maxWidth: '100%', maxHeight: '160px', borderRadius: '10px', border: '1.5px solid #e2e8f0', display: 'block' }} />
                                                                 <button onClick={() => setMeerwerkImage(null)}
                                                                     style={{ position: 'absolute', top: '5px', right: '5px', background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%',
-                                                                        width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                        width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                                     <i className="fa-solid fa-xmark" />
                                                                 </button>
                                                             </div>
@@ -3099,13 +3411,13 @@ export default function MedewerkerPlanning() {
                                                                     </div>
                                                                 )}
                                                                 {meerwerkVideoServerUrl && !videoUploading && (
-                                                                    <div style={{ position: 'absolute', top: '8px', left: '8px', background: 'rgba(16,185,129,0.9)', borderRadius: '8px', padding: '3px 8px', fontSize: '0.68rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                    <div style={{ position: 'absolute', top: '8px', left: '8px', background: 'rgba(16,185,129,0.9)', borderRadius: '8px', padding: '3px 8px', fontSize: '0.84rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                         <i className="fa-solid fa-check" />Opgeslagen op server
                                                                     </div>
                                                                 )}
                                                                 <button onClick={() => { setMeerwerkVideoServerUrl(null); setMeerwerkVideoUrl(null); setVideoUploading(false); setUploadProgress(0); }}
                                                                     style={{ position: 'absolute', top: '5px', right: '5px', background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%',
-                                                                        width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                        width: '26px', height: '26px', color: '#fff', cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                                     <i className="fa-solid fa-xmark" />
                                                                 </button>
                                                             </div>
@@ -3116,19 +3428,19 @@ export default function MedewerkerPlanning() {
                                                             {!sttActive ? (
                                                                 <button onClick={startSpeechToText}
                                                                     style={{ flex: '0 0 auto', padding: '9px 12px', background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: '10px',
-                                                                        fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                        fontWeight: 700, fontSize: '0.92rem', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                                     <i className="fa-solid fa-microphone" />Inspreken
                                                                 </button>
                                                             ) : (
                                                                 <button onClick={stopSpeechToText}
                                                                     style={{ flex: '0 0 auto', padding: '9px 12px', background: '#ef4444', border: 'none', borderRadius: '10px',
-                                                                        fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                        fontWeight: 700, fontSize: '0.92rem', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                                     <i className="fa-solid fa-stop" />Stop
                                                                 </button>
                                                             )}
                                                             {!meerwerkImage && (
                                                                 <label style={{ flex: '0 0 auto', padding: '9px 12px', background: '#f1f5f9', border: 'none', borderRadius: '10px',
-                                                                    fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                    fontWeight: 600, fontSize: '0.92rem', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                                     <i className="fa-solid fa-camera" />Foto
                                                                     <input type="file" accept="image/*" capture="environment" onChange={handleMeerwerkImage} style={{ display: 'none' }} />
                                                                 </label>
@@ -3136,12 +3448,12 @@ export default function MedewerkerPlanning() {
                                                             {!meerwerkVideoUrl && !videoRecording && (
                                                                 <button onClick={startVideoRecording}
                                                                     style={{ flex: '0 0 auto', padding: '9px 12px', background: '#f1f5f9', border: 'none', borderRadius: '10px',
-                                                                        fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                        fontWeight: 600, fontSize: '0.92rem', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                                     <i className="fa-solid fa-video" />Video
                                                                 </button>
                                                             )}
                                                             <label style={{ flex: '0 0 auto', padding: '9px 12px', background: '#f1f5f9', border: 'none', borderRadius: '10px',
-                                                                fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                fontWeight: 600, fontSize: '0.92rem', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                                 <i className="fa-solid fa-photo-film" />Gallerij
                                                                 <input type="file" accept="image/*,video/*" onChange={e => {
                                                                     const file = e.target.files[0];
@@ -3176,7 +3488,7 @@ export default function MedewerkerPlanning() {
                                                         border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
                                                     <i className="fa-solid fa-bed-pulse" style={{ color: '#ef4444', fontSize: '1rem' }} />
                                                     <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Ziek melden</span>
-                                                    <i className={`fa-solid fa-chevron-${urenSection === 'ziek' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                                                    <i className={`fa-solid fa-chevron-${urenSection === 'ziek' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.9rem' }} />
                                                 </button>
                                                 {urenSection === 'ziek' && (
                                                     <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #fca5a5' }}>
@@ -3207,8 +3519,8 @@ export default function MedewerkerPlanning() {
                                                         border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
                                                     <i className="fa-solid fa-stethoscope" style={{ color: '#6366f1', fontSize: '1rem' }} />
                                                     <span style={{ flex: 1, fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>Andere uren</span>
-                                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 500 }}>dokter · tandarts</span>
-                                                    <i className={`fa-solid fa-chevron-${urenSection === 'andere' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                                                    <span style={{ fontSize: '0.87rem', color: '#94a3b8', fontWeight: 500 }}>dokter · tandarts</span>
+                                                    <i className={`fa-solid fa-chevron-${urenSection === 'andere' ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.9rem' }} />
                                                 </button>
                                                 {urenSection === 'andere' && (
                                                     <div style={{ padding: '14px 16px 16px', background: '#fff', borderTop: '1.5px solid #a5b4fc' }}>
@@ -3221,7 +3533,7 @@ export default function MedewerkerPlanning() {
                                                                 color: '#1e293b', marginBottom: '10px' }}
                                                         />
                                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
-                                                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Aantal uren</label>
+                                                            <label style={{ fontSize: '0.92rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Aantal uren</label>
                                                             <input type="number" min="0.5" max="8" step="0.5"
                                                                 value={andereUren}
                                                                 onChange={e => setAndereUren(e.target.value)}
@@ -3276,7 +3588,7 @@ export default function MedewerkerPlanning() {
                                                 </div>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedWerkbon.naam}</div>
-                                                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Werkbon gekoppeld aan deze dag</div>
+                                                    <div style={{ fontSize: '0.87rem', color: '#94a3b8' }}>Werkbon gekoppeld aan deze dag</div>
                                                 </div>
                                                 <button onClick={() => setSelectedWerkbon(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px', fontSize: '0.8rem' }}>
                                                     <i className="fa-solid fa-xmark" />
@@ -3285,7 +3597,7 @@ export default function MedewerkerPlanning() {
 
                                             {/* Uren */}
                                             <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
-                                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Werkbon uren</div>
+                                                <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Werkbon uren</div>
                                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                                     <input type="number" min="0" step="0.5" value={wbDetailUren} onChange={e => setWbDetailUren(e.target.value)}
                                                         placeholder="0"
@@ -3308,7 +3620,7 @@ export default function MedewerkerPlanning() {
                                                 <i className="fa-solid fa-file-pen" style={{ color: '#F5850A', fontSize: '1.2rem' }} />
                                             </div>
                                             <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>Nog geen werkbon</div>
-                                            <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '20px' }}>Maak een nieuwe aan of koppel een bestaande</div>
+                                            <div style={{ fontSize: '0.92rem', color: '#94a3b8', marginBottom: '20px' }}>Maak een nieuwe aan of koppel een bestaande</div>
                                         </div>
                                     )}
 
@@ -3383,7 +3695,7 @@ export default function MedewerkerPlanning() {
                                     {/* Onderaan: andere werkbon koppelen als er al een is */}
                                     {selectedWerkbon && !showNieuwWerkbon && !showWerkbonPicker && (
                                         <button onClick={() => { setSelectedWerkbon(null); setShowWerkbonPicker(false); setShowNieuwWerkbon(false); setWbMaterialen([]); setWbDetailUren(''); }}
-                                            style={{ width: '100%', padding: '9px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#94a3b8', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
+                                            style={{ width: '100%', padding: '9px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#94a3b8', fontWeight: 600, fontSize: '0.92rem', cursor: 'pointer' }}>
                                             Andere werkbon kiezen
                                         </button>
                                     )}
@@ -3391,7 +3703,198 @@ export default function MedewerkerPlanning() {
                                 </div>
                             )}
 
-                            {/* ── Materialen tab ── */}
+                            {/* ===== WIJZIGEN TAB ===== */}
+                            {detailTab === 'wijzigen' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                                    {/* ── Sectie: Project / taak ── */}
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '10px' }}>
+                                            <i className="fa-solid fa-folder-tree" style={{ marginRight: '5px' }} />Project / taak
+                                        </div>
+
+                                        {/* Huidig project */}
+                                        <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '12px 14px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{ width: '6px', height: '38px', borderRadius: '3px', background: detail.color || '#F5850A', flexShrink: 0 }} />
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: '0.87rem', fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.projectName}</div>
+                                                {detail.taskName && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.taskName}</div>}
+                                            </div>
+                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', background: '#e2e8f0', borderRadius: '6px', padding: '3px 7px', fontWeight: 700, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>huidig</span>
+                                        </div>
+
+                                        {/* Project zoeken of taken kiezen */}
+                                        {!changeProject ? (
+                                            <>
+                                                <input
+                                                    value={projectSearch}
+                                                    onChange={e => { setProjectSearch(e.target.value); }}
+                                                    placeholder="Zoek ander project..."
+                                                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }}
+                                                />
+                                                {(() => {
+                                                    const allProjects = (() => { try { return JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]'); } catch { return []; } })();
+                                                    const filtered = allProjects.filter(p => p.name?.toLowerCase().includes(projectSearch.toLowerCase()));
+                                                    return filtered.slice(0, 7).map(p => (
+                                                        <div key={p.id} onClick={() => setChangeProject(p)}
+                                                            style={{ padding: '10px 12px', borderRadius: '10px', border: `1.5px solid ${p.id == detail.projectId ? '#F5850A' : '#e2e8f0'}`, marginBottom: '6px', cursor: 'pointer', background: p.id == detail.projectId ? '#fff8f0' : '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: p.color || '#F5850A', flexShrink: 0, display: 'inline-block' }} />
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                                                                {p.client && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{p.client}</div>}
+                                                            </div>
+                                                            {p.id == detail.projectId
+                                                                ? <i className="fa-solid fa-check" style={{ color: '#F5850A', fontSize: '0.8rem', flexShrink: 0 }} />
+                                                                : <i className="fa-solid fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.8rem', flexShrink: 0 }} />
+                                                            }
+                                                        </div>
+                                                    ));
+                                                })()}
+                                            </>
+                                        ) : (
+                                            <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '14px' }}>
+                                                <button onClick={() => setChangeProject(null)}
+                                                    style={{ background: 'none', border: 'none', color: '#F5850A', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', marginBottom: '12px', padding: 0, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <i className="fa-solid fa-chevron-left" style={{ fontSize: '0.8rem' }} /> {changeProject.name}
+                                                </button>
+                                                <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Kies taak</div>
+                                                {(changeProject.tasks || []).filter(t => t.name).map(t => (
+                                                    <div key={t.id}
+                                                        onClick={() => { saveProjectChange(t, changeProject); setChangeProject(null); setProjectSearch(''); setShowDetailModal(false); }}
+                                                        style={{ padding: '10px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', marginBottom: '6px', cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{t.name}</div>
+                                                            {(t.startDate || t.endDate) && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>{t.startDate}{t.startDate && t.endDate ? ' – ' : ''}{t.endDate}</div>}
+                                                        </div>
+                                                        <div style={{ flexShrink: 0, width: '28px', height: '28px', borderRadius: '8px', background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <i className="fa-solid fa-check" style={{ color: '#fff', fontSize: '0.75rem' }} />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {(changeProject.tasks || []).filter(t => t.name).length === 0 && (
+                                                    <div style={{ fontSize: '0.82rem', color: '#94a3b8', textAlign: 'center', padding: '10px 0' }}>Geen taken gevonden voor dit project</div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Divider */}
+                                    <div style={{ height: '1px', background: '#f1f5f9' }} />
+
+                                    {/* ── Sectie: Werkbon ── */}
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '10px' }}>
+                                            <i className="fa-solid fa-file-pen" style={{ marginRight: '5px' }} />Werkbon
+                                        </div>
+
+                                        {/* Werkbon gekoppeld */}
+                                        {selectedWerkbon && !showNieuwWerkbon && !showWerkbonPicker && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fff8f0', border: '1.5px solid #F5850A', borderRadius: '12px', padding: '12px 14px' }}>
+                                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                        <i className="fa-solid fa-file-pen" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedWerkbon.naam}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '1px' }}>Gekoppeld aan deze dag</div>
+                                                    </div>
+                                                    <button onClick={() => { setSelectedWerkbon(null); setWbMaterialen([]); setWbDetailUren(''); }}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px', fontSize: '0.8rem' }}>
+                                                        <i className="fa-solid fa-xmark" />
+                                                    </button>
+                                                </div>
+                                                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '12px 14px' }}>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>Werkbon uren</div>
+                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                        <input type="number" min="0" step="0.5" value={wbDetailUren} onChange={e => setWbDetailUren(e.target.value)}
+                                                            placeholder="0"
+                                                            style={{ flex: 1, padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.95rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                                        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>uur</span>
+                                                        <button onClick={saveWbDetailUren}
+                                                            style={{ padding: '9px 16px', borderRadius: '9px', border: 'none', background: wbDetailUrenSaved ? '#16a34a' : 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                                            {wbDetailUrenSaved ? <><i className="fa-solid fa-check" /> Opgeslagen</> : 'Opslaan'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => { setSelectedWerkbon(null); setShowWerkbonPicker(true); setWerkbonSearch(''); setWbMaterialen([]); setWbDetailUren(''); }}
+                                                    style={{ width: '100%', padding: '9px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#94a3b8', fontWeight: 600, fontSize: '0.87rem', cursor: 'pointer' }}>
+                                                    Andere werkbon kiezen
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Geen werkbon — actieknoppen */}
+                                        {!selectedWerkbon && !showNieuwWerkbon && !showWerkbonPicker && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                <button onClick={() => { setShowNieuwWerkbon(true); setShowWerkbonPicker(false); }}
+                                                    style={{ width: '100%', padding: '13px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)', color: '#fff', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(245,133,10,0.3)' }}>
+                                                    <i className="fa-solid fa-plus" /> Nieuwe werkbon aanmaken
+                                                </button>
+                                                <button onClick={() => { setShowWerkbonPicker(true); setShowNieuwWerkbon(false); setWerkbonSearch(''); }}
+                                                    style={{ width: '100%', padding: '13px', borderRadius: '12px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                    <i className="fa-solid fa-link" /> Koppel bestaande werkbon
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Formulier: nieuwe werkbon */}
+                                        {showNieuwWerkbon && (
+                                            <div style={{ background: '#fff', borderRadius: '14px', padding: '16px', border: '1.5px solid #f1f5f9', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+                                                <div style={{ marginBottom: '10px' }}>
+                                                    <input type="text" value={werkbonZoek} onChange={e => setWerkbonZoek(e.target.value)}
+                                                        placeholder="Wat heb je gedaan?" autoFocus
+                                                        style={{ width: '100%', padding: '11px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                                                    <input type="number" min="0" step="0.5" value={werkbonUren} onChange={e => setWerkbonUren(e.target.value)}
+                                                        placeholder="Uur"
+                                                        style={{ padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                                                    <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '0.82rem', color: '#475569', fontWeight: 600 }}>
+                                                        {detail?.date ? new Date(detail.date + 'T00:00:00').toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Vandaag'}
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                                    <button onClick={() => saveWerkbonUren()} disabled={!werkbonZoek.trim()}
+                                                        style={{ padding: '11px', borderRadius: '10px', border: 'none', cursor: werkbonZoek.trim() ? 'pointer' : 'not-allowed', background: werkbonZoek.trim() ? 'linear-gradient(135deg, #F5850A 0%, #D96800 100%)' : '#e2e8f0', color: werkbonZoek.trim() ? '#fff' : '#94a3b8', fontWeight: 800, fontSize: '0.88rem' }}>
+                                                        Opslaan
+                                                    </button>
+                                                    <button onClick={() => { setShowNieuwWerkbon(false); setWerkbonZoek(''); setWerkbonUren(''); }}
+                                                        style={{ padding: '11px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer' }}>
+                                                        Annuleren
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Zoeklijst: bestaande werkbon koppelen */}
+                                        {showWerkbonPicker && (
+                                            <div style={{ background: '#fff', borderRadius: '14px', padding: '14px', border: '1.5px solid #f1f5f9', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+                                                <input value={werkbonSearch} onChange={e => setWerkbonSearch(e.target.value)}
+                                                    placeholder="Zoek werkbon..." autoFocus
+                                                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '9px', fontSize: '0.87rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '200px', overflowY: 'auto' }}>
+                                                    {werkbonnen.filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase())).slice(0, 8).map(w => (
+                                                        <div key={w.id} onClick={() => { setSelectedWerkbon(w); setShowWerkbonPicker(false); saveWerkbonKoppeling(w); setShowDetailModal(false); }}
+                                                            style={{ padding: '9px 12px', borderRadius: '9px', border: '1.5px solid #e2e8f0', cursor: 'pointer', background: '#fafafa' }}>
+                                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{w.naam}</div>
+                                                            <div style={{ fontSize: '0.71rem', color: '#94a3b8' }}>{w.datum ? new Date(w.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}</div>
+                                                        </div>
+                                                    ))}
+                                                    {werkbonnen.filter(w => w.naam?.toLowerCase().includes(werkbonSearch.toLowerCase())).length === 0 && (
+                                                        <div style={{ fontSize: '0.82rem', color: '#94a3b8', textAlign: 'center', padding: '12px 0' }}>Geen werkbonnen gevonden</div>
+                                                    )}
+                                                </div>
+                                                <button onClick={() => setShowWerkbonPicker(false)}
+                                                    style={{ width: '100%', marginTop: '10px', padding: '9px', borderRadius: '9px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                                    Annuleren
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── Materialen TAB ── */}
                             {detailTab === 'materialen' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
@@ -3431,7 +3934,7 @@ export default function MedewerkerPlanning() {
                                                     </div>
                                                     <div style={{ textAlign: 'center' }}>
                                                         <div style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>{dayName}</div>
-                                                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '1px' }}>{monthName} {yr}</div>
+                                                        <div style={{ fontSize: '0.92rem', color: '#64748b', marginTop: '1px' }}>{monthName} {yr}</div>
                                                     </div>
                                                 </div>
                                                 <button onClick={() => goToDay(nextWorkday(detail.date))}
@@ -3452,16 +3955,16 @@ export default function MedewerkerPlanning() {
                                             {losMateriaalLijst.map(m => (
                                                 <div key={m.id} style={{ padding: '10px 12px', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '10px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                                                        <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.78rem', flexShrink: 0, marginTop: '3px' }} />
+                                                        <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.92rem', flexShrink: 0, marginTop: '3px' }} />
                                                         <div style={{ flex: 1, minWidth: 0 }}>
                                                             <div style={{ fontSize: '0.88rem', color: '#1e293b', fontWeight: 600 }}>{m.naam}</div>
                                                             <div style={{ display: 'flex', gap: '6px', marginTop: '2px', flexWrap: 'wrap', alignItems: 'center' }}>
                                                                 {m.code && <span style={{ fontSize: '0.67rem', color: '#94a3b8', background: '#f1f5f9', borderRadius: '4px', padding: '1px 5px' }}>{m.code}</span>}
-                                                                <span style={{ fontSize: '0.72rem', color: '#64748b', background: '#f8fafc', borderRadius: '5px', padding: '1px 7px' }}>{m.hoeveelheid}</span>
+                                                                <span style={{ fontSize: '0.87rem', color: '#64748b', background: '#f8fafc', borderRadius: '5px', padding: '1px 7px' }}>{m.hoeveelheid}</span>
                                                             </div>
                                                         </div>
                                                         <button onClick={() => verwijderLosMateriaal(m.id)}
-                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px 4px', fontSize: '0.78rem', flexShrink: 0 }}>
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px 4px', fontSize: '0.92rem', flexShrink: 0 }}>
                                                             <i className="fa-solid fa-xmark" />
                                                         </button>
                                                     </div>
@@ -3474,13 +3977,13 @@ export default function MedewerkerPlanning() {
                                                 <i className="fa-solid fa-box-open" style={{ color: '#10b981', fontSize: '1.2rem' }} />
                                             </div>
                                             <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>Nog geen materiaal</div>
-                                            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Voeg materialen toe die je hebt gebruikt</div>
+                                            <div style={{ fontSize: '0.92rem', color: '#94a3b8' }}>Voeg materialen toe die je hebt gebruikt</div>
                                         </div>
                                     )}
 
                                     {/* Nieuw materiaal toevoegen */}
                                     <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '12px', padding: '14px' }}>
-                                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Materiaal toevoegen</div>
+                                        <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Materiaal toevoegen</div>
                                         {/* Zoekbalk + autocomplete */}
                                         <div style={{ position: 'relative', marginBottom: '6px' }}>
                                             <input type="text" value={losMatNaam}
@@ -3525,7 +4028,7 @@ export default function MedewerkerPlanning() {
                                                                 setLosMatZoek([]);
                                                             }}
                                                                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'none', border: 'none', borderBottom: i < losMatZoek.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', textAlign: 'left' }}>
-                                                                <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                                <i className="fa-solid fa-box" style={{ color: '#10b981', fontSize: '0.86rem', flexShrink: 0 }} />
                                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                                     <div style={{ fontSize: '0.83rem', color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naam}</div>
                                                                     <div style={{ display: 'flex', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
@@ -3587,7 +4090,7 @@ export default function MedewerkerPlanning() {
                                             {dagKiezer.step === 'project' && 'Kies een project'}
                                             {dagKiezer.step === 'taak' && dagKiezer.project?.name}
                                         </div>
-                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '1px' }}>{dagLabel}</div>
+                                        <div style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: '1px' }}>{dagLabel}</div>
                                     </div>
                                 </div>
                             </div>
@@ -3599,16 +4102,16 @@ export default function MedewerkerPlanning() {
                                     <button onClick={() => {
                                         const vrijTaskId = `vrij-${dagKiezer.date}`;
                                         setDagKiezer(null);
-                                        openDetail({ taskId: vrijTaskId, projectName: 'Nog in te vullen project', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }, dagKiezer.date, 'werkbon');
+                                        openDetail({ taskId: vrijTaskId, projectName: 'Nog in te vullen project', taskName: '', projectId: null, progress: 0, completed: false, color: '#F5850A', notes: [], client: null }, dagKiezer.date, 'wijzigen');
                                     }} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}>
                                         <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                             <i className="fa-solid fa-file-pen" style={{ color: '#fff', fontSize: '1rem' }} />
                                         </div>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>Werkbon koppelen of aanmaken</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>Koppel een bestaande werkbon of maak een nieuwe aan — handig voor losse klussen zonder vast project</div>
+                                            <div style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: '2px' }}>Koppel een bestaande werkbon of maak een nieuwe aan — handig voor losse klussen zonder vast project</div>
                                         </div>
-                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.75rem' }} />
+                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.9rem' }} />
                                     </button>
                                     <button onClick={() => {
                                         const vrijTaskId = `vrij-${dagKiezer.date}`;
@@ -3620,9 +4123,9 @@ export default function MedewerkerPlanning() {
                                         </div>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#1e293b' }}>Uren registreren</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>Vul direct uren in voor deze dag</div>
+                                            <div style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: '2px' }}>Vul direct uren in voor deze dag</div>
                                         </div>
-                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.75rem' }} />
+                                        <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.9rem' }} />
                                     </button>
                                 </>)}
 
@@ -3636,9 +4139,9 @@ export default function MedewerkerPlanning() {
                                                 <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: p.color || '#F5850A', flexShrink: 0, display: 'inline-block' }} />
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                                                    {p.client && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{p.client}</div>}
+                                                    {p.client && <div style={{ fontSize: '0.87rem', color: '#94a3b8', marginTop: '1px' }}>{p.client}</div>}
                                                 </div>
-                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.86rem', flexShrink: 0 }} />
                                             </button>
                                         ))
                                 )}
@@ -3666,22 +4169,22 @@ export default function MedewerkerPlanning() {
                                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dagKiezer.project.color || '#F5850A', flexShrink: 0 }} />
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontWeight: 700, fontSize: '0.88rem', color: t.completed ? '#94a3b8' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t.completed ? 'line-through' : 'none' }}>{t.name}</div>
-                                                    {(t.startDate || t.endDate) && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate} – {t.endDate}</div>}
+                                                    {(t.startDate || t.endDate) && <div style={{ fontSize: '0.87rem', color: '#94a3b8', marginTop: '1px' }}>{t.startDate} – {t.endDate}</div>}
                                                 </div>
                                                 {t.completed ? (
-                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#10b981', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
+                                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#10b981', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
                                                         <i className="fa-solid fa-check" style={{ marginRight: '3px' }} />Afgerond
                                                     </span>
                                                 ) : (t.progress > 0) ? (
-                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: dagKiezer.project.color || '#F5850A', background: (dagKiezer.project.color || '#F5850A') + '18', border: `1px solid ${dagKiezer.project.color || '#F5850A'}44`, borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
+                                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: dagKiezer.project.color || '#F5850A', background: (dagKiezer.project.color || '#F5850A') + '18', border: `1px solid ${dagKiezer.project.color || '#F5850A'}44`, borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
                                                         {t.progress}%
                                                     </span>
                                                 ) : (
-                                                    <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#cbd5e1', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
+                                                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#cbd5e1', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2px 7px', flexShrink: 0 }}>
                                                         Nieuw
                                                     </span>
                                                 )}
-                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.7rem', flexShrink: 0 }} />
+                                                <i className="fa-solid fa-chevron-right" style={{ color: '#d1d5db', fontSize: '0.86rem', flexShrink: 0 }} />
                                             </button>
                                         ));
                                 })()}
@@ -3691,6 +4194,7 @@ export default function MedewerkerPlanning() {
                     </>
                 );
             })()}
+            </div>
 
             {/* Ziek bewerken modal */}
             {ziekEditEntry && (

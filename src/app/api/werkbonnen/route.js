@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getDbConnection } from '@/lib/db';
 
+let _migrated = false;
 async function ensureTable(pool) {
+    if (_migrated) return;
     await pool.query(`CREATE TABLE IF NOT EXISTS schilders_werkbonnen (
         id INT AUTO_INCREMENT PRIMARY KEY,
         medewerker_id INT DEFAULT NULL,
@@ -29,6 +31,7 @@ async function ensureTable(pool) {
     await pool.query(`ALTER TABLE schilders_werkbonnen ADD COLUMN IF NOT EXISTS uurloon DECIMAL(8,2) DEFAULT NULL`);
     await pool.query(`ALTER TABLE schilders_werkbonnen ADD COLUMN IF NOT EXISTS task_id VARCHAR(50) DEFAULT NULL`);
     await pool.query(`ALTER TABLE schilders_werkbonnen ADD COLUMN IF NOT EXISTS task_naam VARCHAR(200) DEFAULT NULL`);
+    _migrated = true;
 }
 
 // GET /api/werkbonnen

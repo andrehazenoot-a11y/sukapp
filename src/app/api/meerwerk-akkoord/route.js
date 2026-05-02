@@ -38,6 +38,14 @@ export async function POST(request) {
     return Response.json({ token });
 }
 
+const TOKEN_EXPIRY_DAYS = 30;
+
+function isTokenVerlopen(token) {
+    if (!token?.createdAt) return false;
+    const age = Date.now() - new Date(token.createdAt).getTime();
+    return age > TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+}
+
 // GET: haal token op (voor status check)
 export async function GET(request) {
     const url = new URL(request.url);
@@ -47,6 +55,10 @@ export async function GET(request) {
     const tokens = readTokens();
     const data = tokens[token];
     if (!data) return Response.json({ error: 'Niet gevonden' }, { status: 404 });
+
+    if (isTokenVerlopen(data)) {
+        return Response.json({ error: 'Deze link is verlopen (max 30 dagen geldig)' }, { status: 410 });
+    }
 
     // Stuur geen signatureData mee (privacy + grootte)
     const { signatureData: _, ...safe } = data;

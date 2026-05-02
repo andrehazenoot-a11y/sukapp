@@ -23,14 +23,36 @@ async function getSynologySid() {
     return cachedSid;
 }
 
+const ALLOWED_BASE = process.env.SYNOLOGY_UPLOAD_PATH || '/home/schildersapp';
+
+function verifySession(token) {
+    if (!token) return false;
+    try {
+        const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+        if (decoded.data) { const p = JSON.parse(decoded.data); return !!(p.id && p.username); }
+        return !!(decoded.id && decoded.username);
+    } catch { return false; }
+}
+
 // GET /api/file?path=/homes/schildersapp/projecten/1/foto.jpg
 export async function GET(request) {
     try {
+        const token = request.cookies.get('schildersapp_session')?.value;
+        if (!verifySession(token)) {
+            return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 });
+        }
+
         const { searchParams } = new URL(request.url);
         const filePath = searchParams.get('path');
 
         if (!filePath) {
             return NextResponse.json({ error: 'Pad vereist' }, { status: 400 });
+        }
+
+        // Path traversal bescherming — pad moet binnen de toegestane map vallen
+        const normalized = filePath.replace(/\\/g, '/').replace(/\/\.\.?\//g, '/');
+        if (!normalized.startsWith(ALLOWED_BASE)) {
+            return NextResponse.json({ error: 'Toegang geweigerd' }, { status: 403 });
         }
 
         const sid = await getSynologySid();
@@ -68,6 +90,6 @@ export async function GET(request) {
 
     } catch (error) {
         console.error('File proxy fout:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

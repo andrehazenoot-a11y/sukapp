@@ -10,7 +10,15 @@ export default function StatusPage() {
 
     useEffect(() => {
         if (!user) return;
-        laadTaken();
+        fetch('/api/projecten')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    try { localStorage.setItem('schildersapp_projecten', JSON.stringify(data)); } catch {}
+                }
+                laadTaken();
+            })
+            .catch(() => laadTaken());
     }, [user]);
 
     function laadTaken() {
@@ -104,7 +112,7 @@ export default function StatusPage() {
                 </div>
                 <div>
                     <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>Planning status</div>
-                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{totaalLopend} lopend · {totaalAfgerond} afgerond</div>
+                    <div style={{ fontSize: '0.87rem', color: '#94a3b8' }}>{totaalLopend} lopend · {totaalAfgerond} afgerond</div>
                 </div>
             </div>
 
@@ -141,19 +149,19 @@ function ProjectGroep({ proj, opgeslagen, onSave }) {
                 boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
             }}>
                 <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg,#0f172a,#1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <i className="fa-solid fa-folder" style={{ color: '#F5850A', fontSize: '0.78rem' }} />
+                    <i className="fa-solid fa-folder" style={{ color: '#F5850A', fontSize: '0.92rem' }} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{proj.projectName}</div>
-                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '1px' }}>{lopend} lopend · {afgerond}/{totaal} afgerond</div>
+                    <div style={{ fontSize: '0.84rem', color: '#94a3b8', marginTop: '1px' }}>{lopend} lopend · {afgerond}/{totaal} afgerond</div>
                 </div>
                 {/* Mini voortgangsbalk */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                     <div style={{ width: 40, height: 5, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? '#10b981' : '#F5850A', borderRadius: 4, transition: 'width 0.3s' }} />
                     </div>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: pct === 100 ? '#10b981' : '#F5850A', minWidth: '28px' }}>{pct}%</span>
-                    <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: '0.6rem', color: '#94a3b8' }} />
+                    <span style={{ fontSize: '0.86rem', fontWeight: 700, color: pct === 100 ? '#10b981' : '#F5850A', minWidth: '28px' }}>{pct}%</span>
+                    <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: '0.92rem', color: '#94a3b8' }} />
                 </div>
             </button>
 
@@ -187,7 +195,7 @@ function TaakKaart({ taak, opgeslagen, onSave }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{taak.taskName}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
-                    {isSaved && <span style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 700 }}>✓</span>}
+                    {isSaved && <span style={{ fontSize: '0.92rem', color: '#10b981', fontWeight: 700 }}>✓</span>}
                     <span style={{ fontSize: '0.8rem', fontWeight: 800, color: accentColor }}>{prog}%</span>
                 </div>
             </div>
@@ -201,11 +209,11 @@ function TaakKaart({ taak, opgeslagen, onSave }) {
             {isAfgerond ? (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.75rem' }} />
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981' }}>Afgerond</span>
+                        <i className="fa-solid fa-circle-check" style={{ color: '#10b981', fontSize: '0.9rem' }} />
+                        <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#10b981' }}>Afgerond</span>
                     </div>
                     <button onClick={() => onSave(taak.taskId, 0, false)}
-                        style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 8px', fontSize: '0.68rem', color: '#94a3b8', cursor: 'pointer', fontWeight: 600 }}>
+                        style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 8px', fontSize: '0.84rem', color: '#94a3b8', cursor: 'pointer', fontWeight: 600 }}>
                         Ongedaan maken
                     </button>
                 </div>
@@ -221,7 +229,7 @@ function TaakKaart({ taak, opgeslagen, onSave }) {
                                     border: `1.5px solid ${active ? col : '#e2e8f0'}`,
                                     background: active ? col : '#f8fafc',
                                     color: active ? '#fff' : '#94a3b8',
-                                    fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                                    fontSize: '0.86rem', fontWeight: 700, cursor: 'pointer',
                                 }}>
                                 {v}%
                             </button>
@@ -232,7 +240,7 @@ function TaakKaart({ taak, opgeslagen, onSave }) {
                             flex: 1, padding: '5px 0', borderRadius: '6px',
                             border: '1.5px solid #10b981',
                             background: 'linear-gradient(135deg,#10b981,#059669)',
-                            color: '#fff', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                            color: '#fff', fontSize: '0.86rem', fontWeight: 700, cursor: 'pointer',
                         }}>
                         <i className="fa-solid fa-check" />
                     </button>

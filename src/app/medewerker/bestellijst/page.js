@@ -26,20 +26,48 @@ export default function BestellijstPage() {
 
     useEffect(() => {
         if (!user) return;
-        setBestellingen(loadLS(`schildersapp_bestellingen_${user.id}`, []));
+        fetch(`/api/bestellingen?userId=${user.id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setBestellingen(data);
+                    saveLS(`schildersapp_bestellingen_${user.id}`, data);
+                } else {
+                    setBestellingen(loadLS(`schildersapp_bestellingen_${user.id}`, []));
+                }
+            })
+            .catch(() => setBestellingen(loadLS(`schildersapp_bestellingen_${user.id}`, [])));
     }, [user]);
+
+    function syncNaarApi(bestelling) {
+        fetch('/api/bestellingen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: String(user.id), userName: user.name, bestelling }),
+        }).catch(() => {});
+    }
 
     function deleteBestelling(id) {
         if (!window.confirm('Bestelling verwijderen?')) return;
         const updated = bestellingen.filter(b => b.id !== id);
         setBestellingen(updated);
         saveLS(`schildersapp_bestellingen_${user.id}`, updated);
+        fetch('/api/bestellingen', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, userId: String(user.id) }),
+        }).catch(() => {});
     }
 
     function saveNotitie() {
         const updated = bestellingen.map(b => b.id === notitieModal.id ? { ...b, notitie: notitieInput } : b);
         setBestellingen(updated);
         saveLS(`schildersapp_bestellingen_${user.id}`, updated);
+        fetch('/api/bestellingen', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: notitieModal.id, userId: String(user.id), notitie: notitieInput }),
+        }).catch(() => {});
         setNotitieModal(null);
     }
 
@@ -57,6 +85,7 @@ export default function BestellijstPage() {
         const updated = [entry, ...bestellingen];
         setBestellingen(updated);
         saveLS(`schildersapp_bestellingen_${user.id}`, updated);
+        syncNaarApi(entry);
         setBestForm({ product: '', aantal: '1', eenheid: 'stuk', opmerking: '' });
         setBestOpen(false);
     }
@@ -109,7 +138,7 @@ export default function BestellijstPage() {
                         {zoek ? 'Geen resultaten' : 'Nog geen bestellingen'}
                     </div>
                     {!zoek && (
-                        <div style={{ fontSize: '0.75rem', color: '#cbd5e1', marginTop: '5px' }}>
+                        <div style={{ fontSize: '0.9rem', color: '#cbd5e1', marginTop: '5px' }}>
                             Voeg materialen toe via de Materiaalbot
                         </div>
                     )}
@@ -120,16 +149,16 @@ export default function BestellijstPage() {
                     <div key={b.id} style={{ background: '#fff', borderRadius: '14px', padding: '12px 14px', boxShadow: '0 1px 5px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>{b.product}</div>
-                            <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '2px' }}>
+                            <div style={{ fontSize: '0.87rem', color: '#64748b', marginTop: '2px' }}>
                                 {b.aantal} {b.eenheid}{b.project ? ` · ${b.project}` : ''}{b.opmerking ? ` · ${b.opmerking}` : ''}
                             </div>
                             {b.notitie && (
-                                <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '4px', background: '#f8fafc', borderRadius: '6px', padding: '3px 7px', display: 'inline-block' }}>
+                                <div style={{ fontSize: '0.86rem', color: '#475569', marginTop: '4px', background: '#f8fafc', borderRadius: '6px', padding: '3px 7px', display: 'inline-block' }}>
                                     <i className="fa-solid fa-note-sticky" style={{ color: '#F5850A', marginRight: '4px' }} />{b.notitie}
                                 </div>
                             )}
                             {b.ingediend && (
-                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '3px' }}>
+                                <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '3px' }}>
                                     <i className="fa-solid fa-clock" style={{ marginRight: '3px' }} />
                                     {new Date(b.ingediend).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })}
                                 </div>

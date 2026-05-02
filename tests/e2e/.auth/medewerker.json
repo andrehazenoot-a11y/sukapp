@@ -1,0 +1,41 @@
+{
+  "cookies": [
+    {
+      "name": "schildersapp_session",
+      "value": "eyJpZCI6MiwidXNlcm5hbWUiOiJzY2hpbGRlciIsInJvbGUiOiJTY2hpbGRlciJ9",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1778361114,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "schildersapp_user",
+          "value": "{\"id\":2,\"username\":\"schilder\",\"name\":\"Piet Kwast\",\"role\":\"Schilder\",\"initials\":\"PK\"}"
+        },
+        {
+          "name": "schildersapp_permissions",
+          "value": "{\"1\":[\"dashboard\",\"urenregistratie\",\"urenregistratie.mijn\",\"urenregistratie.team\",\"uren\",\"uren.registratie\",\"uren.verlof\",\"materiaal\",\"materieel\",\"materieel.overzicht\",\"materieel.toevoegen\",\"verfvoorraad\",\"verfvoorraad.voorraad\",\"verfvoorraad.scan\",\"zzp\",\"zzp.facturen\",\"zzp.documenten\",\"projecten\",\"projecten.overzicht\",\"projecten.planning\",\"whatsapp\",\"whatsapp.uren\",\"whatsapp.contracten\",\"whatsapp.termijnen\"],\"2\":[\"dashboard\",\"urenregistratie\",\"urenregistratie.mijn\",\"uren\",\"uren.registratie\",\"uren.verlof\",\"materieel\",\"materieel.overzicht\",\"verfvoorraad\",\"verfvoorraad.voorraad\",\"verfvoorraad.scan\",\"profiel\",\"profiel.werknemer\",\"projecten\",\"projecten.overzicht\",\"projecten.planning\"],\"3\":[\"dashboard\",\"zzp\",\"zzp.facturen\",\"zzp.documenten\"],\"4\":[\"dashboard\",\"urenregistratie\",\"urenregistratie.mijn\",\"uren\",\"uren.registratie\",\"uren.verlof\",\"materieel\",\"materieel.overzicht\",\"materieel.toevoegen\",\"verfvoorraad\",\"verfvoorraad.voorraad\",\"verfvoorraad.scan\",\"projecten\",\"projecten.overzicht\",\"projecten.planning\"]}"
+        },
+        {
+          "name": "schildersapp_meldingen",
+          "value": "[]"
+        },
+        {
+          "name": "wa_contracten",
+          "value": "[]"
+        },
+        {
+          "name": "wa_medewerkers",
+          "value": "[]"
+        }
+      ]
+    }
+  ]
+}

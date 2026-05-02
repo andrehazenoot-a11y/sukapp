@@ -7,6 +7,6 @@ export async function DELETE(req, { params }) {
         await pool.query(`DELETE FROM schilders_verjaardagen WHERE id = ?`, [params.id]);
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }

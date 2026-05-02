@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthContext';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/Toast';
 
 export default function ToegangPage() {
     const { user, getAllUsers, getUserPermissions, updateUserPermissions, removeUser, addUser, updateUser, allPages } = useAuth();
     const router = useRouter();
+    const toast = useToast();
     const [selectedUser, setSelectedUser] = useState(null);
     const [localPerms, setLocalPerms] = useState([]);
     const [saved, setSaved] = useState(false);
@@ -70,6 +72,27 @@ export default function ToegangPage() {
         }
     }, [user, router]);
 
+    // Laad rechten van API bij mount en schrijf terug naar AuthContext/localStorage
+    useEffect(() => {
+        fetch('/api/toegang')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!Array.isArray(data)) return;
+                data.forEach(row => {
+                    if (Array.isArray(row.permissions) && row.permissions.length > 0) {
+                        updateUserPermissions(row.userId, row.permissions);
+                    }
+                    if (Array.isArray(row.urenTypes)) {
+                        try { localStorage.setItem(`schildersapp_urentypes_${row.userId}`, JSON.stringify(row.urenTypes)); } catch {}
+                    }
+                    if (row.urenRol) {
+                        try { localStorage.setItem(`schildersapp_urenrol_${row.userId}`, row.urenRol); } catch {}
+                    }
+                });
+            })
+            .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     useEffect(() => { document.title = 'Toegangsbeheer | SchildersApp Katwijk'; }, []);
 
 
@@ -125,8 +148,21 @@ export default function ToegangPage() {
     const savePerms = () => {
         if (selectedUser) {
             updateUserPermissions(selectedUser.id, localPerms);
+            saveUrenTypes(selectedUser.id, localUrenTypes);
+            saveUrenRole(selectedUser.id, localUrenRole);
+            fetch('/api/toegang', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: String(selectedUser.id),
+                    permissions: localPerms,
+                    urenTypes: localUrenTypes,
+                    urenRol: localUrenRole,
+                }),
+            }).catch(() => { toast.error('Opslaan mislukt — wijzigingen zijn lokaal bewaard'); });
             setSaved(true);
             setTimeout(() => setSaved(false), 3000);
+            toast.success('Rechten opgeslagen');
         }
     };
 
@@ -218,8 +254,10 @@ export default function ToegangPage() {
                                         const result = addUser({ name: newName.trim(), username: newUsername.trim(), password: newPassword, role: newRole, phone: newPhone.trim() });
                                         if (result.success) {
                                             setShowAddForm(false); setNewName(''); setNewUsername(''); setNewPassword(''); setNewRole('Medewerker'); setNewPhone(''); setAddError('');
+                                            toast.success(`Gebruiker "${newName.trim()}" toegevoegd`);
                                         } else {
                                             setAddError(result.error);
+                                            toast.error(result.error || 'Toevoegen mislukt');
                                         }
                                     }}
                                     style={{
@@ -298,6 +336,7 @@ export default function ToegangPage() {
                                                     removeUser(u.id);
                                                     if (selectedUser?.id === u.id) setSelectedUser(null);
                                                     if (editUserId === u.id) setEditUserId(null);
+                                                    toast.success(`${u.name} verwijderd`);
                                                 }
                                             }}
                                             title="Verwijderen"

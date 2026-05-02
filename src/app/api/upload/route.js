@@ -40,8 +40,21 @@ function sftpUploadStream(webStream, remotePath) {
     });
 }
 
+function verifySession(token) {
+    if (!token) return false;
+    try {
+        const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+        if (decoded.data) { const p = JSON.parse(decoded.data); return !!(p.id && p.username); }
+        return !!(decoded.id && decoded.username);
+    } catch { return false; }
+}
+
 export async function POST(request) {
     try {
+        const token = request.cookies.get('schildersapp_session')?.value;
+        if (!verifySession(token)) {
+            return NextResponse.json({ success: false, error: 'Niet ingelogd' }, { status: 401 });
+        }
         const formData = await request.formData();
         const file = formData.get('file');
         const projectId = formData.get('projectId') || 'algemeen';
@@ -73,6 +86,6 @@ export async function POST(request) {
 
     } catch (error) {
         console.error('Upload fout:', error.message);
-        return NextResponse.json({ success: false, error: error.message }, { status: 200 });
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 }

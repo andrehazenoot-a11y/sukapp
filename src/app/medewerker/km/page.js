@@ -37,14 +37,39 @@ export default function KmPage() {
 
     useEffect(() => {
         if (!user) return;
-        setRitten(loadRitten(user.id));
         try {
             const p = JSON.parse(localStorage.getItem('schildersapp_projecten') || '[]');
             setProjecten(p.map(x => x.name));
         } catch {}
+        fetch(`/api/km?userId=${user.id}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setRitten(data);
+                    saveRitten(user.id, data);
+                } else {
+                    setRitten(loadRitten(user.id));
+                }
+            })
+            .catch(() => setRitten(loadRitten(user.id)));
     }, [user]);
 
     const km = form.kmStart && form.kmEind ? Math.max(0, Number(form.kmEind) - Number(form.kmStart)) : null;
+
+    function syncNaarApi(rit) {
+        fetch('/api/km', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: String(user.id), userName: user.name, rit }),
+        }).catch(() => {});
+    }
+    function verwijderViaApi(id) {
+        fetch('/api/km', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, userId: String(user.id) }),
+        }).catch(() => {});
+    }
 
     function opslaan() {
         if (!form.van || !form.naar || !form.kmStart || !form.kmEind) return;
@@ -62,6 +87,7 @@ export default function KmPage() {
         const updated = [rit, ...ritten];
         setRitten(updated);
         saveRitten(user.id, updated);
+        syncNaarApi(rit);
         setModal(false);
         setForm(leegForm());
     }
@@ -71,6 +97,7 @@ export default function KmPage() {
         const updated = ritten.filter(r => r.id !== id);
         setRitten(updated);
         saveRitten(user.id, updated);
+        verwijderViaApi(id);
     }
 
     function haalGpsLocatie(veld) {
@@ -152,7 +179,7 @@ export default function KmPage() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ color: '#fff', fontWeight: 800, fontSize: '1rem' }}>Kilometeradministratie</div>
-                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem' }}>Registreer gereden kilometers</div>
+                        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.87rem' }}>Registreer gereden kilometers</div>
                     </div>
                 </div>
             </div>
@@ -160,16 +187,16 @@ export default function KmPage() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
                 <button onClick={() => { setForm(leegForm()); setRouteKm(null); setRouteError(null); setModal(true); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 13px', background: 'linear-gradient(135deg,#F5850A,#D96800)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', boxShadow: '0 2px 8px rgba(245,133,10,0.3)' }}>
-                    <i className="fa-solid fa-plus" style={{ fontSize: '0.75rem' }} />Rit
+                    <i className="fa-solid fa-plus" style={{ fontSize: '0.9rem' }} />Rit
                 </button>
             </div>
 
             {/* Maand selector + totaal */}
             <div style={{ background: 'linear-gradient(135deg,#F5850A,#D96800)', borderRadius: '16px', padding: '16px', marginBottom: '14px', color: '#fff' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <div style={{ fontSize: '0.72rem', fontWeight: 700, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Maandoverzicht</div>
+                    <div style={{ fontSize: '0.87rem', fontWeight: 700, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Maandoverzicht</div>
                     <select value={maand} onChange={e => setMaand(e.target.value)}
-                        style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', color: '#fff', fontSize: '0.78rem', fontWeight: 700, padding: '4px 8px', cursor: 'pointer' }}>
+                        style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', color: '#fff', fontSize: '0.92rem', fontWeight: 700, padding: '4px 8px', cursor: 'pointer' }}>
                         {alleMaanden.map(m => {
                             const [y, mo] = m.split('-');
                             return <option key={m} value={m} style={{ color: '#1e293b', background: '#fff' }}>{MONTH_NAMES[Number(mo)-1]} {y}</option>;
@@ -179,15 +206,15 @@ export default function KmPage() {
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <div>
                         <div style={{ fontSize: '2rem', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.03em' }}>{totaalMaand.toLocaleString('nl-NL')}</div>
-                        <div style={{ fontSize: '0.72rem', opacity: 0.8, marginTop: '2px' }}>km gereden</div>
+                        <div style={{ fontSize: '0.87rem', opacity: 0.8, marginTop: '2px' }}>km gereden</div>
                     </div>
                     <div style={{ borderLeft: '1px solid rgba(255,255,255,0.25)', paddingLeft: '12px' }}>
                         <div style={{ fontSize: '2rem', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.03em' }}>{rittenMaand.length}</div>
-                        <div style={{ fontSize: '0.72rem', opacity: 0.8, marginTop: '2px' }}>rit{rittenMaand.length !== 1 ? 'ten' : ''}</div>
+                        <div style={{ fontSize: '0.87rem', opacity: 0.8, marginTop: '2px' }}>rit{rittenMaand.length !== 1 ? 'ten' : ''}</div>
                     </div>
                     <div style={{ borderLeft: '1px solid rgba(255,255,255,0.25)', paddingLeft: '12px' }}>
                         <div style={{ fontSize: '2rem', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.03em' }}>€ {(totaalMaand * 0.23).toFixed(0)}</div>
-                        <div style={{ fontSize: '0.72rem', opacity: 0.8, marginTop: '2px' }}>vergoeding (€0,23)</div>
+                        <div style={{ fontSize: '0.87rem', opacity: 0.8, marginTop: '2px' }}>vergoeding (€0,23)</div>
                     </div>
                 </div>
             </div>
@@ -209,31 +236,31 @@ export default function KmPage() {
                                     {/* Van → Naar */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', flexWrap: 'wrap' }}>
                                         <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{r.van}</span>
-                                        <i className="fa-solid fa-arrow-right" style={{ color: '#cbd5e1', fontSize: '0.65rem', flexShrink: 0 }} />
+                                        <i className="fa-solid fa-arrow-right" style={{ color: '#cbd5e1', fontSize: '0.82rem', flexShrink: 0 }} />
                                         <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{r.naar}</span>
                                     </div>
                                     {/* Meta */}
                                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                                        <span style={{ fontSize: '0.86rem', color: '#94a3b8' }}>
                                             {new Date(r.datum + 'T00:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
                                         </span>
                                         {r.project && (
-                                            <span style={{ fontSize: '0.68rem', background: '#fff8f0', color: '#F5850A', border: '1px solid #fde8cc', borderRadius: '999px', padding: '1px 7px', fontWeight: 600 }}>{r.project}</span>
+                                            <span style={{ fontSize: '0.84rem', background: '#fff8f0', color: '#F5850A', border: '1px solid #fde8cc', borderRadius: '999px', padding: '1px 7px', fontWeight: 600 }}>{r.project}</span>
                                         )}
                                         {r.doel && (
-                                            <span style={{ fontSize: '0.68rem', color: '#64748b' }}>{r.doel}</span>
+                                            <span style={{ fontSize: '0.84rem', color: '#64748b' }}>{r.doel}</span>
                                         )}
                                     </div>
                                     {/* Km stand */}
-                                    <div style={{ fontSize: '0.68rem', color: '#cbd5e1', marginTop: '3px' }}>
+                                    <div style={{ fontSize: '0.84rem', color: '#cbd5e1', marginTop: '3px' }}>
                                         {r.kmStart.toLocaleString('nl-NL')} → {r.kmEind.toLocaleString('nl-NL')} km
                                     </div>
                                 </div>
                                 {/* Km badge */}
                                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                                     <div style={{ fontSize: '1.15rem', fontWeight: 900, color: '#F5850A', lineHeight: 1 }}>{r.km}</div>
-                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>km</div>
-                                    <button onClick={() => verwijder(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e2e8f0', fontSize: '0.75rem', marginTop: '6px', padding: 0 }}>
+                                    <div style={{ fontSize: '0.92rem', color: '#94a3b8', fontWeight: 600 }}>km</div>
+                                    <button onClick={() => verwijder(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e2e8f0', fontSize: '0.9rem', marginTop: '6px', padding: 0 }}>
                                         <i className="fa-solid fa-trash" />
                                     </button>
                                 </div>
@@ -254,12 +281,12 @@ export default function KmPage() {
                         </h3>
 
                         {/* Datum */}
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Datum</label>
+                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Datum</label>
                         <input type="date" value={form.datum} onChange={e => setForm(f => ({...f, datum: e.target.value}))}
                             style={{ ...inputStyle, marginBottom: '12px' }} />
 
                         {/* Van */}
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Van</label>
+                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Van</label>
                         <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
                             <input type="text" placeholder="Vertrekadres..." value={form.van} onChange={e => setForm(f => ({...f, van: e.target.value}))}
                                 style={{ ...inputStyle }} />
@@ -273,7 +300,7 @@ export default function KmPage() {
                         </div>
 
                         {/* Naar */}
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Naar</label>
+                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Naar</label>
                         <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
                             <input type="text" placeholder="Bestemmingsadres..." value={form.naar} onChange={e => setForm(f => ({...f, naar: e.target.value}))}
                                 style={{ ...inputStyle }} />
@@ -299,38 +326,38 @@ export default function KmPage() {
                                     <div style={{ marginTop: '8px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fa-solid fa-check-circle" style={{ color: '#10b981', fontSize: '0.9rem' }} />
                                         <span style={{ fontWeight: 800, color: '#059669', fontSize: '0.9rem' }}>{routeKm} km</span>
-                                        <span style={{ color: '#64748b', fontSize: '0.78rem' }}>· € {(routeKm * 0.23).toFixed(2).replace('.', ',')} vergoeding</span>
-                                        {!form.kmStart && <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginLeft: 'auto' }}>Vul km-start in →</span>}
+                                        <span style={{ color: '#64748b', fontSize: '0.92rem' }}>· € {(routeKm * 0.23).toFixed(2).replace('.', ',')} vergoeding</span>
+                                        {!form.kmStart && <span style={{ fontSize: '0.86rem', color: '#94a3b8', marginLeft: 'auto' }}>Vul km-start in →</span>}
                                     </div>
                                 )}
-                                {routeError && <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#ef4444', paddingLeft: '2px' }}>{routeError}</div>}
+                                {routeError && <div style={{ marginTop: '6px', fontSize: '0.9rem', color: '#ef4444', paddingLeft: '2px' }}>{routeError}</div>}
                             </div>
                         )}
 
                         {/* KM stand */}
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Kilometerstand</label>
+                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Kilometerstand</label>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '6px' }}>
                             <div>
                                 <input type="number" placeholder="Begin km" value={form.kmStart} onChange={e => setForm(f => ({...f, kmStart: e.target.value}))}
                                     style={{ ...inputStyle }} />
-                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '3px', paddingLeft: '2px' }}>Start</div>
+                                <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '3px', paddingLeft: '2px' }}>Start</div>
                             </div>
                             <div>
                                 <input type="number" placeholder="Eind km" value={form.kmEind} onChange={e => setForm(f => ({...f, kmEind: e.target.value}))}
                                     style={{ ...inputStyle }} />
-                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '3px', paddingLeft: '2px' }}>Eind</div>
+                                <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '3px', paddingLeft: '2px' }}>Eind</div>
                             </div>
                         </div>
                         {km !== null && (
                             <div style={{ background: '#fff8f0', border: '1px solid #fde8cc', borderRadius: '10px', padding: '8px 14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fa-solid fa-route" style={{ color: '#F5850A', fontSize: '0.85rem' }} />
                                 <span style={{ fontWeight: 800, color: '#D96800', fontSize: '0.9rem' }}>{km} km</span>
-                                <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>· € {(km * 0.23).toFixed(2).replace('.', ',')} vergoeding</span>
+                                <span style={{ color: '#94a3b8', fontSize: '0.92rem' }}>· € {(km * 0.23).toFixed(2).replace('.', ',')} vergoeding</span>
                             </div>
                         )}
 
                         {/* Project */}
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Project (optioneel)</label>
+                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Project (optioneel)</label>
                         {projecten.length > 0 ? (
                             <select value={form.project} onChange={e => setForm(f => ({...f, project: e.target.value}))}
                                 style={{ ...inputStyle, marginBottom: '12px', color: form.project ? '#1e293b' : '#94a3b8' }}>
@@ -343,7 +370,7 @@ export default function KmPage() {
                         )}
 
                         {/* Doel */}
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Doel / omschrijving (optioneel)</label>
+                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Doel / omschrijving (optioneel)</label>
                         <input type="text" placeholder="Bijv. materialen ophalen, klantbezoek..." value={form.doel} onChange={e => setForm(f => ({...f, doel: e.target.value}))}
                             style={{ ...inputStyle, marginBottom: '16px' }} />
 

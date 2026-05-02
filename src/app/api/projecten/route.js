@@ -18,9 +18,16 @@ export async function GET() {
 }
 
 export async function POST(req) {
-    const body = await req.json();
-    writeData(body);
-    return NextResponse.json({ ok: true });
+    const project = await req.json();
+    if (!project || Array.isArray(project) || !project.name) {
+        return NextResponse.json({ error: 'Ongeldig project object' }, { status: 400 });
+    }
+    const all = readData();
+    project.id = project.id || Date.now();
+    const idx = all.findIndex(p => String(p.id) === String(project.id));
+    if (idx >= 0) all[idx] = project; else all.push(project);
+    writeData(all);
+    return NextResponse.json({ ok: true, id: project.id });
 }
 
 export async function PUT(req) {

@@ -108,14 +108,38 @@ export default function VerlofPage() {
     const [editId, setEditId]           = useState(null);
     const [holidays, setHolidays]       = useState(ALL_HOLIDAYS_MAP);
 
-    const [kalMonth, setKalMonth] = useState(nowDate.getMonth());
-    const [kalYear, setKalYear]   = useState(nowDate.getFullYear());
+    const [kalMonth, setKalMonth]       = useState(nowDate.getMonth());
+    const [kalYear, setKalYear]         = useState(nowDate.getFullYear());
+    const [verlofSyncFout, setVerlofSyncFout] = useState(false);
+
+    // Laad verloflijst van API, merge met lokale entries (bewaar pending-sync entries)
+    const laadVanApi = (userId) => {
+        fetch(`/api/verlof?userId=${userId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!Array.isArray(data)) return;
+                const lokaal = loadLS(`schildersapp_verlof_${userId}`, []);
+                // Bewaar lokale entries die nog niet in DB staan (kunnen nog niet gesynchroniseerd zijn)
+                const dbIds = new Set(data.map(v => v.id));
+                const pendingLokaal = lokaal.filter(v => !dbIds.has(v.id));
+                const samengevoegd = [...data, ...pendingLokaal];
+                setVerlofLijst(samengevoegd);
+                saveLS(`schildersapp_verlof_${userId}`, samengevoegd);
+                syncVacDays(samengevoegd);
+            })
+            .catch(() => {
+                setVerlofLijst(loadLS(`schildersapp_verlof_${userId}`, []));
+            });
+    };
 
     useEffect(() => {
         if (!user) return;
-        setVerlofLijst(loadLS(`schildersapp_verlof_${user.id}`, []));
         setHolidays(getEnabledHolidays());
-    }, [user]);
+        laadVanApi(user.id);
+        // Periodiek vernieuwen zodat status-updates van beheerder zichtbaar worden
+        const interval = setInterval(() => laadVanApi(user.id), 60_000);
+        return () => clearInterval(interval);
+    }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     if (!user) return null;
 
@@ -165,22 +189,47 @@ export default function VerlofPage() {
         setVerlofForm({ type:v.type, van:v.van, tot:v.tot||v.van, opmerking:v.opmerking||'' });
         setVerlofOpen(true);
     }
-    function submitVerlof() {
+    async function syncNaarApi(entry) {
+        const res = await fetch('/api/verlof', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: String(user.id), userName: user.name, entry }),
+        });
+        if (!res.ok) throw new Error('sync mislukt');
+    }
+    function deleteViaApi(id) {
+        fetch('/api/verlof', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, userId: String(user.id) }),
+        }).catch(() => {});
+    }
+
+    async function submitVerlof() {
         if (!verlofForm.van) return;
         const van = verlofForm.van;
         const tot = verlofForm.tot && verlofForm.tot >= van ? verlofForm.tot : van;
         let updated;
+        let savedEntry;
         if (editId) {
             updated = verlofLijst.map(v => v.id === editId ? { ...v, ...verlofForm, van, tot } : v);
+            savedEntry = updated.find(v => v.id === editId);
         } else {
-            const entry = { ...verlofForm, van, tot, id:Date.now(), ingediend:new Date().toISOString(), status:'Goedgekeurd', naam:user.name };
-            updated = [entry, ...verlofLijst];
+            savedEntry = { ...verlofForm, van, tot, id:Date.now(), ingediend:new Date().toISOString(), status:'In behandeling', naam:user.name };
+            updated = [savedEntry, ...verlofLijst];
         }
         setVerlofLijst(updated);
         saveLS(`schildersapp_verlof_${user.id}`, updated);
         syncVacDays(updated);
+        setVerlofSyncFout(false);
+        try {
+            await syncNaarApi(savedEntry);
+        } catch {
+            // Lokaal opgeslagen, maar server kon het niet ontvangen — toon waarschuwing
+            setVerlofSyncFout(true);
+        }
         setVerlofSaved(true);
-        setTimeout(() => { setVerlofOpen(false); setVerlofSaved(false); setVerlofForm({ type:'Vakantie', van:'', tot:'', opmerking:'' }); setEditId(null); }, 1400);
+        setTimeout(() => { setVerlofOpen(false); setVerlofSaved(false); setVerlofSyncFout(false); setVerlofForm({ type:'Vakantie', van:'', tot:'', opmerking:'' }); setEditId(null); }, 2000);
     }
     function deleteVerlof(id) {
         if (!window.confirm('Weet je zeker dat je dit verlofverzoek wilt verwijderen?')) return;
@@ -188,6 +237,7 @@ export default function VerlofPage() {
         setVerlofLijst(updated);
         saveLS(`schildersapp_verlof_${user.id}`, updated);
         syncVacDays(updated);
+        deleteViaApi(id);
     }
     function tapDag(iso, isWeekend, isHoliday) {
         if (isWeekend || isHoliday || !user) return;
@@ -195,9 +245,11 @@ export default function VerlofPage() {
         let updated;
         if (bestaand) {
             updated = verlofLijst.filter(v => v.id !== bestaand.id);
+            deleteViaApi(bestaand.id);
         } else {
-            const entry = { type:'Vakantie', van:iso, tot:iso, id:Date.now(), ingediend:new Date().toISOString(), status:'Goedgekeurd', naam:user.name, opmerking:'' };
+            const entry = { type:'Vakantie', van:iso, tot:iso, id:Date.now(), ingediend:new Date().toISOString(), status:'In behandeling', naam:user.name, opmerking:'' };
             updated = [entry, ...verlofLijst];
+            syncNaarApi(entry).catch(() => {});
         }
         setVerlofLijst(updated);
         saveLS(`schildersapp_verlof_${user.id}`, updated);
@@ -232,11 +284,11 @@ export default function VerlofPage() {
                 </div>
                 <div>
                     <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>Verlof</div>
-                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{resterendDagen} dagen resterend · {verbruiktDagen}/{TOTAAL_DAGEN} verbruikt</div>
+                    <div style={{ fontSize: '0.87rem', color: '#94a3b8' }}>{resterendDagen} dagen resterend · {verbruiktDagen}/{TOTAAL_DAGEN} verbruikt</div>
                 </div>
                 <button onClick={() => openNieuw(todayIso)}
                     style={{ marginLeft: 'auto', background: 'linear-gradient(135deg,#F5850A,#D96800)', color: '#fff', border: 'none', borderRadius: '10px', padding: '8px 14px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(245,133,10,0.3)' }}>
-                    <i className="fa-solid fa-plus" style={{ fontSize: '0.7rem' }} />Aanvragen
+                    <i className="fa-solid fa-plus" style={{ fontSize: '0.86rem' }} />Aanvragen
                 </button>
             </div>
 
@@ -250,15 +302,15 @@ export default function VerlofPage() {
                     <div key={s.label} style={{ background: s.bg, borderRadius: '14px', padding: '12px 10px', textAlign: 'center' }}>
                         <i className={`fa-solid ${s.icon}`} style={{ color: s.color, fontSize: '0.85rem', marginBottom: '5px', display: 'block' }} />
                         <div style={{ fontSize: '1.3rem', fontWeight: 900, color: s.color, lineHeight: 1 }}>{s.val}</div>
-                        <div style={{ fontSize: '0.7rem', color: s.color, opacity: 0.7, marginTop: '2px', fontWeight: 600 }}>{s.unit}</div>
-                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px', fontWeight: 500 }}>{s.label}</div>
+                        <div style={{ fontSize: '0.86rem', color: s.color, opacity: 0.7, marginTop: '2px', fontWeight: 600 }}>{s.unit}</div>
+                        <div style={{ fontSize: '0.86rem', color: '#94a3b8', marginTop: '2px', fontWeight: 500 }}>{s.label}</div>
                     </div>
                 ))}
             </div>
 
             {/* Kalender */}
             <div style={{ background: '#fff', borderRadius: '16px', padding: '14px', boxShadow: '0 1px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 500, marginBottom: '10px' }}>Tik een werkdag om vakantie aan of uit te zetten</div>
+                <div style={{ fontSize: '0.84rem', color: '#94a3b8', fontWeight: 500, marginBottom: '10px' }}>Tik een werkdag om vakantie aan of uit te zetten</div>
 
                 {/* Maand navigator */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -276,7 +328,7 @@ export default function VerlofPage() {
                 {/* Dag labels */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: '3px' }}>
                     {DAY_LABELS.map(d => (
-                        <div key={d} style={{ textAlign: 'center', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', padding: '2px 0', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{d}</div>
+                        <div key={d} style={{ textAlign: 'center', fontSize: '0.86rem', fontWeight: 800, color: '#94a3b8', padding: '2px 0', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{d}</div>
                     ))}
                 </div>
 
@@ -315,7 +367,7 @@ export default function VerlofPage() {
                                         opacity: blocked ? 0.7 : 1,
                                     }}>
                                     {isHoliday && <span style={{ position: 'absolute', top: '0px', right: '1px', fontSize: '0.5rem', lineHeight: 1, pointerEvents: 'none' }}>⭐</span>}
-                                    <span style={{ fontSize: '0.78rem', fontWeight: isToday||isHoliday||inSel ? 800 : 500, color: inSel ? '#D96800' : textColor }}>{dag}</span>
+                                    <span style={{ fontSize: '0.92rem', fontWeight: isToday||isHoliday||inSel ? 800 : 500, color: inSel ? '#D96800' : textColor }}>{dag}</span>
                                     <div style={{ display: 'flex', gap: '2px', marginTop: '1px', height: '5px', alignItems: 'center' }}>
                                         {hasVerlof && <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: vInfo.color }} />}
                                     </div>
@@ -327,11 +379,11 @@ export default function VerlofPage() {
 
                 {/* Legenda */}
                 <div style={{ display: 'flex', gap: '10px', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #f8fafc', flexWrap: 'wrap' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
-                        <span style={{ fontSize: '0.7rem' }}>⭐</span>Feestdag
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.86rem', color: '#94a3b8', fontWeight: 600 }}>
+                        <span style={{ fontSize: '0.86rem' }}>⭐</span>Feestdag
                     </span>
                     {[['Goedgekeurd', STATUS_STYLE['Goedgekeurd']], ['Afgewezen', STATUS_STYLE['Afgewezen']]].map(([lbl, st]) => (
-                        <span key={lbl} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
+                        <span key={lbl} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.86rem', color: '#94a3b8', fontWeight: 600 }}>
                             <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: st.color, display: 'inline-block' }} />{lbl}
                         </span>
                     ))}
@@ -347,21 +399,21 @@ export default function VerlofPage() {
                             <div key={v.id} style={{ background: '#fff', borderRadius: '10px', padding: '7px 10px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b' }}>{v.type}</span>
+                                        <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#1e293b' }}>{v.type}</span>
                                         {v.status === 'Afgewezen' && (
-                                            <span style={{ background: st.bg, border: `1px solid ${st.border}`, borderRadius: '999px', padding: '1px 6px', fontSize: '0.6rem', fontWeight: 700, color: st.color }}>{v.status}</span>
+                                            <span style={{ background: st.bg, border: `1px solid ${st.border}`, borderRadius: '999px', padding: '1px 6px', fontSize: '0.92rem', fontWeight: 700, color: st.color }}>{v.status}</span>
                                         )}
                                     </div>
-                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '1px' }}>
+                                    <div style={{ fontSize: '0.86rem', color: '#94a3b8', marginTop: '1px' }}>
                                         {fmtDate(v.van)}{v.tot && v.tot !== v.van ? ` → ${fmtDate(v.tot)}` : ''}
                                         {v.opmerking && ` · ${v.opmerking}`}
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
-                                    <button onClick={() => openEdit(v)} style={{ background: 'none', border: 'none', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer', color: '#94a3b8', fontSize: '0.7rem' }}>
+                                    <button onClick={() => openEdit(v)} style={{ background: 'none', border: 'none', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer', color: '#94a3b8', fontSize: '0.86rem' }}>
                                         <i className="fa-solid fa-pen" />
                                     </button>
-                                    <button onClick={() => deleteVerlof(v.id)} style={{ background: 'none', border: 'none', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer', color: '#fca5a5', fontSize: '0.7rem' }}>
+                                    <button onClick={() => deleteVerlof(v.id)} style={{ background: 'none', border: 'none', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer', color: '#fca5a5', fontSize: '0.86rem' }}>
                                         <i className="fa-solid fa-trash" />
                                     </button>
                                 </div>
@@ -378,8 +430,19 @@ export default function VerlofPage() {
                     <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', background: '#fff', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', zIndex: 310 }}>
                         <div style={{ width: '40px', height: '4px', background: '#e2e8f0', borderRadius: '2px', margin: '0 auto 18px' }} />
                         {verlofSaved ? (
-                            <div style={{ textAlign: 'center', padding: '20px', color: '#10b981', fontSize: '0.95rem', fontWeight: 700 }}>
-                                <i className="fa-solid fa-check-circle" style={{ fontSize: '2rem', display: 'block', marginBottom: '8px' }} />Aanvraag ingediend!
+                            <div style={{ textAlign: 'center', padding: '20px', fontSize: '0.95rem', fontWeight: 700 }}>
+                                {verlofSyncFout ? (
+                                    <>
+                                        <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: '2rem', display: 'block', marginBottom: '8px', color: '#f59e0b' }} />
+                                        <div style={{ color: '#f59e0b' }}>Lokaal opgeslagen</div>
+                                        <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '4px', fontWeight: 400 }}>Kon server niet bereiken — je aanvraag staat lokaal bewaard. Probeer later opnieuw.</div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <i className="fa-solid fa-check-circle" style={{ fontSize: '2rem', display: 'block', marginBottom: '8px', color: '#10b981' }} />
+                                        <div style={{ color: '#10b981' }}>Aanvraag ingediend!</div>
+                                    </>
+                                )}
                             </div>
                         ) : (<>
                             <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>

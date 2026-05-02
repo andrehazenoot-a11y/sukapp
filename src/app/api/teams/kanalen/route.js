@@ -1,24 +1,5 @@
 import { NextResponse } from 'next/server';
-
-const TENANT = 'cd3d3914-6711-4801-9d09-f83f5a0645d3';
-const CLIENT_ID = process.env.OUTLOOK_CLIENT_ID;
-const CLIENT_SECRET = process.env.OUTLOOK_CLIENT_SECRET;
-
-async function getAppToken() {
-    const res = await fetch(`https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
-            scope: 'https://graph.microsoft.com/.default',
-            grant_type: 'client_credentials',
-        }),
-    });
-    const data = await res.json();
-    if (!data.access_token) throw new Error('App token ophalen mislukt');
-    return data.access_token;
-}
+import { cookies } from 'next/headers';
 
 export async function GET(req) {
     const { searchParams } = new URL(req.url);
@@ -26,7 +7,9 @@ export async function GET(req) {
     if (!groupId) return NextResponse.json({ error: 'groupId ontbreekt' }, { status: 400 });
 
     try {
-        const token = await getAppToken();
+        const jar = await cookies();
+        const token = jar.get('ms_access_token')?.value;
+        if (!token) return NextResponse.json({ error: 'Niet verbonden' }, { status: 401 });
         const res = await fetch(`https://graph.microsoft.com/v1.0/teams/${groupId}/channels`, {
             headers: { Authorization: `Bearer ${token}` },
         });

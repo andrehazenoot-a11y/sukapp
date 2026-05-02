@@ -603,7 +603,28 @@ export default function VerfvoorraadPage() {
         try { const s = localStorage.getItem('schildersapp_verfvoorraad'); if (s) return JSON.parse(s); } catch {}
         return INITIAL_VERF;
     });
-    const saveVerfItems = (updated) => { setVerfItems(updated); try { localStorage.setItem('schildersapp_verfvoorraad', JSON.stringify(updated)); } catch {} };
+
+    useEffect(() => {
+        fetch('/api/verfvoorraad')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setVerfItems(data);
+                    try { localStorage.setItem('schildersapp_verfvoorraad', JSON.stringify(data)); } catch {}
+                }
+            })
+            .catch(() => {});
+    }, []);
+
+    const saveVerfItems = (updated) => {
+        setVerfItems(updated);
+        try { localStorage.setItem('schildersapp_verfvoorraad', JSON.stringify(updated)); } catch {}
+        fetch('/api/verfvoorraad', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updated),
+        }).catch(() => {});
+    };
     const [stap, setStap] = useState('overzicht');
     useEffect(() => { document.title = 'Verfvoorraad | SchildersApp Katwijk'; }, []);
 

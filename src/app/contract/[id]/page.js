@@ -23,35 +23,54 @@ export default function ContractSignPage() {
     const zoomIn = () => setZoom(z => Math.min(2.0, parseFloat((z + 0.1).toFixed(1))));
     const zoomOut = () => setZoom(z => Math.max(0.4, parseFloat((z - 0.1).toFixed(1))));
 
-    // Load contract, briefpapier, and template
+    // Load contract, briefpapier, and template — API-first, localStorage fallback
     useEffect(() => {
-        try {
-            const contracten = JSON.parse(localStorage.getItem('wa_contracten')) || [];
-            const found = contracten.find(c => c.id === contractId);
-            if (found) {
-                setContract(found);
-                if (found.getekend) setSigned(true);
+        const loadFromLocalStorage = () => {
+            try {
+                const contracten = JSON.parse(localStorage.getItem('wa_contracten')) || [];
+                const found = contracten.find(c => String(c.id) === String(contractId));
+                if (found) {
+                    setContract(found);
+                    if (found.getekend) setSigned(true);
+                    const medewerkers = JSON.parse(localStorage.getItem('wa_medewerkers')) || [];
+                    const m = medewerkers.find(x => x.id === found.medewerkerId);
+                    if (m && m.telefoon) setCustomTelefoon(m.telefoon);
+                }
+            } catch {}
+            try { const bp = localStorage.getItem('wa_briefpapier'); if (bp) setBriefpapier(bp); } catch {}
+            try {
+                const templates = JSON.parse(localStorage.getItem('wa_contract_templates'));
+                const activeId = localStorage.getItem('wa_active_template') || 'standaard';
+                if (templates && templates.length) {
+                    const tpl = templates.find(t => t.id === activeId) || templates[0];
+                    setActiveTemplate(prev => ({ ...prev, ...tpl }));
+                }
+            } catch {}
+        };
 
-                const medewerkers = JSON.parse(localStorage.getItem('wa_medewerkers')) || [];
-                const m = medewerkers.find(x => x.id === found.medewerkerId);
-                if (m && m.telefoon) {
-                    setCustomTelefoon(m.telefoon);
+        // Probeer API eerst
+        Promise.all([
+            fetch('/api/contracten').then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch('/api/contracten?instellingen=1').then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch('/api/medewerkers').then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([contracten, instellingen, medewerkers]) => {
+            let geladen = false;
+            if (Array.isArray(contracten)) {
+                const found = contracten.find(c => String(c.id) === String(contractId));
+                if (found) {
+                    setContract(found);
+                    if (found.getekend) setSigned(true);
+                    if (Array.isArray(medewerkers)) {
+                        const m = medewerkers.find(x => String(x.id) === String(found.medewerkerId));
+                        if (m?.telefoon) setCustomTelefoon(m.telefoon);
+                    }
+                    geladen = true;
                 }
             }
-        } catch { }
-        try {
-            const bp = localStorage.getItem('wa_briefpapier');
-            if (bp) setBriefpapier(bp);
-        } catch { }
-        try {
-            const templates = JSON.parse(localStorage.getItem('wa_contract_templates'));
-            const activeId = localStorage.getItem('wa_active_template') || 'standaard';
-            if (templates && templates.length) {
-                const tpl = templates.find(t => t.id === activeId) || templates[0];
-                setActiveTemplate(prev => ({ ...prev, ...tpl }));
-            }
-        } catch { }
-    }, [contractId]);
+            if (instellingen?.wa_briefpapier) setBriefpapier(instellingen.wa_briefpapier);
+            if (!geladen) loadFromLocalStorage();
+        }).catch(() => loadFromLocalStorage());
+    }, [contractId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Canvas drawing for signature
     useEffect(() => {
@@ -149,6 +168,9 @@ export default function ContractSignPage() {
                     contracten[index].kanbanStatus = 'Lopende modelovereenkomsten';
                 }
                 localStorage.setItem('wa_contracten', JSON.stringify(contracten));
+                // Sync naar API
+                const gewijzigd = contracten[index];
+                if (gewijzigd?.id) fetch('/api/contracten', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(gewijzigd) }).catch(() => {});
             }
         } catch { }
 

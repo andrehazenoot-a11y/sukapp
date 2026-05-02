@@ -57,12 +57,12 @@ export const ALL_PAGES = [
     // { id: 'onboarding', name: 'Intake Generator', path: '/onboarding', icon: 'fa-wand-magic-sparkles' },
 ];
 
-// == Demo gebruikers — in productie vervangen door database ==
+// == Fallback gebruikers — alleen voor offline gebruik, login gaat via /api/auth/validate ==
 const USERS = [
-    { id: 1, username: 'admin',    password: 'admin123',   name: 'Jan Modaal',    role: 'Beheerder', initials: 'JM', phone: '31612345678', bsn: '123456782' },
-    { id: 2, username: 'schilder', password: 'verf2025',   name: 'Piet Kwast',    role: 'Schilder',  initials: 'PK', phone: '31687654321', bsn: '211320894' },
-    { id: 3, username: 'zzp',      password: 'zzp2025',    name: 'Klaas Roller',  role: "ZZP'er",    initials: 'KR', phone: '31698765432', bsn: '987654321' },
-    { id: 4, username: 'voorman',  password: 'voorman123', name: 'Henk de Vries', role: 'Voorman',   initials: 'HV', phone: '31676543210', bsn: '345678901' },
+    { id: 1, username: 'admin',    password: 'admin123',   name: 'Jan Modaal',    role: 'Beheerder', initials: 'JM', phone: '31612345678' },
+    { id: 2, username: 'schilder', password: 'verf2025',   name: 'Piet Kwast',    role: 'Schilder',  initials: 'PK', phone: '31687654321' },
+    { id: 3, username: 'zzp',      password: 'zzp2025',    name: 'Klaas Roller',  role: "ZZP'er",    initials: 'KR', phone: '31698765432' },
+    { id: 4, username: 'voorman',  password: 'voorman123', name: 'Henk de Vries', role: 'Voorman',   initials: 'HV', phone: '31676543210' },
 ];
 
 // Standaard rechten per gebruiker (alle pagina-ids)
@@ -75,7 +75,26 @@ const DEFAULT_PERMISSIONS = {
 
 const AuthContext = createContext(null);
 
+// Zet sessie-cookie synchronisch bij eerste client-render (vóór alle useEffects)
+let _cookieInit = false;
+function initSessionCookie() {
+    if (typeof window === 'undefined' || _cookieInit) return;
+    _cookieInit = true;
+    try {
+        if (document.cookie.includes('schildersapp_session=')) return;
+        const stored = localStorage.getItem('schildersapp_user');
+        if (!stored) return;
+        const parsed = JSON.parse(stored);
+        // Accepteer elke geserialiseerde user — validatie gebeurt server-side via API
+        if (!parsed.id || !parsed.username) return;
+        const validUser = parsed;
+        const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString();
+        document.cookie = `schildersapp_session=${btoa(JSON.stringify({ id: validUser.id, username: validUser.username, role: validUser.role }))}; path=/; expires=${expires}; SameSite=lax`;
+    } catch {}
+}
+
 export function AuthProvider({ children }) {
+    initSessionCookie(); // synchronisch — vóór enige useEffect in children
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [permissions, setPermissions] = useState({});
@@ -104,9 +123,11 @@ export function AuthProvider({ children }) {
 
             if (stored) {
                 const parsed = JSON.parse(stored);
-                const validUser = USERS.find(u => u.id === parsed.id && u.username === parsed.username);
-                if (validUser) {
-                    setUser({ id: validUser.id, username: validUser.username, name: validUser.name, role: validUser.role, initials: validUser.initials });
+                // Accepteer zowel hardcoded als dynamisch aangemaakte gebruikers
+                // parsed.id én parsed.username moeten beide aanwezig zijn
+                const hasValidFields = parsed.id && parsed.username && parsed.name && parsed.role;
+                if (hasValidFields) {
+                    setUser({ id: parsed.id, username: parsed.username, name: parsed.name, role: parsed.role, initials: parsed.initials || '' });
                 } else {
                     localStorage.removeItem('schildersapp_user');
                 }
@@ -115,6 +136,33 @@ export function AuthProvider({ children }) {
             localStorage.removeItem('schildersapp_user');
         }
         setLoading(false);
+
+        // Laad gebruikerslijst van API op de achtergrond
+        fetch('/api/gebruikers')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!Array.isArray(data) || data.length === 0) return;
+                setUserList(data);
+            })
+            .catch(() => {});
+
+        // Laad rechten van API op de achtergrond en overschrijf localStorage
+        fetch('/api/toegang')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!Array.isArray(data) || data.length === 0) return;
+                setPermissions(prev => {
+                    const updated = { ...prev };
+                    data.forEach(row => {
+                        if (Array.isArray(row.permissions) && row.permissions.length > 0) {
+                            updated[row.userId] = row.permissions;
+                        }
+                    });
+                    localStorage.setItem('schildersapp_permissions', JSON.stringify(updated));
+                    return updated;
+                });
+            })
+            .catch(() => {});
     }, []);
 
     // ── Profiel ophalen voor een userId ──
@@ -157,10 +205,35 @@ export function AuthProvider({ children }) {
         return { success: true };
     };
 
-    const login = (username, password) => {
+    const login = async (username, password) => {
+        // Probeer eerst via API (ondersteunt ook dynamisch aangemaakte gebruikers)
+        try {
+            const res = await fetch('/api/auth/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
+            if (res.ok) {
+                const found = await res.json();
+                const userData = { id: found.id, username: found.username, name: found.name, role: found.role, initials: found.initials || '' };
+                const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString();
+                document.cookie = `schildersapp_session=${btoa(JSON.stringify({ id: found.id, username: found.username, role: found.role }))}; path=/; expires=${expires}; SameSite=lax`;
+                setUser(userData);
+                localStorage.setItem('schildersapp_user', JSON.stringify(userData));
+                // Herlaad userList na inloggen
+                fetch('/api/gebruikers').then(r => r.ok ? r.json() : null).then(data => { if (Array.isArray(data)) setUserList(data); }).catch(() => {});
+                return { success: true };
+            }
+            if (res.status === 401) {
+                return { success: false, error: 'Ongeldige gebruikersnaam of wachtwoord' };
+            }
+        } catch {}
+        // Fallback: hardcoded USERS (werkt ook offline)
         const found = USERS.find(u => u.username === username && u.password === password);
         if (found) {
             const userData = { id: found.id, username: found.username, name: found.name, role: found.role, initials: found.initials };
+            const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString();
+            document.cookie = `schildersapp_session=${btoa(JSON.stringify({ id: found.id, username: found.username, role: found.role }))}; path=/; expires=${expires}; SameSite=lax`;
             setUser(userData);
             localStorage.setItem('schildersapp_user', JSON.stringify(userData));
             return { success: true };
@@ -168,9 +241,10 @@ export function AuthProvider({ children }) {
         return { success: false, error: 'Ongeldige gebruikersnaam of wachtwoord' };
     };
 
-    const logout = () => {
+    const logout = async () => {
         setUser(null);
         localStorage.removeItem('schildersapp_user');
+        document.cookie = 'schildersapp_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     };
 
     // Rechten voor een specifieke gebruiker ophalen
@@ -201,16 +275,15 @@ export function AuthProvider({ children }) {
     // Gebruiker verwijderen
     const removeUser = (userId) => {
         setUserList(prev => prev.filter(u => u.id !== userId));
-        // Verwijder ook hun rechten
         const updated = { ...permissions };
         delete updated[userId];
         setPermissions(updated);
         localStorage.setItem('schildersapp_permissions', JSON.stringify(updated));
+        fetch(`/api/gebruikers?id=${userId}`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
     };
 
     // Nieuwe gebruiker toevoegen
-    const addUser = ({ name, username, password, role }) => {
-        // Check of username al bestaat
+    const addUser = async ({ name, username, password, role }) => {
         if (userList.some(u => u.username === username)) {
             return { success: false, error: 'Gebruikersnaam bestaat al' };
         }
@@ -218,16 +291,23 @@ export function AuthProvider({ children }) {
         const initials = nameParts.length >= 2
             ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
             : name.substring(0, 2).toUpperCase();
-        const newUser = {
-            id: 'user_' + Date.now(),
-            username,
-            password,
-            name,
-            role: role || 'Medewerker',
-            initials
-        };
+        const tempId = 'user_' + Date.now();
+        const newUser = { id: tempId, username, password, name, role: role || 'Medewerker', initials };
+        try {
+            const res = await fetch('/api/gebruikers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newUser),
+                credentials: 'include',
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                return { success: false, error: err.error || 'Opslaan mislukt' };
+            }
+            const data = await res.json();
+            if (data.id) newUser.id = data.id;
+        } catch {}
         setUserList(prev => [...prev, newUser]);
-        // Standaard rechten: alleen dashboard
         const updated = { ...permissions, [newUser.id]: ['dashboard'] };
         setPermissions(updated);
         localStorage.setItem('schildersapp_permissions', JSON.stringify(updated));
@@ -239,7 +319,6 @@ export function AuthProvider({ children }) {
         setUserList(prev => prev.map(u => {
             if (u.id !== userId) return u;
             const updated = { ...u, ...updates };
-            // Herbereken initialen als naam veranderd is
             if (updates.name) {
                 const parts = updates.name.trim().split(' ');
                 updated.initials = parts.length >= 2
@@ -248,6 +327,12 @@ export function AuthProvider({ children }) {
             }
             return updated;
         }));
+        fetch('/api/gebruikers', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: userId, ...updates }),
+            credentials: 'include',
+        }).catch(() => {});
         return { success: true };
     };
 

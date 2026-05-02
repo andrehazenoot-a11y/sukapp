@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../components/AuthContext';
+import { useToast } from '../../components/Toast';
 import './planning.css';
 import { slaEmailBestandOp, haalEmailBestandOp } from '../../lib/emailFileStore';
 
@@ -187,6 +188,7 @@ const DAYS_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
 
 export default function ProjectenPage() {
     const { getAllUsers, user } = useAuth();
+    const toast = useToast();
     const allUsers = getAllUsers();
     const [tab, setTab] = useState('project');
     useEffect(() => { document.title = 'Projectplanning | SchildersApp Katwijk'; }, []);
@@ -206,7 +208,8 @@ export default function ProjectenPage() {
             const s = localStorage.getItem('schildersapp_projecten');
             const parsed = s ? JSON.parse(s) : null;
             // Lege array (door vorige opslag-fout) → herstel demo-data
-            return (parsed && parsed.length > 0) ? parsed : INITIAL_PROJECTS;
+            if (parsed && parsed.length > 0) return parsed.map(p => ({ ...p, tasks: p.tasks || [] }));
+            return INITIAL_PROJECTS;
         } catch { return INITIAL_PROJECTS; }
     });
     const [viewMode, setViewMode] = useState('month'); // week, month
@@ -319,7 +322,7 @@ export default function ProjectenPage() {
             ...p,
             startDate: formatDate(snapToWorkday(parseDate(p.startDate))),
             endDate: formatDate(snapToWorkdayBack(parseDate(p.endDate))),
-            tasks: p.tasks.map(t => ({
+            tasks: (p.tasks || []).map(t => ({
                 ...t,
                 startDate: formatDate(snapToWorkday(parseDate(t.startDate))),
                 endDate: formatDate(snapToWorkdayBack(parseDate(t.endDate))),
@@ -352,13 +355,26 @@ export default function ProjectenPage() {
         localStorage.setItem('schilders-absences', JSON.stringify(workerAbsences));
     }, [workerAbsences]);
 
+    // Laad absences van API bij mount
+    useEffect(() => {
+        fetch('/api/absences')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setWorkerAbsences(data);
+                    localStorage.setItem('schilders-absences', JSON.stringify(data));
+                }
+            })
+            .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // ===== CROSS-TAB SYNC: reload when another tab changes project data =====
 
     useEffect(() => {
         const reloadFromStorage = () => {
             try {
                 const s = localStorage.getItem('schildersapp_projecten');
-                if (s) setProjects(JSON.parse(s));
+                if (s) setProjects(JSON.parse(s).map(p => ({ ...p, tasks: p.tasks || [] })));
             } catch {}
         };
         // storage event fires when ANOTHER tab writes to localStorage
@@ -389,7 +405,7 @@ export default function ProjectenPage() {
         // schilders-sync fires when the detail page's "Opslaan" button is clicked
         // (works within the SAME tab, unlike the storage event)
         const onSync = (e) => {
-            if (e.detail?.projecten) setProjects(e.detail.projecten);
+            if (e.detail?.projecten) setProjects(e.detail.projecten.map(p => ({ ...p, tasks: p.tasks || [] })));
             else reloadFromStorage();
         };
         window.addEventListener('storage', onStorage);
@@ -504,6 +520,7 @@ export default function ProjectenPage() {
         setProjects(prev => [...prev, p]);
         setNewProject({ name: '', client: '', address: '', startDate: '', endDate: '', estimatedHours: '' });
         setShowNewForm(false);
+        toast.success(`Project "${p.name}" aangemaakt`);
 
         // Automatisch Teams kanaal + Planner aanmaken als team ID bekend is
         const teamId = typeof window !== 'undefined' ? localStorage.getItem('schilders_teams_team_id') : null;
@@ -527,9 +544,11 @@ export default function ProjectenPage() {
 
     // ===== DELETE PROJECT =====
     const deleteProject = (id) => {
+        const project = projects.find(p => p.id === id);
         if (window.confirm('Dit project verwijderen?')) {
             setProjects(projects.filter(p => p.id !== id));
             if (selectedProject?.id === id) setSelectedProject(null);
+            toast.success(`Project "${project?.name || ''}" verwijderd`);
         }
     };
 
@@ -1772,7 +1791,7 @@ export default function ProjectenPage() {
         active: projects.filter(p => p.status === 'active').length,
         planning: projects.filter(p => p.status === 'planning').length,
         totalHours: projects.reduce((s, p) => s + p.estimatedHours, 0),
-        totalTasks: projects.reduce((s, p) => s + p.tasks.length, 0),
+        totalTasks: projects.reduce((s, p) => s + (p.tasks?.length || 0), 0),
     };
 
     // ===== RENDER =====
@@ -4187,11 +4206,16 @@ export default function ProjectenPage() {
                     setAbsPopup({ workerId, x: e.clientX, y: e.clientY });
                 };
 
-                const deleteAbsence = (id) => setWorkerAbsences(prev => prev.filter(a => a.id !== id));
+                const deleteAbsence = (id) => {
+                    setWorkerAbsences(prev => prev.filter(a => a.id !== id));
+                    fetch(`/api/absences?id=${id}`, { method: 'DELETE' }).catch(() => {});
+                };
 
                 const saveAbsence = () => {
                     if (!absPopup || !absForm.startDate || !absForm.endDate) return;
-                    setWorkerAbsences(prev => [...prev, { id: Date.now(), userId: absPopup.workerId, type: absForm.type, startDate: absForm.startDate, endDate: absForm.endDate }]);
+                    const entry = { id: Date.now(), userId: absPopup.workerId, type: absForm.type, startDate: absForm.startDate, endDate: absForm.endDate };
+                    setWorkerAbsences(prev => [...prev, entry]);
+                    fetch('/api/absences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) }).catch(() => {});
                     setAbsPopup(null);
                 };
 
@@ -4231,7 +4255,12 @@ export default function ProjectenPage() {
 
                 const saveAbsEdit = () => {
                     if (!absEditPopup) return;
-                    setWorkerAbsences(prev => prev.map(a => a.id === absEditPopup.absId ? { ...a, type: absForm.type, startDate: absForm.startDate, endDate: absForm.endDate } : a));
+                    setWorkerAbsences(prev => prev.map(a => {
+                        if (a.id !== absEditPopup.absId) return a;
+                        const updated = { ...a, type: absForm.type, startDate: absForm.startDate, endDate: absForm.endDate };
+                        fetch('/api/absences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(() => {});
+                        return updated;
+                    }));
                     setAbsEditPopup(null);
                 };
 

@@ -109,6 +109,19 @@ export default function WhatsAppPage() {
         try { const s = JSON.parse(localStorage.getItem('wa_medewerkers')); if (s) return s; } catch { }
         return DEMO_MEDEWERKERS;
     });
+
+    // Laad medewerkers van API bij mount
+    useEffect(() => {
+        fetch('/api/medewerkers')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setMedewerkers(data);
+                    localStorage.setItem('wa_medewerkers', JSON.stringify(data));
+                }
+            })
+            .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
     const [projecten, setProjecten] = useState(() => {
         try { const s = JSON.parse(localStorage.getItem('wa_projecten')); if (s) return s; } catch { }
         return DEMO_PROJECTEN;
@@ -123,6 +136,18 @@ export default function WhatsAppPage() {
     });
     const [draggedContractId, setDraggedContractId] = useState(null);
 
+    // Laad contracten van API bij mount
+    useEffect(() => {
+        fetch('/api/contracten')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                    setContracten(data);
+                    localStorage.setItem('wa_contracten', JSON.stringify(data));
+                }
+            })
+            .catch(() => {});
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Save
     useEffect(() => { localStorage.setItem('wa_medewerkers', JSON.stringify(medewerkers)); }, [medewerkers]);
@@ -150,7 +175,13 @@ export default function WhatsAppPage() {
         };
         saveUrenLog(urenLog);
     }, [urenLog]);
-    useEffect(() => { localStorage.setItem('wa_contracten', JSON.stringify(contracten)); }, [contracten]);
+    useEffect(() => {
+        localStorage.setItem('wa_contracten', JSON.stringify(contracten));
+        // Sync gewijzigde contracten naar API (fire-and-forget)
+        contracten.forEach(c => {
+            if (c?.id) fetch('/api/contracten', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) }).catch(() => {});
+        });
+    }, [contracten]);
 
     // ─── Module 1: Uren Helpers ───
     const [showNewMedewerker, setShowNewMedewerker] = useState(false);
@@ -613,10 +644,20 @@ Bedankt! Tot morgen 👋` }
     const [briefpapierUploading, setBriefpapierUploading] = useState(false);
 
     useEffect(() => {
-        try {
-            const saved = localStorage.getItem('wa_briefpapier');
-            if (saved) setBriefpapierPreview(saved);
-        } catch { }
+        // Laad briefpapier + templates van API, localStorage als fallback
+        fetch('/api/contracten?instellingen=1')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data?.wa_briefpapier) {
+                    setBriefpapierPreview(data.wa_briefpapier);
+                    localStorage.setItem('wa_briefpapier', data.wa_briefpapier);
+                } else {
+                    try { const s = localStorage.getItem('wa_briefpapier'); if (s) setBriefpapierPreview(s); } catch {}
+                }
+            })
+            .catch(() => {
+                try { const s = localStorage.getItem('wa_briefpapier'); if (s) setBriefpapierPreview(s); } catch {}
+            });
     }, []);
 
     const handleBriefpapierUpload = async (e) => {
@@ -646,6 +687,7 @@ Bedankt! Tot morgen 👋` }
                 const dataUrl = canvas.toDataURL('image/png', 0.9);
                 localStorage.setItem('wa_briefpapier', dataUrl);
                 setBriefpapierPreview(dataUrl);
+                fetch('/api/contracten', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sleutel: 'wa_briefpapier', waarde: dataUrl }) }).catch(() => {});
             } catch (err) {
                 console.error('PDF render error:', err);
                 alert('Fout bij het verwerken van de PDF. Probeer een afbeelding (PNG/JPG) te uploaden.');
@@ -657,6 +699,7 @@ Bedankt! Tot morgen 👋` }
                 const dataUrl = ev.target.result;
                 localStorage.setItem('wa_briefpapier', dataUrl);
                 setBriefpapierPreview(dataUrl);
+                fetch('/api/contracten', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sleutel: 'wa_briefpapier', waarde: dataUrl }) }).catch(() => {});
             };
             reader.readAsDataURL(file);
         }

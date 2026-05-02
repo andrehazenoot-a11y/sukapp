@@ -58,7 +58,7 @@ export async function GET(req) {
         const result = rows.map(r => ({ ...r, replies: replyMap[r.id] || [] }));
         return NextResponse.json(result);
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -81,7 +81,7 @@ export async function POST(req) {
         );
         return NextResponse.json({ ok: true, message: { ...rows[0], replies: [] } });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -114,7 +114,7 @@ export async function PUT(req) {
         }
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
 
@@ -138,6 +138,6 @@ export async function DELETE(req) {
         await pool.query('DELETE FROM schilders_chat WHERE id = ?', [id]);
         return NextResponse.json({ ok: true });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Er is een fout opgetreden' }, { status: 500 });
     }
 }
