@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../components/AuthContext';
+import { useSession } from 'next-auth/react';
 import { useLanguage } from '../components/LanguageContext';
 import { useToast } from '../components/Toast';
 import Link from 'next/link';
@@ -9,9 +10,10 @@ import TestDataGenerator from '../components/TestDataGenerator';
 
 export default function Home() {
   const { user, getAllUsers } = useAuth();
+  const { data: msSession } = useSession();
   const { t } = useLanguage();
   const toast = useToast();
-  const currentUser = user?.name || 'Jan Modaal';
+  const currentUser = msSession?.user?.name || user?.name || 'Beheerder';
   const [meldingen, setMeldingen] = useState([]);
   const [docs, setDocs]               = useState([]);
   const [docFilter, setDocFilter]     = useState('alle');

@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthContext';
+import { useSession, signOut as nextAuthSignOut } from 'next-auth/react';
 
 const NAV = [
     { label: 'Vandaag',    icon: 'fa-house',          path: '/medewerker' },
@@ -23,12 +24,29 @@ export default function MedewerkerLayout({ children }) {
     const pathname = usePathname();
     const router   = useRouter();
     const { user, logout } = useAuth();
+    const { data: msSession, status: nextAuthStatus } = useSession();
     const [open, setOpen] = useState(false);
 
     // Sluit drawer bij navigatie
     useEffect(() => { setOpen(false); }, [pathname]);
 
-    if (!user) {
+    // Toon spinner alleen terwijl sessie nog laadt
+    if (nextAuthStatus === 'loading') {
+        return (
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
+                <i className="fa-solid fa-paint-roller fa-spin" style={{ fontSize: '2rem', color: '#F5850A' }} />
+            </div>
+        );
+    }
+
+    // Gebruik Microsoft-sessie als fallback als er geen legacy user is
+    const effectiveUser = user || (msSession?.user ? {
+        id: msSession.user.email,
+        name: msSession.user.name || 'Beheerder',
+        role: 'Beheerder',
+    } : null);
+
+    if (!effectiveUser) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#f8fafc' }}>
                 <div style={{ textAlign: 'center', color: '#64748b' }}>
@@ -114,8 +132,8 @@ export default function MedewerkerLayout({ children }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <img src="/ds-logo-rond-nieuw.png" alt="Logo" style={{ height: 38, borderRadius: '50%', filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.25))' }} />
                         <div>
-                            <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{user.name}</div>
-                            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.9rem' }}>{user.role}</div>
+                            <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.88rem' }}>{effectiveUser.name}</div>
+                            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.9rem' }}>{effectiveUser.role}</div>
                         </div>
                     </div>
                     <button onClick={() => setOpen(false)} style={{
@@ -168,7 +186,7 @@ export default function MedewerkerLayout({ children }) {
 
                 {/* Uitloggen */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '8px 0' }}>
-                    <button onClick={() => { logout(); router.push('/'); }} style={{
+                    <button onClick={() => { logout(); msSession ? nextAuthSignOut({ redirectTo: '/login' }) : router.push('/'); }} style={{
                         width: '100%', display: 'flex', alignItems: 'center', gap: 14,
                         padding: '12px 18px', background: 'transparent',
                         border: 'none', cursor: 'pointer', textAlign: 'left',

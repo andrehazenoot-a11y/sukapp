@@ -104,7 +104,8 @@ export default function Sidebar({ user, onLogout }) {
         'whatsapp': 'WhatsApp Business'
     };
 
-    const navItems = ALL_PAGES.filter(page => hasAccess(page.id)).map(page => ({
+    // Beheerder (Microsoft of admin) heeft altijd toegang tot alle pagina's
+    const navItems = ALL_PAGES.filter(page => user?.role === 'Beheerder' || hasAccess(page.id)).map(page => ({
         ...page,
         name: navKeyMap[page.id] ? t(navKeyMap[page.id]) : page.name,
     }));
@@ -259,8 +260,12 @@ export default function Sidebar({ user, onLogout }) {
                     );
                 })}
 
-                {/* Medewerker portaal */}
-                <div style={{ margin: '8px 0', borderTop: '1px solid rgba(255,255,255,0.07)' }} />
+            </nav>
+
+            {/* Bottom: medewerker-app, notifs, lang, user, logout, toggle */}
+            <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.07)', padding: '8px 0' }}>
+
+                {/* Medewerker portaal — altijd zichtbaar */}
                 <Link href="/medewerker"
                     title={collapsed && !isOverlay ? 'Medewerker portaal' : undefined}
                     style={{
@@ -285,10 +290,6 @@ export default function Sidebar({ user, onLogout }) {
                         }}>Medewerker</span>
                     )}
                 </Link>
-            </nav>
-
-            {/* Bottom: notifs, lang, user, logout, toggle */}
-            <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.07)', padding: '8px 0' }}>
 
                 {/* Notifications */}
                 <div ref={notifRef} style={{ position: 'relative' }}>

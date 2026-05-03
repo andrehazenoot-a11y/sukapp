@@ -6,6 +6,7 @@ import './projects.css';
 
 import { Inter } from 'next/font/google';
 import AppShell from '@/components/AppShell';
+import NextAuthProvider from '@/components/NextAuthProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -25,9 +26,11 @@ export default function RootLayout({ children }) {
         <link href="https://fonts.googleapis.com/css2?family=Carlito:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
       </head>
       <body className={inter.className} suppressHydrationWarning>
-        <AppShell>
-          {children}
-        </AppShell>
+        <NextAuthProvider>
+          <AppShell>
+            {children}
+          </AppShell>
+        </NextAuthProvider>
       </body>
     </html>
   );
